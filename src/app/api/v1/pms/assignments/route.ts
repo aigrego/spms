@@ -9,11 +9,11 @@ import { asNodeType, asRole, requiredParam } from '@/server/params';
    DELETE /api/v1/pms/assignments?nodeType&nodeId&memberId — unassign (cascade
           down + GC; propagated rows rejected). */
 export const GET = route(async (req) => {
-  await requireActor();
+  const actor = await requireActor();
   const sp = req.nextUrl.searchParams;
   const nodeType = asNodeType(sp.get('nodeType'));
   const nodeId = requiredParam(sp.get('nodeId'), 'nodeId');
-  return ok(await listByNode(nodeType, nodeId));
+  return ok(await listByNode(actor, nodeType, nodeId));
 });
 
 export const POST = route(async (req) => {
@@ -29,10 +29,10 @@ export const POST = route(async (req) => {
 });
 
 export const DELETE = route(async (req) => {
-  await requireActor();
+  const actor = await requireActor();
   const sp = req.nextUrl.searchParams;
   const nodeType = asNodeType(sp.get('nodeType'));
   const nodeId = requiredParam(sp.get('nodeId'), 'nodeId');
   const memberId = requiredParam(sp.get('memberId'), 'memberId');
-  return ok(await remove(nodeType, nodeId, memberId));
+  return ok(await remove(actor, nodeType, nodeId, memberId));
 });

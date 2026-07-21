@@ -13,12 +13,13 @@ import {
 import { relations } from 'drizzle-orm';
 
 /* ------------------------------------------------------------------ */
-/* Single-tenant note (Next.js rewrite)                                */
-/* The original spms-server schema was multi-tenant: every top-level   */
-/* table carried `tenantId` and unique constraints were (tenantId,     */
-/* key). This rewrite is single-tenant: tenantId is removed and the    */
-/* business `key` columns are globally unique. Surrogate text PKs are  */
-/* kept everywhere; user-facing identity lives in `key`.               */
+/* Multi-company sandbox note                                          */
+/* Every business table carries `companyId` → companies.id (cascade):  */
+/* each company is a fully isolated sandbox. Business `key` columns    */
+/* are unique per company — unique constraints are (companyId, key).   */
+/* Surrogate text PKs are kept everywhere; user-facing identity lives  */
+/* in `key`. `users` stays platform-level (role = platform admin);     */
+/* per-company roles live in `company_memberships` + `role_permissions`.*/
 /* ------------------------------------------------------------------ */
 
 /* Enums */
@@ -130,11 +131,78 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-/* Counters — atomic sequences for business keys (BUG-7, TC-3, ...). */
-export const counters = pgTable('counters', {
-  name: text('name').primaryKey(),
-  value: integer('value').notNull().default(0),
+/* ------------------------------------------------------------------ */
+/* Companies (安全沙箱) + per-company access control                     */
+/* ------------------------------------------------------------------ */
+
+/* Companies — the isolation unit. Every business row belongs to one. */
+export const companies = pgTable('companies', {
+  id: text('id').primaryKey(),
+  key: text('key').notNull().unique(),
+  name: text('name').notNull(),
+  color: text('color'),
+  description: text('description'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/* Company memberships — which users can enter which company, with a
+   per-company role: 'company_admin' | 'product_manager' | 'developer' |
+   'tester' | 'viewer'. */
+export const companyMemberships = pgTable(
+  'company_memberships',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    role: text('role').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('company_memberships_user_company_uidx').on(t.userId, t.companyId)],
+);
+
+/* Role permissions — the configurable per-module access matrix for the
+   non-admin company roles. level: 'none' | 'read' | 'write'.
+   company_admin is implicit full access and intentionally not seeded here. */
+export const rolePermissions = pgTable(
+  'role_permissions',
+  {
+    role: text('role').notNull(),
+    module: text('module').notNull(),
+    level: text('level').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.role, t.module] })],
+);
+
+/* MCP API keys — sha256(key) is stored, never the raw key. `prefix` keeps
+   the first 8 chars for display. companyId NULL = platform-level key. */
+export const mcpApiKeys = pgTable('mcp_api_keys', {
+  id: text('id').primaryKey(),
+  keyHash: text('key_hash').notNull().unique(),
+  prefix: text('prefix').notNull(),
+  name: text('name').notNull(),
+  companyId: text('company_id').references(() => companies.id, { onDelete: 'cascade' }),
+  createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/* Counters — atomic sequences for business keys (BUG-7, TC-3, ...),
+   scoped per company: PK (companyId, name). */
+export const counters = pgTable(
+  'counters',
+  {
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: text('name').notNull(),
+    value: integer('value').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.companyId, t.name] })],
+);
 
 /* ------------------------------------------------------------------ */
 /* Members (humans + AI agents share one table for assignee FK)        */
@@ -145,6 +213,9 @@ export const members = pgTable(
   'members',
   {
     id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
     type: memberTypeEnum('type').notNull().default('human'),
     name: text('name').notNull(),
     initials: text('initials').notNull(),
@@ -160,36 +231,43 @@ export const members = pgTable(
     status: memberStatusEnum('status').notNull().default('active'),
   },
   (t) => [
-    uniqueIndex('members_user_uidx').on(t.userId),
-    uniqueIndex('members_agent_uidx').on(t.agentKey),
+    uniqueIndex('members_user_uidx').on(t.companyId, t.userId),
+    uniqueIndex('members_agent_uidx').on(t.companyId, t.agentKey),
     // External invitees may have no userId yet → fall back to email for de-dup.
     // NULL emails are distinct in Postgres, so internal rows are fine.
-    uniqueIndex('members_email_uidx').on(t.email),
+    uniqueIndex('members_email_uidx').on(t.companyId, t.email),
   ],
 );
 
-/* Teams — `key` is the issue-number prefix ("AGT"), globally unique. */
+/* Teams — `key` is the issue-number prefix ("AGT"), unique per company. */
 export const teams = pgTable(
   'teams',
   {
     id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
     key: text('key').notNull(),
     name: text('name').notNull(),
     color: text('color').notNull(),
   },
-  (t) => [uniqueIndex('teams_key_uidx').on(t.key)],
+  (t) => [uniqueIndex('teams_key_uidx').on(t.companyId, t.key)],
 );
 
-/* Labels — `key` is a stable handle ("ai" finds the AI-生成 label). */
+/* Labels — `key` is a stable handle ("ai" finds the AI-生成 label),
+   unique per company. */
 export const labels = pgTable(
   'labels',
   {
     id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
     key: text('key').notNull(),
     name: text('name').notNull(),
     color: text('color').notNull(),
   },
-  (t) => [uniqueIndex('labels_key_uidx').on(t.key)],
+  (t) => [uniqueIndex('labels_key_uidx').on(t.companyId, t.key)],
 );
 
 /* Sprints (Scrum) — real dates + committed points.
@@ -197,6 +275,9 @@ export const labels = pgTable(
    release/product are derived through the project. teamId kept for compat. */
 export const sprints = pgTable('sprints', {
   id: text('id').primaryKey(),
+  companyId: text('company_id')
+    .references(() => companies.id, { onDelete: 'cascade' })
+    .notNull(),
   teamId: text('team_id').references(() => teams.id),
   // the project this iteration delivers. Deleting the project cascade-
   // deletes its sprints (cascade-down rule).
@@ -213,6 +294,9 @@ export const sprints = pgTable('sprints', {
 /* Daily burndown snapshot */
 export const sprintSnapshots = pgTable('sprint_snapshots', {
   id: text('id').primaryKey(),
+  companyId: text('company_id')
+    .references(() => companies.id, { onDelete: 'cascade' })
+    .notNull(),
   sprintId: text('sprint_id')
     .references(() => sprints.id, { onDelete: 'cascade' })
     .notNull(),
@@ -224,18 +308,21 @@ export const sprintSnapshots = pgTable('sprint_snapshots', {
 /* Lifecycle catalog — 产品线 → 产品 → 版本/Release                      */
 /* ------------------------------------------------------------------ */
 
-/* Product lines (产品线) — top of the lifecycle. `key` globally unique. */
+/* Product lines (产品线) — top of the lifecycle. `key` unique per company. */
 export const productLines = pgTable(
   'product_lines',
   {
     id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
     key: text('key').notNull(),
     name: text('name').notNull(),
     description: text('description'),
     color: text('color').notNull().default('#0063D3'),
     position: integer('position').notNull().default(0),
   },
-  (t) => [uniqueIndex('product_lines_key_uidx').on(t.key)],
+  (t) => [uniqueIndex('product_lines_key_uidx').on(t.companyId, t.key)],
 );
 
 /* Products (产品) — belong to a product line. */
@@ -243,6 +330,9 @@ export const products = pgTable(
   'products',
   {
     id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
     productLineId: text('product_line_id')
       .references(() => productLines.id, { onDelete: 'cascade' })
       .notNull(),
@@ -256,7 +346,7 @@ export const products = pgTable(
     position: integer('position').notNull().default(0),
   },
   (t) => [
-    uniqueIndex('products_key_uidx').on(t.key),
+    uniqueIndex('products_key_uidx').on(t.companyId, t.key),
     index('products_line_idx').on(t.productLineId),
   ],
 );
@@ -266,6 +356,9 @@ export const releases = pgTable(
   'releases',
   {
     id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
     productId: text('product_id')
       .references(() => products.id, { onDelete: 'cascade' })
       .notNull(),
@@ -280,7 +373,7 @@ export const releases = pgTable(
     position: integer('position').notNull().default(0),
   },
   (t) => [
-    uniqueIndex('releases_key_uidx').on(t.key),
+    uniqueIndex('releases_key_uidx').on(t.companyId, t.key),
     index('releases_product_idx').on(t.productId),
   ],
 );
@@ -288,6 +381,9 @@ export const releases = pgTable(
 /* Projects */
 export const projects = pgTable('projects', {
   id: text('id').primaryKey(),
+  companyId: text('company_id')
+    .references(() => companies.id, { onDelete: 'cascade' })
+    .notNull(),
   name: text('name').notNull(),
   teamId: text('team_id').references(() => teams.id),
   // the release this project delivers (nullable). Deleting the release
@@ -312,6 +408,9 @@ export const requirements = pgTable(
   'requirements',
   {
     id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
     key: text('key').notNull(),
     projectId: text('project_id')
       .references(() => projects.id, { onDelete: 'cascade' })
@@ -336,16 +435,19 @@ export const requirements = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('requirements_key_uidx').on(t.key),
+    uniqueIndex('requirements_key_uidx').on(t.companyId, t.key),
     index('requirements_project_idx').on(t.projectId),
   ],
 );
 
-/* Issues — text surrogate PK + globally unique display `key` ("BUG-7") */
+/* Issues — text surrogate PK + display `key` ("BUG-7") unique per company */
 export const issues = pgTable(
   'issues',
   {
     id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
     key: text('key').notNull(),
     // Team concept retired from the UI: an Issue is now project-driven. teamId is
     // kept (nullable) only for legacy sprint/team filtering, derived from the project.
@@ -374,7 +476,7 @@ export const issues = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('issues_key_uidx').on(t.key),
+    uniqueIndex('issues_key_uidx').on(t.companyId, t.key),
     index('issues_team_idx').on(t.teamId),
     index('issues_sprint_idx').on(t.sprintId),
   ],
@@ -384,6 +486,9 @@ export const issues = pgTable(
 export const issueLabels = pgTable(
   'issue_labels',
   {
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
     issueId: text('issue_id')
       .references(() => issues.id, { onDelete: 'cascade' })
       .notNull(),
@@ -397,6 +502,9 @@ export const issueLabels = pgTable(
 /* Sub-issues (checklist on an issue) */
 export const subIssues = pgTable('sub_issues', {
   id: text('id').primaryKey(),
+  companyId: text('company_id')
+    .references(() => companies.id, { onDelete: 'cascade' })
+    .notNull(),
   issueId: text('issue_id')
     .references(() => issues.id, { onDelete: 'cascade' })
     .notNull(),
@@ -408,6 +516,9 @@ export const subIssues = pgTable('sub_issues', {
 /* Activity / comments feed on an issue */
 export const activities = pgTable('activities', {
   id: text('id').primaryKey(),
+  companyId: text('company_id')
+    .references(() => companies.id, { onDelete: 'cascade' })
+    .notNull(),
   issueId: text('issue_id')
     .references(() => issues.id, { onDelete: 'cascade' })
     .notNull(),
@@ -426,6 +537,9 @@ export const testCases = pgTable(
   'test_cases',
   {
     id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
     key: text('key').notNull(),
     // scope: deleting the project cascade-deletes its test cases.
     projectId: text('project_id')
@@ -448,7 +562,7 @@ export const testCases = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('test_cases_key_uidx').on(t.key),
+    uniqueIndex('test_cases_key_uidx').on(t.companyId, t.key),
     index('test_cases_project_idx').on(t.projectId),
   ],
 );
@@ -465,6 +579,9 @@ export const resourceAssignments = pgTable(
   'resource_assignments',
   {
     id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
     nodeType: assignmentNodeEnum('node_type').notNull(),
     nodeId: text('node_id').notNull(),
     memberId: text('member_id')

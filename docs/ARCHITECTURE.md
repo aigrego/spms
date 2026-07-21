@@ -9,19 +9,31 @@
 │  浏览器 UI (App Router)      Agent (MCP client)         │
 │      │                          │                       │
 │      ▼                          ▼                       │
-│  /api/v1/pms/** (route.ts)   /mcp (Streamable HTTP)     │
+│  /api/v1/pms/**  /api/v1/platform/**   /mcp (Streamable)│
+│      │                          │                       │
+│      ▼                          ▼                       │
+│  Actor 解析（session cid / MCP key → 公司 + 角色）       │
+│      │                          │                       │
+│      ▼                          ▼                       │
+│  RBAC 权限门（requirePerm：角色×模块矩阵）              │
 │      │                          │                       │
 │      └──────┬───────────────────┘                       │
 │             ▼                                           │
 │   src/server/services/*  （业务逻辑唯一出处）            │
 │             ▼                                           │
-│   src/lib/* (session/rollup/assignments/keys/...)       │
+│   src/lib/* (session/permissions/rollup/keys/...)       │
 │             ▼                                           │
 │        drizzle-orm ──► PostgreSQL                       │
 └─────────────────────────────────────────────────────────┘
 ```
 
 关键原则：**业务逻辑只写在 services 层**，API 路由和 MCP tools 都是薄适配层，避免逻辑分叉。
+
+## 多公司沙箱
+
+- **公司是数据隔离边界**：全部业务表带 `companyId`，所有 services 查询强制按当前公司过滤；编号（BUG-N/FR-N…）按公司独立。
+- **当前公司由 session `cid` 决定**（MCP 由 key 决定，见下）：登录/切换公司时重签 cookie。
+- **Actor**：services 层统一入参 `{ userId, memberId, name, role, companyId, companyRole, isPlatformAdmin }`，由 `src/server/http.ts` 的 `requireActor()` 从 session 解析（无公司归属 → `NO_COMPANY`）。
 
 ## 目录结构
 
@@ -32,14 +44,15 @@ next-spms/
 ├── scripts/seed.ts             # 初始数据（admin/agent/演示数据）
 ├── src/
 │   ├── db/
-│   │   ├── schema.ts           # 18 张表 + 20 个枚举 + relations
+│   │   ├── schema.ts           # 22 张表 + 21 个枚举 + relations
 │   │   └── index.ts            # postgres-js 连接（DATABASE_URL）
 │   ├── lib/                    # 服务端基础库
 │   │   ├── env.ts              # 环境变量集中读取
-│   │   ├── session.ts          # jose HS256 cookie session（7 天）
+│   │   ├── session.ts          # jose HS256 cookie session（7 天，payload 含 cid）
 │   │   ├── password.ts         # bcryptjs 哈希
 │   │   ├── envelope.ts         # { ok, data|error } 信封 + 错误码
-│   │   ├── keys.ts             # counters 表原子递增编号
+│   │   ├── permissions.ts      # RBAC：角色×模块矩阵读取/缓存/权限门
+│   │   ├── keys.ts             # counters 表原子递增编号（按公司）
 │   │   ├── serialize.ts        # id→展示 key 序列化
 │   │   ├── rollup.ts           # 项目/版本进度派生
 │   │   ├── assignments.ts      # 指派传播代数（direct/propagated）
@@ -48,18 +61,21 @@ next-spms/
 │   ├── server/services/        # 业务服务层（API 与 MCP 共用）
 │   │   ├── issues.ts  requirements.ts  projects.ts  sprints.ts
 │   │   ├── catalog.ts resources.ts assignments.ts testcases.ts
+│   │   ├── platform.ts           # 平台管理（公司/成员/矩阵/MCP key）
 │   │   └── meta.ts             # bootstrap 聚合
 │   ├── mcp/server.ts           # McpServer + tools 注册
 │   ├── app/
 │   │   ├── (auth)/login/       # 登录页（密码 + 飞书扫码）
-│   │   ├── (app)/              # 主应用（Sidebar 布局 + AuthGate）
+│   │   ├── (app)/              # 主应用（Header + Sidebar 布局 + AuthGate）
 │   │   │   ├── issues/  products/  requirements/  testcases/
 │   │   │   ├── projects/  projects/[id]/  resources/
 │   │   │   ├── roadmap/  backlog/  sprints/  sprints/[id]/
+│   │   │   ├── platform/         # 平台管理（companies/members/matrix/keys，仅平台管理员）
 │   │   ├── api/v1/pms/**/route.ts   # 业务 API（路径与原系统一致）
-│   │   ├── api/auth/           # login/logout/session/lark/*
+│   │   ├── api/v1/platform/**/route.ts # 平台管理 API（仅平台管理员）
+│   │   ├── api/auth/           # login/logout/session/switch-company/change-password/lark/*
 │   │   └── mcp/route.ts        # MCP Streamable HTTP 端点
-│   ├── components/             # ui/ glyphs/ menus/ inline/ Sidebar/ 各详情抽屉
+│   ├── components/             # ui/ glyphs/ menus/ inline/ Header/ Sidebar/ SettingsModal/ 各详情抽屉
 │   ├── views/ 或 components/   # 各页面视图（IssuesView/ProjectHub/...）
 │   ├── store/                  # React Query hooks + AppDataProvider
 │   └── lib/ (前端)             # types / api client / i18n
@@ -77,7 +93,8 @@ next-spms/
 
 ### 密码登录
 `POST /api/auth/login { username, password }` → bcrypt 校验 → jose HS256 签名 cookie
-`spms_session`（HttpOnly / SameSite=Lax / 7 天），payload `{ uid, username, role }`。
+`spms_session`（HttpOnly / SameSite=Lax / 7 天），payload `{ uid, username, role, cid }`。
+`cid` = 当前公司 id，登录时取第一个可见公司；`POST /api/auth/switch-company { companyId }` 重签 cookie 切换（要求目标公司成员或平台管理员）。
 
 ### 飞书扫码登录
 1. 登录页按钮跳转 `https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=...&redirect_uri=...`（飞书页面展示扫码）
@@ -87,10 +104,30 @@ next-spms/
    - 写 session cookie，跳 `/issues`
 3. env 未配置 `LARK_APP_ID/LARK_APP_SECRET` 时，登录页隐藏飞书入口（前端通过 `/api/auth/lark/config` 探测）
 
-### 权限模型
-- `users.role`：`admin | member`
-- 项目创建/删除需 admin（替代原系统的 ACL `spms:action:project.*`）
-- 其余操作登录即可
+### 权限模型（RBAC，二期）
+
+**两层角色**：
+- 平台级：`users.role` —— `admin`（平台管理员，恒全权限，可进 /platform）| `member`（普通用户）
+- 公司级：`company_memberships.role` —— `company_admin`（公司管理员，恒全权限）+ 4 个可配置角色
+  `product_manager`（产品经理）/ `developer`（开发）/ `tester`（测试）/ `viewer`（只读）
+
+**角色×模块矩阵**（`src/lib/permissions.ts`）：
+- 4 个可配置角色 × 10 个模块（issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents）× 3 档（`none < read < write`）
+- 矩阵存 `role_permissions` 表，**全局生效**（不按公司分），平台管理员在 /platform/matrix 配置（PUT 整表替换）
+- `company_admin` 与平台管理员恒全权限，不入矩阵；缺失行按 `none` 处理；进程内缓存 60s
+- **项目创建/删除**额外限定 `company_admin` 或平台管理员（不受矩阵 projects=write 影响）
+
+**权限门**：services 每个入口 `requirePerm(actor, module, 'read'|'write')`，不足抛 `FORBIDDEN`（403）。
+前端经 `GET /api/auth/session`（或 bootstrap）拿到 `permissions`（当前用户各模块有效级别），按此过滤侧边栏与按钮。
+
+默认矩阵（seed 写入，可在 /platform/matrix 改）：
+
+| 角色 | write 模块 | read 模块 | none |
+|---|---|---|---|
+| product_manager | issues/products/requirements/projects/resources/roadmap/backlog | testcases/sprints/agents | — |
+| developer | issues/backlog/sprints | 其余全部 | — |
+| tester | issues/testcases | 其余大部分 | agents |
+| viewer | — | 全部 | — |
 
 ## 指派传播代数（核心复用逻辑）
 
@@ -117,4 +154,10 @@ issue 指派给 agent 时：挂 `AI 生成` 标签 + 把预编剧本步骤**同�
 
 ## MCP 设计
 
-见 [MCP.md](./MCP.md)。
+鉴权改为 DB key 模型（`mcp_api_keys` 表，存 sha256，不存明文）：
+- **公司级 key**（companyId 非空）：钉死在该公司沙箱内，自动隔离；
+- **平台级 key**（companyId NULL）：可跨公司，工具带可选 `companyId` 参数（默认第一个公司）；
+- env `MCP_API_KEY` 仅作平台级兜底（开发兼容），seed 时已迁移为平台级 DB key；
+- MCP 调用的 Actor = 目标公司的内置 `scribe` agent member，companyRole=company_admin。
+
+详见 [MCP.md](./MCP.md)。

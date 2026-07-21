@@ -13,16 +13,16 @@ type Ctx = { params: Promise<{ key: string }> };
    PATCH  /api/v1/pms/test-cases/:key — partial update.
    DELETE /api/v1/pms/test-cases/:key — hard delete. */
 export const GET = route(async (_req, ctx: Ctx) => {
-  await requireActor();
-  return ok(await getTestCase((await ctx.params).key));
+  const actor = await requireActor();
+  return ok(await getTestCase(actor, (await ctx.params).key));
 });
 
 export const PATCH = route(async (req, ctx: Ctx) => {
-  await requireActor();
-  return ok(await updateTestCase((await ctx.params).key, await jsonBody<UpdateTestCaseInput>(req)));
+  const actor = await requireActor();
+  return ok(await updateTestCase(actor, (await ctx.params).key, await jsonBody<UpdateTestCaseInput>(req)));
 });
 
 export const DELETE = route(async (_req, ctx: Ctx) => {
-  await requireActor();
-  return ok(await deleteTestCase((await ctx.params).key));
+  const actor = await requireActor();
+  return ok(await deleteTestCase(actor, (await ctx.params).key));
 });

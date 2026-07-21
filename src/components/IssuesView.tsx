@@ -251,7 +251,8 @@ export function IssuesView({
   onNewIssue: (preset?: { status?: IssueStatus }) => void;
 }) {
   const t = useT();
-  const { humans, agents, labelById, memberById } = useAppData();
+  const { humans, agents, labelById, memberById, can } = useAppData();
+  const canWrite = can('issues', 'write');
   const create = useCreateIssue();
   const [viewMode, setViewMode] = React.useState<ViewMode>('list');
   const [groupBy, setGroupBy] = React.useState<GroupBy>('status');
@@ -349,9 +350,11 @@ export function IssuesView({
             </div>
             {subtitle && <div className="mt-0.5 text-[12.5px] text-fg-3">{subtitle}</div>}
           </div>
-          <Button variant="primary" size="md" onClick={() => onNewIssue()}>
-            <Plus size={14} /> {t('issues.new')}
-          </Button>
+          {canWrite && (
+            <Button variant="primary" size="md" onClick={() => onNewIssue()}>
+              <Plus size={14} /> {t('issues.new')}
+            </Button>
+          )}
         </div>
         <div className="flex items-center gap-2 px-5 pb-3">
           <Button variant="ghost" size="sm">
@@ -459,11 +462,13 @@ export function IssuesView({
                       labelsFor={labelsFor}
                     />
                   ))}
-                  <InlineCreateRow
-                    label={t('inline.quickAdd')}
-                    onCreate={(title) => quickCreate(g.key, title)}
-                    className="border-b border-border"
-                  />
+                  {canWrite && (
+                    <InlineCreateRow
+                      label={t('inline.quickAdd')}
+                      onCreate={(title) => quickCreate(g.key, title)}
+                      className="border-b border-border"
+                    />
+                  )}
                 </>
               )}
             </div>

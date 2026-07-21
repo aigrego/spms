@@ -1,43 +1,76 @@
+import { createHash } from 'node:crypto';
+import { and, eq, isNull } from 'drizzle-orm';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { createMcpServer } from '@/mcp/server';
-import { getSession } from '@/lib/session';
+import { createMcpServer, type McpKeyContext } from '@/mcp/server';
+import { db } from '@/db';
+import { mcpApiKeys } from '@/db/schema';
+import { ApiException } from '@/lib/envelope';
+import { requireActor } from '@/server/http';
 
 /* MCP endpoint (Phase D) — Streamable HTTP, stateless mode. See docs/MCP.md.
    The SDK's WebStandard transport speaks Web Request/Response directly, so no
    Node IncomingMessage/ServerResponse adapter is needed in the Next.js route
    handler. Each request builds a fresh McpServer + transport pair (stateless
-   transports are single-use by design). */
+   transports are single-use by design).
+
+   Auth (multi-company sandbox):
+     1. `Authorization: Bearer <key>` → sha256 hex → mcp_api_keys.keyHash with
+        revokedAt IS NULL. A hit yields the key's company scope (NULL companyId
+        = platform-level key).
+     2. Miss → fall back to the env MCP_API_KEY list (comma-separated), treated
+        as platform-level (legacy/dev compatibility).
+     3. Otherwise a valid browser cookie session is accepted (debugging); the
+        actor is the session user's current company via requireActor(). */
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function mcpApiKeys(): string[] {
+function envMcpApiKeys(): string[] {
   return (process.env.MCP_API_KEY ?? '')
     .split(',')
     .map((k) => k.trim())
     .filter(Boolean);
 }
 
-/* Bearer key (env MCP_API_KEY, comma-separated) OR a valid browser cookie session. */
-async function authorized(req: Request): Promise<boolean> {
+async function authenticate(req: Request): Promise<McpKeyContext | null> {
   const auth = req.headers.get('authorization');
   if (auth?.toLowerCase().startsWith('bearer ')) {
     const key = auth.slice(7).trim();
-    if (key && mcpApiKeys().includes(key)) return true;
+    if (key) {
+      const keyHash = createHash('sha256').update(key).digest('hex');
+      const [row] = await db
+        .select({ id: mcpApiKeys.id, companyId: mcpApiKeys.companyId })
+        .from(mcpApiKeys)
+        .where(and(eq(mcpApiKeys.keyHash, keyHash), isNull(mcpApiKeys.revokedAt)))
+        .limit(1);
+      if (row) return { companyId: row.companyId, source: 'db' };
+      if (envMcpApiKeys().includes(key)) return { companyId: null, source: 'env' };
+      // An explicitly presented but unknown key must not fall through to the
+      // cookie session — that would mask typos and let a revoked key keep
+      // working from a logged-in browser.
+      return null;
+    }
   }
-  return (await getSession()) !== null;
+  try {
+    const sessionActor = await requireActor();
+    return { companyId: sessionActor.companyId, source: 'session', sessionActor };
+  } catch (e) {
+    if (e instanceof ApiException) return null; // UNAUTHORIZED / NO_COMPANY → 401 below
+    throw e;
+  }
 }
 
 function unauthorized(): Response {
   return Response.json(
-    { ok: false, error: { code: 'UNAUTHORIZED', message: '需要 Bearer MCP_API_KEY 或已登录的浏览器会话' } },
+    { ok: false, error: { code: 'UNAUTHORIZED', message: '需要有效的 MCP API Key（Bearer）或已登录的浏览器会话' } },
     { status: 401 },
   );
 }
 
 async function handle(req: Request): Promise<Response> {
-  if (!(await authorized(req))) return unauthorized();
-  const server = createMcpServer();
+  const keyContext = await authenticate(req);
+  if (!keyContext) return unauthorized();
+  const server = createMcpServer(keyContext);
   // JSON response mode: handleRequest resolves only after all responses are
   // sent, so closing the server in `finally` is safe. (Default SSE mode would
   // return the Response before the events are written, and an early close()
@@ -65,7 +98,7 @@ export async function DELETE(req: Request): Promise<Response> {
 }
 
 export async function GET(req: Request): Promise<Response> {
-  if (!(await authorized(req))) return unauthorized();
+  if (!(await authenticate(req))) return unauthorized();
   // Stateless mode has no session to attach a standalone SSE stream to —
   // clients only need POST (JSON-RPC over Streamable HTTP).
   return Response.json(

@@ -5,5 +5,5 @@ import { requireActor, route } from '@/server/http';
 /* GET /api/v1/pms/bootstrap — start-up reference data (me/members/projects/...). */
 export const GET = route(async () => {
   const actor = await requireActor();
-  return ok(await bootstrap({ id: actor.userId, name: actor.name, role: actor.role }));
+  return ok(await bootstrap(actor));
 });

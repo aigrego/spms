@@ -12,10 +12,10 @@ import { jsonBody, requireActor, route } from '@/server/http';
    (requirement takes the display key "FR-N").
    POST /api/v1/pms/test-cases — create (auto TC-N key; author = current member). */
 export const GET = route(async (req) => {
-  await requireActor();
+  const actor = await requireActor();
   const sp = req.nextUrl.searchParams;
   return ok(
-    await listTestCases({
+    await listTestCases(actor, {
       project: sp.get('project') ?? undefined,
       requirement: sp.get('requirement') ?? undefined,
       status: (sp.get('status') as TestCaseStatus | null) ?? undefined,

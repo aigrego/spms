@@ -20,6 +20,7 @@ import { ensureAiLabel } from './identity';
    subscriber does not touch any caller. Do NOT imply a real model is running. */
 
 export interface AgentTaskEvent {
+  companyId: string; // companies.id — the sandbox this task runs in
   issueId: string; // internal uuid
   agentMemberId: string; // members.id of the assigned agent
   agentKey: string; // 'atlas' | 'forge' | 'sentry' | 'scribe' | …
@@ -41,6 +42,7 @@ const SCRIPTS: Record<string, string[]> = {
    `kind` is part of the extension contract ('assigned' today) and does not
    change the demo behavior. */
 export async function dispatchAgentTask(
+  companyId: string,
   issueId: string,
   agentMemberId: string,
   kind: 'assigned' | string = 'assigned',
@@ -56,6 +58,7 @@ export async function dispatchAgentTask(
   await db.insert(activities).values(
     steps.map((body) => ({
       id: crypto.randomUUID(),
+      companyId,
       issueId,
       whoId: agentMemberId,
       kind: 'ai' as const,
@@ -69,10 +72,11 @@ export async function dispatchAgentTask(
    (demo, synchronous) agent task. The blueprint also sent a portal
    notification — dropped in the rewrite (no portal). */
 export async function onAgentAssigned(
+  companyId: string,
   issueId: string,
   agent: { id: string; agentKey: string | null },
 ): Promise<void> {
-  const labelId = await ensureAiLabel();
-  await db.insert(issueLabels).values({ issueId, labelId }).onConflictDoNothing();
-  await dispatchAgentTask(issueId, agent.id, 'assigned');
+  const labelId = await ensureAiLabel(companyId);
+  await db.insert(issueLabels).values({ companyId, issueId, labelId }).onConflictDoNothing();
+  await dispatchAgentTask(companyId, issueId, agent.id, 'assigned');
 }

@@ -4,14 +4,19 @@ import { requirements, projects } from '@/db/schema';
 import { serializeRequirement } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
+import { requirePerm } from '@/lib/permissions';
 import type { Actor } from './types';
 
 /* Requirements / PRD business service. Ported from
-   apps/spms-server/src/routes/requirements.ts (tenant scoping removed).
-   A requirement is scoped to a project, typed functional vs non_functional
-   (with an NFR category), and is decomposed into issues (issues.requirementId).
-   Addressed by display `key` (functional → "FR-N", non-functional → "NFR-N"),
-   mirroring the issue key contract. */
+   apps/spms-server/src/routes/requirements.ts. A requirement is scoped to a
+   project, typed functional vs non_functional (with an NFR category), and is
+   decomposed into issues (issues.requirementId). Addressed by display `key`
+   (functional → "FR-N", non-functional → "NFR-N"), mirroring the issue key
+   contract.
+
+   Multi-company: every function takes the Actor and reads/writes strictly
+   inside actor.companyId; keys are unique per company. Module gate:
+   `requirements` read/write. */
 
 type RequirementRow = typeof requirements.$inferSelect;
 export type RequirementType = RequirementRow['type'];
@@ -22,17 +27,20 @@ export type RequirementImportance = RequirementRow['importance'];
 
 const withIssues = { issues: { columns: { key: true, status: true } } } as const;
 
-async function findByKey(key: string) {
-  return db.query.requirements.findFirst({ where: eq(requirements.key, key) });
+async function findByKey(companyId: string, key: string) {
+  return db.query.requirements.findFirst({
+    where: and(eq(requirements.companyId, companyId), eq(requirements.key, key)),
+  });
 }
 
 /* ---- list (optionally filtered by project / type), position asc ---- */
-export async function listRequirements(filter?: { project?: string; type?: RequirementType }) {
-  const conds = [];
+export async function listRequirements(actor: Actor, filter?: { project?: string; type?: RequirementType }) {
+  await requirePerm(actor, 'requirements', 'read');
+  const conds = [eq(requirements.companyId, actor.companyId)];
   if (filter?.project) conds.push(eq(requirements.projectId, filter.project));
   if (filter?.type) conds.push(eq(requirements.type, filter.type));
   const rows = await db.query.requirements.findMany({
-    where: conds.length ? and(...conds) : undefined,
+    where: and(...conds),
     with: withIssues,
     orderBy: [asc(requirements.position)],
   });
@@ -40,9 +48,10 @@ export async function listRequirements(filter?: { project?: string; type?: Requi
 }
 
 /* ---- single requirement (+ linked issue keys). Missing → null ---- */
-export async function getRequirement(key: string) {
+export async function getRequirement(actor: Actor, key: string) {
+  await requirePerm(actor, 'requirements', 'read');
   const row = await db.query.requirements.findFirst({
-    where: eq(requirements.key, key),
+    where: and(eq(requirements.companyId, actor.companyId), eq(requirements.key, key)),
     with: withIssues,
   });
   return row ? serializeRequirement(row) : null;
@@ -65,11 +74,12 @@ export interface CreateRequirementInput {
 
 /* ---- create (auto FR-N / NFR-N key per type) ---- */
 export async function createRequirement(actor: Actor, input: CreateRequirementInput) {
+  await requirePerm(actor, 'requirements', 'write');
   if (!input.title.trim()) throw new ApiException('VALIDATION_FAILED', '需求标题不能为空');
   const [project] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(eq(projects.id, input.projectId))
+    .where(and(eq(projects.companyId, actor.companyId), eq(projects.id, input.projectId)))
     .limit(1);
   if (!project) throw new ApiException('PROJECT_NOT_FOUND');
 
@@ -79,9 +89,10 @@ export async function createRequirement(actor: Actor, input: CreateRequirementIn
   // mirroring the issue-key contract.
   const type = input.type ?? 'functional';
   const id = crypto.randomUUID();
-  const key = await nextKey(type === 'non_functional' ? 'NFR' : 'FR');
+  const key = await nextKey(actor.companyId, type === 'non_functional' ? 'NFR' : 'FR');
   await db.insert(requirements).values({
     id,
+    companyId: actor.companyId,
     key,
     projectId: input.projectId,
     title: input.title.trim(),
@@ -122,8 +133,9 @@ export interface UpdateRequirementInput {
 }
 
 /* ---- update (partial) ---- */
-export async function updateRequirement(key: string, input: UpdateRequirementInput) {
-  const existing = await findByKey(key);
+export async function updateRequirement(actor: Actor, key: string, input: UpdateRequirementInput) {
+  await requirePerm(actor, 'requirements', 'write');
+  const existing = await findByKey(actor.companyId, key);
   if (!existing) throw new ApiException('REQUIREMENT_NOT_FOUND', `需求 ${key} 不存在`);
 
   const patch: Partial<typeof requirements.$inferInsert> = { updatedAt: new Date() };
@@ -153,8 +165,9 @@ export async function updateRequirement(key: string, input: UpdateRequirementInp
 
 /* ---- delete (hard delete; referencing issues' requirementId is set null by
    the DB FK onDelete rule) ---- */
-export async function deleteRequirement(key: string) {
-  const existing = await findByKey(key);
+export async function deleteRequirement(actor: Actor, key: string) {
+  await requirePerm(actor, 'requirements', 'write');
+  const existing = await findByKey(actor.companyId, key);
   if (!existing) throw new ApiException('REQUIREMENT_NOT_FOUND', `需求 ${key} 不存在`);
   await db.delete(requirements).where(eq(requirements.id, existing.id));
   return { id: key };

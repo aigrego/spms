@@ -1,16 +1,21 @@
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { members, users } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import { initialsFor, colorFor } from '@/lib/identity';
 import { unassignMemberEverywhere } from '@/lib/assignments';
+import { requirePerm } from '@/lib/permissions';
+import type { Actor } from './types';
 
 /* PMS-2 §5.1 — 研发资源池 (resource pool) business service. Ported from
-   apps/spms-server/src/routes/resources.ts. The pool = every `members` row:
-   internal humans (local users), invited external resources, and AI agents.
-   External resources are nameable/assignable/displayable now; their real login
-   is deferred. The portal sync-directory endpoint has no rewrite equivalent
-   (no portal directory). */
+   apps/spms-server/src/routes/resources.ts. The pool = the company's `members`
+   rows: internal humans (local users), invited external resources, and AI
+   agents. External resources are nameable/assignable/displayable now; their
+   real login is deferred. The portal sync-directory endpoint has no rewrite
+   equivalent (no portal directory).
+
+   Multi-company: the pool is per company — members.(companyId, userId) /
+   (companyId, email) are the de-dup keys. Module gate: `resources` read/write. */
 
 type MemberRow = typeof members.$inferSelect;
 
@@ -31,8 +36,13 @@ export function serializeMember(m: MemberRow) {
 }
 
 /* ---- list the resource pool (internal / external / agent, with status) ---- */
-export async function listMembers() {
-  const rows = await db.select().from(members).orderBy(asc(members.type), asc(members.name));
+export async function listMembers(actor: Actor) {
+  await requirePerm(actor, 'resources', 'read');
+  const rows = await db
+    .select()
+    .from(members)
+    .where(eq(members.companyId, actor.companyId))
+    .orderBy(asc(members.type), asc(members.name));
   return rows.map(serializeMember);
 }
 
@@ -44,19 +54,28 @@ export interface InviteInput {
 
 /* ---- invite an external resource (email, or a local user from outside the pool) ----
    At least one of email / userId is required; the pool is de-duped on both. */
-export async function invite(input: InviteInput) {
+export async function invite(actor: Actor, input: InviteInput) {
+  await requirePerm(actor, 'resources', 'write');
   const email = input.email?.trim() || null;
   const userId = input.userId?.trim() || null;
   if (!email && !userId) throw new ApiException('VALIDATION_FAILED', '请提供邮箱或用户 ID');
 
-  // De-dup against the existing pool (PMS-2 §2.1 — unique(email) / unique(userId)).
+  // De-dup against the company pool (members.(companyId,email) / (companyId,userId)).
   if (email) {
-    const [dupe] = await db.select({ id: members.id }).from(members).where(eq(members.email, email)).limit(1);
+    const [dupe] = await db
+      .select({ id: members.id })
+      .from(members)
+      .where(and(eq(members.companyId, actor.companyId), eq(members.email, email)))
+      .limit(1);
     if (dupe) throw new ApiException('INVITE_FAILED', '该邮箱已在资源池中');
   }
   let invitedUserName: string | null = null;
   if (userId) {
-    const [dupe] = await db.select({ id: members.id }).from(members).where(eq(members.userId, userId)).limit(1);
+    const [dupe] = await db
+      .select({ id: members.id })
+      .from(members)
+      .where(and(eq(members.companyId, actor.companyId), eq(members.userId, userId)))
+      .limit(1);
     if (dupe) throw new ApiException('INVITE_FAILED', '该用户已在资源池中');
     // Default the display name from the local users row when one exists.
     const [u] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
@@ -67,6 +86,7 @@ export async function invite(input: InviteInput) {
   const id = crypto.randomUUID();
   await db.insert(members).values({
     id,
+    companyId: actor.companyId,
     type: 'human',
     name,
     initials: initialsFor(name),
@@ -84,11 +104,16 @@ export async function invite(input: InviteInput) {
 }
 
 /* ---- revoke an external resource: status=revoked + unassign from all nodes ---- */
-export async function revoke(id: string) {
-  const [m] = await db.select().from(members).where(eq(members.id, id)).limit(1);
+export async function revoke(actor: Actor, id: string) {
+  await requirePerm(actor, 'resources', 'write');
+  const [m] = await db
+    .select()
+    .from(members)
+    .where(and(eq(members.companyId, actor.companyId), eq(members.id, id)))
+    .limit(1);
   if (!m) throw new ApiException('RESOURCE_NOT_FOUND');
   if (m.origin !== 'external') throw new ApiException('VALIDATION_FAILED', '只能撤销外部资源');
-  await unassignMemberEverywhere(m.id);
+  await unassignMemberEverywhere(actor.companyId, m.id);
   await db.update(members).set({ status: 'revoked' }).where(eq(members.id, m.id));
   return { id: m.id, status: 'revoked' as const };
 }

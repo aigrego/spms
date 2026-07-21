@@ -7,11 +7,11 @@ type Ctx = { params: Promise<{ id: string }> };
 /* PATCH  /api/v1/pms/product-lines/:id — partial update.
    DELETE /api/v1/pms/product-lines/:id — clears subtree assignments, cascades. */
 export const PATCH = route(async (req, ctx: Ctx) => {
-  await requireActor();
-  return ok(await updateProductLine((await ctx.params).id, await jsonBody<UpdateProductLineInput>(req)));
+  const actor = await requireActor();
+  return ok(await updateProductLine(actor, (await ctx.params).id, await jsonBody<UpdateProductLineInput>(req)));
 });
 
 export const DELETE = route(async (_req, ctx: Ctx) => {
-  await requireActor();
-  return ok(await deleteProductLine((await ctx.params).id));
+  const actor = await requireActor();
+  return ok(await deleteProductLine(actor, (await ctx.params).id));
 });

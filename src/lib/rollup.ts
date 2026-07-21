@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { issues, projects } from '@/db/schema';
 
@@ -6,8 +7,8 @@ import { issues, projects } from '@/db/schema';
    back to issue count when a scope has no points). This keeps the up-the-tree
    indicators (project / release progress) honest against the real work state.
 
-   Ported from apps/spms-server/src/lib/rollup.ts (tenant scoping removed —
-   this rewrite is single-tenant). */
+   Ported from apps/spms-server/src/lib/rollup.ts. Multi-company: the rollup is
+   computed within one company sandbox (companyId parameter). */
 
 const DONE = new Set(['done']);
 
@@ -24,14 +25,18 @@ export function progressOf(items: IssueRow[]): number {
   return +(done / items.length).toFixed(4);
 }
 
-/* Compute per-project and per-release progress in two queries.
-   release scope = the union of issues across all projects on that release. */
-export async function computeRollups() {
+/* Compute per-project and per-release progress in two queries, scoped to one
+   company. release scope = the union of issues across all projects on that release. */
+export async function computeRollups(companyId: string) {
   const [issueRows, projRows] = await Promise.all([
     db
       .select({ projectId: issues.projectId, status: issues.status, storyPoints: issues.storyPoints })
-      .from(issues),
-    db.select({ id: projects.id, releaseId: projects.releaseId }).from(projects),
+      .from(issues)
+      .where(eq(issues.companyId, companyId)),
+    db
+      .select({ id: projects.id, releaseId: projects.releaseId })
+      .from(projects)
+      .where(eq(projects.companyId, companyId)),
   ]);
 
   const projRelease = new Map(projRows.map((p) => [p.id, p.releaseId]));

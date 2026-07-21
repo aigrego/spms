@@ -8,8 +8,8 @@ type Ctx = { params: Promise<{ key: string }> };
    PATCH  /api/v1/pms/issues/:key — partial update (labels full-replace).
    DELETE /api/v1/pms/issues/:key — hard delete. */
 export const GET = route(async (_req, ctx: Ctx) => {
-  await requireActor();
-  return ok(await getIssue((await ctx.params).key));
+  const actor = await requireActor();
+  return ok(await getIssue(actor, (await ctx.params).key));
 });
 
 export const PATCH = route(async (req, ctx: Ctx) => {
@@ -18,6 +18,6 @@ export const PATCH = route(async (req, ctx: Ctx) => {
 });
 
 export const DELETE = route(async (_req, ctx: Ctx) => {
-  await requireActor();
-  return ok(await deleteIssue((await ctx.params).key));
+  const actor = await requireActor();
+  return ok(await deleteIssue(actor, (await ctx.params).key));
 });

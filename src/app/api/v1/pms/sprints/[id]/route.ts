@@ -8,16 +8,16 @@ type Ctx = { params: Promise<{ id: string }> };
    PATCH  /api/v1/pms/sprints/:id — partial update.
    DELETE /api/v1/pms/sprints/:id — issues detach (sprintId → null), then delete. */
 export const GET = route(async (_req, ctx: Ctx) => {
-  await requireActor();
-  return ok(await getSprint((await ctx.params).id));
+  const actor = await requireActor();
+  return ok(await getSprint(actor, (await ctx.params).id));
 });
 
 export const PATCH = route(async (req, ctx: Ctx) => {
-  await requireActor();
-  return ok(await updateSprint((await ctx.params).id, await jsonBody<UpdateSprintInput>(req)));
+  const actor = await requireActor();
+  return ok(await updateSprint(actor, (await ctx.params).id, await jsonBody<UpdateSprintInput>(req)));
 });
 
 export const DELETE = route(async (_req, ctx: Ctx) => {
-  await requireActor();
-  return ok(await deleteSprint((await ctx.params).id));
+  const actor = await requireActor();
+  return ok(await deleteSprint(actor, (await ctx.params).id));
 });

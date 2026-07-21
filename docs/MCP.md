@@ -6,9 +6,19 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 ## 接入
 
 - **URL**：`http://localhost:3000/mcp`
-- **鉴权**：请求头 `Authorization: Bearer <key>`，key 来自 env `MCP_API_KEY`（支持逗号分隔多个）；开发默认 `dev-mcp-key`。浏览器登录 session 也可访问（便于调试）。
+- **鉴权**：请求头 `Authorization: Bearer <key>`，按以下顺序判定：
+  1. **DB key**（推荐）：sha256(key) 命中 `mcp_api_keys.keyHash` 且未吊销。key 由平台管理员在 **`/platform/keys`** 签发（或 `POST /api/v1/platform/mcp-keys`），**明文仅签发时返回一次**，库里只存哈希与前 8 位 prefix。
+  2. **env 兜底**：未命中 DB 时回退到 env `MCP_API_KEY`（逗号分隔多个），一律视为**平台级** key（开发兼容）。
+  3. 浏览器登录 session 也可访问（便于调试），操作范围 = 会话当前公司。
 
-客户端配置示例（Claude Code / 其他 MCP host）：
+### key 级别与公司隔离
+
+| key 级别 | 判定 | 数据范围 |
+|---|---|---|
+| 公司级 | `mcp_api_keys.companyId` 非空 | 钉死该公司沙箱，所有工具只读写本公司数据（自动隔离） |
+| 平台级 | `companyId` NULL（含 env key） | 可跨公司：每个工具带可选 `companyId` 参数指定目标公司，**未传默认第一个公司**（createdAt 最早） |
+
+客户端配置示例（Claude Code / 其他 MCP host，key 换成 /platform/keys 签发的明文）：
 
 ```json
 {
@@ -16,7 +26,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
     "next-spms": {
       "type": "http",
       "url": "http://localhost:3000/mcp",
-      "headers": { "Authorization": "Bearer dev-mcp-key" }
+      "headers": { "Authorization": "Bearer <在 /platform/keys 签发的 key>" }
     }
   }
 }
@@ -32,11 +42,14 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## Tools
 
+共 **20 个**（读 11 + 写 9）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
+
 ### 读
 
 | Tool | 参数 | 说明 |
 |---|---|---|
-| `spms_get_bootstrap` | — | 全量参考数据（members/labels/projects/sprints/产品线/产品/版本） |
+| `spms_get_bootstrap` | — | 全量参考数据（members/labels/projects/sprints/产品线/产品/版本 + currentCompany） |
+| `spms_list_companies` | — | **新增**：公司列表（id/key/name/description）；公司级 key 只返回本公司 |
 | `spms_list_issues` | `status? type? priority? assignee? project? sprint?` | Issue 列表（筛选均可选；type=bug 即缺陷列表） |
 | `spms_get_issue` | `key` | Issue 详情（含 labels/subIssues/activities 评论流） |
 | `spms_list_requirements` | `project? type?` | 需求列表（附关联 issue 完成度） |
@@ -65,4 +78,5 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## 操作者身份
 
-MCP 调用以系统操作者身份执行：activities 的 `whoId` 记为 `scribe` agent member，评论/变更在历史流中可追溯来源是 Agent 操作。
+- **API key 调用**：Actor = 目标公司的内置 `scribe` agent member，companyRole=company_admin（key 由平台管理员签发，设计上即拥有公司内完整权限）；activities 的 `whoId` 记为该 scribe，评论/变更在历史流中可追溯来源是 Agent 操作。
+- **浏览器 session 调用**（调试）：Actor = 会话用户本人及其当前公司，权限与其 RBAC 角色一致。

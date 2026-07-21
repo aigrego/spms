@@ -4,7 +4,6 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
-  Search,
   LayoutGrid,
   Box,
   Map,
@@ -71,14 +70,12 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function Sidebar({
-  onOpenCmd,
-  myCount,
-}: {
-  onOpenCmd: () => void;
-  myCount: number;
-}) {
-  const { agents } = useAppData();
+/* Sidebar sits under the global header (AppShell owns the column layout), so
+   it fills the remaining height instead of h-screen. Nav entries are filtered
+   by the company-scoped RBAC permissions (P5): an entry needs read access to
+   its module, and a section label is hidden when its whole group is gone. */
+export function Sidebar({ myCount }: { myCount: number }) {
+  const { agents, can } = useAppData();
   const t = useT();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -86,114 +83,149 @@ export function Sidebar({
   const isMyIssues = pathname === '/issues' && searchParams.get('assignee') === 'me';
   const isAllIssues = pathname === '/issues' && !isMyIssues;
 
+  const showIssues = can('issues', 'read');
+  const showProducts = can('products', 'read');
+  const showRequirements = can('requirements', 'read');
+  const showTestcases = can('testcases', 'read');
+  const showProjects = can('projects', 'read');
+  const showResources = can('resources', 'read');
+  const showRoadmap = can('roadmap', 'read');
+  const showBacklog = can('backlog', 'read');
+  const showSprints = can('sprints', 'read');
+  const showAgents = can('agents', 'read');
+
+  const showLifecycle = showProducts || showRequirements || showTestcases;
+  const showWorkspace = showProjects || showResources || showRoadmap;
+  const showScrum = showBacklog || showSprints;
+
   return (
-    <aside className="flex h-screen w-[244px] flex-none flex-col overflow-hidden border-r border-border bg-surface-2">
-      {/* Search */}
-      <div className="px-3 pb-1 pt-3">
-        <button
-          onClick={onOpenCmd}
-          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface px-2.5 text-[13px] text-fg-3"
-        >
-          <Search size={14} />
-          <span className="flex-1 text-left">{t('common.searchJump')}</span>
-          <kbd className="rounded border border-border bg-surface-2 px-[5px] py-px font-mono text-[11px]">
-            ⌘K
-          </kbd>
-        </button>
-      </div>
+    <aside className="flex w-[244px] flex-none flex-col overflow-hidden border-r border-border bg-surface-2">
+      <div className="flex-1 overflow-y-auto px-3 pb-3 pt-3">
+        {showIssues && (
+          <div className="mt-1 flex flex-col gap-px">
+            <NavItem
+              icon={<LayoutGrid size={16} />}
+              label={t('nav.myIssues')}
+              count={myCount}
+              active={isMyIssues}
+              href="/issues?assignee=me"
+            />
+            <NavItem
+              icon={<Inbox size={16} />}
+              label={t('nav.allIssues')}
+              active={isAllIssues}
+              href="/issues"
+            />
+          </div>
+        )}
 
-      <div className="flex-1 overflow-y-auto px-3 pb-3 pt-1.5">
-        <div className="mt-1 flex flex-col gap-px">
-          <NavItem
-            icon={<LayoutGrid size={16} />}
-            label={t('nav.myIssues')}
-            count={myCount}
-            active={isMyIssues}
-            href="/issues?assignee=me"
-          />
-          <NavItem
-            icon={<Inbox size={16} />}
-            label={t('nav.allIssues')}
-            active={isAllIssues}
-            href="/issues"
-          />
-        </div>
+        {showLifecycle && (
+          <>
+            <SectionLabel>{t('nav.section.lifecycle')}</SectionLabel>
+            <div className="flex flex-col gap-px">
+              {showProducts && (
+                <NavItem
+                  icon={<Layers size={16} />}
+                  label={t('nav.products')}
+                  active={pathname.startsWith('/products')}
+                  href="/products"
+                />
+              )}
+              {showRequirements && (
+                <NavItem
+                  icon={<FileText size={16} />}
+                  label={t('nav.requirements')}
+                  active={pathname.startsWith('/requirements')}
+                  href="/requirements"
+                />
+              )}
+              {showTestcases && (
+                <NavItem
+                  icon={<FlaskConical size={16} />}
+                  label={t('nav.testcases')}
+                  active={pathname.startsWith('/testcases')}
+                  href="/testcases"
+                />
+              )}
+            </div>
+          </>
+        )}
 
-        <SectionLabel>{t('nav.section.lifecycle')}</SectionLabel>
-        <div className="flex flex-col gap-px">
-          <NavItem
-            icon={<Layers size={16} />}
-            label={t('nav.products')}
-            active={pathname.startsWith('/products')}
-            href="/products"
-          />
-          <NavItem
-            icon={<FileText size={16} />}
-            label={t('nav.requirements')}
-            active={pathname.startsWith('/requirements')}
-            href="/requirements"
-          />
-          <NavItem
-            icon={<FlaskConical size={16} />}
-            label={t('nav.testcases')}
-            active={pathname.startsWith('/testcases')}
-            href="/testcases"
-          />
-        </div>
+        {showWorkspace && (
+          <>
+            <SectionLabel>{t('nav.section.workspace')}</SectionLabel>
+            <div className="flex flex-col gap-px">
+              {showProjects && (
+                <NavItem
+                  icon={<Box size={16} />}
+                  label={t('nav.projects')}
+                  active={pathname.startsWith('/projects')}
+                  href="/projects"
+                />
+              )}
+              {showResources && (
+                <NavItem
+                  icon={<Users size={16} />}
+                  label={t('nav.resources')}
+                  active={pathname.startsWith('/resources')}
+                  href="/resources"
+                />
+              )}
+              {showRoadmap && (
+                <NavItem
+                  icon={<Map size={16} />}
+                  label={t('nav.roadmap')}
+                  active={pathname.startsWith('/roadmap')}
+                  href="/roadmap"
+                />
+              )}
+            </div>
+          </>
+        )}
 
-        <SectionLabel>{t('nav.section.workspace')}</SectionLabel>
-        <div className="flex flex-col gap-px">
-          <NavItem
-            icon={<Box size={16} />}
-            label={t('nav.projects')}
-            active={pathname.startsWith('/projects')}
-            href="/projects"
-          />
-          <NavItem
-            icon={<Users size={16} />}
-            label={t('nav.resources')}
-            active={pathname.startsWith('/resources')}
-            href="/resources"
-          />
-          <NavItem
-            icon={<Map size={16} />}
-            label={t('nav.roadmap')}
-            active={pathname.startsWith('/roadmap')}
-            href="/roadmap"
-          />
-        </div>
+        {showScrum && (
+          <>
+            <SectionLabel>{t('nav.section.scrum')}</SectionLabel>
+            <div className="flex flex-col gap-px">
+              {showBacklog && (
+                <NavItem
+                  icon={<ListTodo size={16} />}
+                  label={t('nav.backlog')}
+                  active={pathname.startsWith('/backlog')}
+                  href="/backlog"
+                />
+              )}
+              {showSprints && (
+                <NavItem
+                  icon={<Target size={16} />}
+                  label={t('nav.sprints')}
+                  active={pathname.startsWith('/sprints')}
+                  href="/sprints"
+                />
+              )}
+            </div>
+          </>
+        )}
 
-        <SectionLabel>{t('nav.section.scrum')}</SectionLabel>
-        <div className="flex flex-col gap-px">
-          <NavItem
-            icon={<ListTodo size={16} />}
-            label={t('nav.backlog')}
-            active={pathname.startsWith('/backlog')}
-            href="/backlog"
-          />
-          <NavItem
-            icon={<Target size={16} />}
-            label={t('nav.sprints')}
-            active={pathname.startsWith('/sprints')}
-            href="/sprints"
-          />
-        </div>
-
-        <SectionLabel>AI Agents</SectionLabel>
-        <div className="flex flex-col gap-px">
-          {agents.map((ag) => (
-            <a
-              key={ag.id}
-              className="hover-surface flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5"
-            >
-              <Avatar person={ag} size={20} />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[12.5px] font-medium text-fg-2">{ag.name}</div>
-              </div>
-              <span className="h-1.5 w-1.5 flex-none rounded-full bg-success" />
-            </a>
-          ))}
-        </div>
+        {showAgents && (
+          <>
+            <SectionLabel>AI Agents</SectionLabel>
+            <div className="flex flex-col gap-px">
+              {agents.map((ag) => (
+                <a
+                  key={ag.id}
+                  className="hover-surface flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5"
+                >
+                  <Avatar person={ag} size={20} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[12.5px] font-medium text-fg-2">{ag.name}</div>
+                  </div>
+                  <span className="h-1.5 w-1.5 flex-none rounded-full bg-success" />
+                </a>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </aside>
   );

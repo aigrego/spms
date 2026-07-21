@@ -14,7 +14,8 @@ const MAX_AGE_SECONDS = 60 * 60 * 24 * 7; // 7 days
 export interface SessionPayload {
   uid: string;
   username: string;
-  role: string; // 'admin' | 'member'
+  role: string; // 'admin' | 'member' (platform-level)
+  cid?: string; // current company id (multi-company sandbox)
 }
 
 function secretKey(): Uint8Array {
@@ -22,11 +23,16 @@ function secretKey(): Uint8Array {
 }
 
 /* Sign a session token for the user and return the cookie to set:
-   route handlers do `const c = await createSessionCookie(user);
+   route handlers do `const c = await createSessionCookie(user, companyId);
    (await cookies()).set(c.name, c.value, c.options)` — or
-   `response.cookies.set(...)` on a NextResponse. */
-export async function createSessionCookie(user: { id: string; username: string; role: string }) {
-  const value = await new SignJWT({ uid: user.id, username: user.username, role: user.role })
+   `response.cookies.set(...)` on a NextResponse. `companyId` becomes the
+   session's current company (`cid`); omit it only when the user has no
+   resolvable company yet (requireActor will then fall back / 403). */
+export async function createSessionCookie(
+  user: { id: string; username: string; role: string },
+  companyId?: string,
+) {
+  const value = await new SignJWT({ uid: user.id, username: user.username, role: user.role, cid: companyId })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('7d')
@@ -48,11 +54,11 @@ export async function createSessionCookie(user: { id: string; username: string; 
 export async function verifySession(token: string): Promise<SessionPayload | null> {
   try {
     const { payload } = await jwtVerify(token, secretKey());
-    const { uid, username, role } = payload;
+    const { uid, username, role, cid } = payload;
     if (typeof uid !== 'string' || typeof username !== 'string' || typeof role !== 'string') {
       return null;
     }
-    return { uid, username, role };
+    return { uid, username, role, ...(typeof cid === 'string' ? { cid } : {}) };
   } catch {
     return null;
   }

@@ -428,7 +428,8 @@ export function TestCasesView({
   onSelect: (id: string | null) => void;
 }) {
   const t = useT();
-  const { projects } = useAppData();
+  const { projects, can } = useAppData();
+  const canWrite = can('testcases', 'write');
   const [projectFilter, setProjectFilter] = React.useState(project ?? '');
   // Follow an external ?project= change (e.g. arriving from a project hub tab).
   React.useEffect(() => {
@@ -486,13 +487,17 @@ export function TestCasesView({
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
-        <Button variant="primary" size="md" onClick={() => setNewOpen(true)}>
-          <Plus size={14} /> {t('testcases.new')}
-        </Button>
+        {canWrite && (
+          <Button variant="primary" size="md" onClick={() => setNewOpen(true)}>
+            <Plus size={14} /> {t('testcases.new')}
+          </Button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <InlineCreateRow label={t('testcases.new')} placeholder={t('newTc.titlePlaceholder')} onCreate={quickCreate} className="border-b border-border" />
+        {canWrite && (
+          <InlineCreateRow label={t('testcases.new')} placeholder={t('newTc.titlePlaceholder')} onCreate={quickCreate} className="border-b border-border" />
+        )}
         {filtered.length === 0 ? (
           <div className="grid h-[40vh] place-items-center text-[13px] text-fg-3">
             <span className="flex items-center gap-2"><CircleDot size={14} /> {t('testcases.empty')}</span>

@@ -343,6 +343,45 @@ export interface SessionUser {
   username: string;
   name: string;
   role: 'admin' | 'member';
+  // Multi-company sandbox: platform admins see every company and the
+  // /platform console. Absent while the backend rolls out — treated as false.
+  isPlatformAdmin?: boolean;
+}
+
+/* Multi-company sandbox contracts (P5). All optional on the wire while the
+   backend ships in parallel: the client fails open (full access) when the
+   fields are missing. */
+export type CompanyRole = 'company_admin' | 'product_manager' | 'developer' | 'tester' | 'viewer';
+export type PermLevel = 'none' | 'read' | 'write';
+// The 10 RBAC modules; values are 'none' | 'read' | 'write'.
+export type ModuleKey =
+  | 'issues'
+  | 'products'
+  | 'requirements'
+  | 'testcases'
+  | 'projects'
+  | 'resources'
+  | 'roadmap'
+  | 'backlog'
+  | 'sprints'
+  | 'agents';
+
+export interface SessionCompany {
+  id: string;
+  key: string;
+  name: string;
+  color: string;
+}
+
+export interface SessionInfo {
+  user: SessionUser;
+  companies: SessionCompany[];
+  currentCompany: SessionCompany | null;
+  companyRole: CompanyRole | null;
+  // Normalized: the wire may carry it inside `user` or at the envelope top level.
+  isPlatformAdmin: boolean;
+  // Undefined when the backend predates the multi-company session (fail open).
+  permissions?: Partial<Record<ModuleKey, PermLevel>>;
 }
 
 async function authRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -357,11 +396,34 @@ export const authApi = {
   login: (username: string, password: string) =>
     authRequest<unknown>('/api/auth/login', json('POST', { username, password })),
   logout: () => authRequest<unknown>('/api/auth/logout', { method: 'POST' }),
-  // Envelope data is { user } | null.
-  getSession: async (): Promise<SessionUser | null> => {
-    const data = await authRequest<{ user?: SessionUser | null } | null>('/api/auth/session');
-    return data?.user ?? null;
+  // Envelope data is { user, companies?, currentCompany?, companyRole?, permissions? } | null.
+  // Older backends return only { user } — the multi-company fields then stay
+  // empty/undefined and the UI falls back to single-company, full access.
+  getSession: async (): Promise<SessionInfo | null> => {
+    const data = await authRequest<{
+      user?: SessionUser | null;
+      companies?: SessionCompany[];
+      currentCompany?: SessionCompany | null;
+      companyRole?: CompanyRole | null;
+      isPlatformAdmin?: boolean;
+      permissions?: Partial<Record<ModuleKey, PermLevel>>;
+    } | null>('/api/auth/session');
+    if (!data?.user) return null;
+    return {
+      user: data.user,
+      companies: data.companies ?? [],
+      currentCompany: data.currentCompany ?? null,
+      companyRole: data.companyRole ?? null,
+      isPlatformAdmin: data.isPlatformAdmin ?? data.user.isPlatformAdmin ?? false,
+      permissions: data.permissions,
+    };
   },
+  // Switch the active company; callers must clear the query cache afterwards
+  // (every query result is company-scoped).
+  switchCompany: (companyId: string) =>
+    authRequest<unknown>('/api/auth/switch-company', json('POST', { companyId })),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    authRequest<unknown>('/api/auth/change-password', json('POST', { oldPassword, newPassword })),
   // 飞书扫码登录配置探测（Phase B2 提供）；未配置/失败时返回 null，按钮隐藏。
   larkConfig: async (): Promise<{ configured: boolean; url?: string } | null> => {
     try {

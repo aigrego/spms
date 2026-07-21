@@ -63,7 +63,10 @@ const emptyCls = 'rounded-[10px] border border-dashed border-border px-3 py-5 te
 export function ProjectHub({ projectId }: { projectId: string }) {
   const t = useT();
   const router = useRouter();
-  const { projectById, releaseById, productById, productLineById, memberById, sprints } = useAppData();
+  const { projectById, releaseById, productById, productLineById, memberById, sprints, can } = useAppData();
+  const canWriteIssues = can('issues', 'write');
+  const canWriteRequirements = can('requirements', 'write');
+  const canWriteTestcases = can('testcases', 'write');
   const { data: allIssues = [] } = useAllIssues();
   const { data: requirements = [] } = useRequirements({ project: projectId });
   const { data: testCases = [] } = useTestCases({ project: projectId });
@@ -189,11 +192,13 @@ export function ProjectHub({ projectId }: { projectId: string }) {
               </Button>
             </div>
             <div className="overflow-hidden rounded-[12px] border border-border">
-              <InlineCreateRow
-                label={t('requirements.new')}
-                onCreate={(title) => createReq.mutate({ projectId, title, type: 'functional', status: 'draft', releaseId: project.releaseId })}
-                className="border-b border-border"
-              />
+              {canWriteRequirements && (
+                <InlineCreateRow
+                  label={t('requirements.new')}
+                  onCreate={(title) => createReq.mutate({ projectId, title, type: 'functional', status: 'draft', releaseId: project.releaseId })}
+                  className="border-b border-border"
+                />
+              )}
               {requirements.length === 0 ? (
                 <div className="px-3 py-5 text-center text-[12.5px] text-fg-3">{t('hub.noRequirements')}</div>
               ) : (
@@ -219,11 +224,13 @@ export function ProjectHub({ projectId }: { projectId: string }) {
               </Button>
             </div>
             <div className="overflow-hidden rounded-[12px] border border-border">
-              <InlineCreateRow
-                label={t('testcases.new')}
-                onCreate={(title) => createTc.mutate({ projectId, title, status: 'draft', result: 'untested', priority: 'medium' })}
-                className="border-b border-border"
-              />
+              {canWriteTestcases && (
+                <InlineCreateRow
+                  label={t('testcases.new')}
+                  onCreate={(title) => createTc.mutate({ projectId, title, status: 'draft', result: 'untested', priority: 'medium' })}
+                  className="border-b border-border"
+                />
+              )}
               {testCases.length === 0 ? (
                 <div className="px-3 py-5 text-center text-[12.5px] text-fg-3">{t('testcases.empty')}</div>
               ) : (
@@ -272,11 +279,13 @@ export function ProjectHub({ projectId }: { projectId: string }) {
 
         {tab === 'issues' && (
           <div className="overflow-hidden rounded-[12px] border border-border">
-            <InlineCreateRow
-              label={t('issues.new')}
-              onCreate={(title) => createIssue.mutate({ title, projectId, status: 'todo' })}
-              className="border-b border-border"
-            />
+            {canWriteIssues && (
+              <InlineCreateRow
+                label={t('issues.new')}
+                onCreate={(title) => createIssue.mutate({ title, projectId, status: 'todo' })}
+                className="border-b border-border"
+              />
+            )}
             {issues.length === 0 ? (
               <div className="px-3 py-5 text-center text-[12.5px] text-fg-3">{t('issues.empty')}</div>
             ) : (

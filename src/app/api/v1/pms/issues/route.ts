@@ -5,10 +5,10 @@ import { jsonBody, requireActor, route } from '@/server/http';
 /* GET  /api/v1/pms/issues?team&assignee&project — list (updatedAt desc).
    POST /api/v1/pms/issues — create (title required; key BUG-/TKT-/BLG- per type). */
 export const GET = route(async (req) => {
-  await requireActor();
+  const actor = await requireActor();
   const sp = req.nextUrl.searchParams;
   return ok(
-    await listIssues({
+    await listIssues(actor, {
       team: sp.get('team') ?? undefined,
       assignee: sp.get('assignee') ?? undefined,
       project: sp.get('project') ?? undefined,

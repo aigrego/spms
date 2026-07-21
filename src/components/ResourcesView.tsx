@@ -105,7 +105,8 @@ function Section({
    rewrite equivalent (see src/server/services/resources.ts). */
 export function ResourcesView() {
   const t = useT();
-  const { members, agents, meId } = useAppData();
+  const { members, agents, meId, can } = useAppData();
+  const canWrite = can('resources', 'write');
   const [inviteOpen, setInviteOpen] = React.useState(false);
 
   const internal = members.filter((m) => m.type === 'human' && m.origin !== 'external');
@@ -121,9 +122,11 @@ export function ResourcesView() {
         <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">{total}</span>
         <span className="hidden text-[12.5px] text-fg-3 md:inline">· {t('resources.subtitle')}</span>
         <div className="flex-1" />
-        <Button variant="primary" size="md" onClick={() => setInviteOpen(true)}>
-          <Plus size={14} /> {t('resources.invite')}
-        </Button>
+        {canWrite && (
+          <Button variant="primary" size="md" onClick={() => setInviteOpen(true)}>
+            <Plus size={14} /> {t('resources.invite')}
+          </Button>
+        )}
       </div>
 
       <div className="mx-auto flex w-full max-w-[920px] flex-1 flex-col gap-7 overflow-y-auto p-6">
@@ -141,9 +144,11 @@ export function ResourcesView() {
           count={external.length}
           note={t('resources.externalNote')}
           action={
-            <Button variant="ghost" size="sm" onClick={() => setInviteOpen(true)}>
-              <Plus size={13} /> {t('resources.invite')}
-            </Button>
+            canWrite ? (
+              <Button variant="ghost" size="sm" onClick={() => setInviteOpen(true)}>
+                <Plus size={13} /> {t('resources.invite')}
+              </Button>
+            ) : undefined
           }
         >
           {external.length === 0 ? (
@@ -157,7 +162,7 @@ export function ResourcesView() {
                   <Badge tone={STATUS_TONE[m.status ?? 'active']} dot>
                     {t(`status.${m.status ?? 'active'}`)}
                   </Badge>
-                  {m.status !== 'revoked' && <RevokeButton id={m.id} />}
+                  {m.status !== 'revoked' && canWrite && <RevokeButton id={m.id} />}
                 </MemberRow>
               ))}
             </div>

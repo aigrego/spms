@@ -98,13 +98,15 @@ function PhaseStepper({ phase }: { phase: ProjectPhase }) {
 export function ProjectsView() {
   const t = useT();
   const router = useRouter();
-  const { projects, memberById, releaseById, productById, role } = useAppData();
+  const { projects, memberById, releaseById, productById, can, companyRole, isPlatformAdmin } = useAppData();
   const { data: issues = [] } = useAllIssues();
   const del = useDeleteProject();
-  // ACL UX-gate: the portal blueprint used sdk.acl.can('spms:action:project.*');
-  // the standalone rewrite gates on the session role from bootstrap (admin only).
-  const canCreate = role === 'admin';
-  const canDelete = role === 'admin';
+  // RBAC gate (P5): creating needs projects:write; editing/deleting a project
+  // additionally requires company admin (or platform admin) — the old
+  // role==='admin' gate's semantics carried over.
+  const canCreate = can('projects', 'write');
+  const canManage =
+    canCreate && (companyRole === 'company_admin' || isPlatformAdmin);
   const [modalOpen, setModalOpen] = React.useState(false);
   const [editProject, setEditProject] = React.useState<Project | null>(null);
   const [delProject, setDelProject] = React.useState<Project | null>(null);
@@ -155,7 +157,7 @@ export function ProjectsView() {
                     </Badge>
                   </div>
                   <div className="opacity-0 transition-opacity group-hover:opacity-100">
-                    <RowActions onEdit={() => openEdit(p)} onDelete={canDelete ? () => setDelProject(p) : undefined} />
+                    {canManage && <RowActions onEdit={() => openEdit(p)} onDelete={() => setDelProject(p)} />}
                   </div>
                   <ProgressRing value={p.progress} color={p.color} />
                 </div>

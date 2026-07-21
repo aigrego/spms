@@ -287,7 +287,8 @@ type DeleteTarget =
 
 export function ProductsView() {
   const t = useT();
-  const { productLines, products, releases, projects, sprints } = useAppData();
+  const { productLines, products, releases, projects, sprints, can } = useAppData();
+  const canWrite = can('products', 'write');
   const { data: issues = [] } = useAllIssues();
   const [modal, setModal] = React.useState<ModalState | null>(null);
   const [delTarget, setDelTarget] = React.useState<DeleteTarget | null>(null);
@@ -340,9 +341,11 @@ export function ProductsView() {
         </span>
         <span className="text-[12.5px] text-fg-3">· {t('products.subtitle')}</span>
         <div className="flex-1" />
-        <Button variant="primary" size="md" onClick={() => setModal({ kind: 'line' })}>
-          <Plus size={14} /> {t('products.newLine')}
-        </Button>
+        {canWrite && (
+          <Button variant="primary" size="md" onClick={() => setModal({ kind: 'line' })}>
+            <Plus size={14} /> {t('products.newLine')}
+          </Button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -365,13 +368,17 @@ export function ProductsView() {
                     <span className="truncate text-[12.5px] text-fg-3">{line.description}</span>
                   )}
                   <div className="flex-1" />
-                  <RowActions
-                    onEdit={() => setModal({ kind: 'line', entity: line })}
-                    onDelete={() => setDelTarget({ kind: 'line', entity: line })}
-                  />
-                  <Button variant="ghost" size="sm" onClick={() => setModal({ kind: 'product', lineId: line.id })}>
-                    <Plus size={13} /> {t('products.newProduct')}
-                  </Button>
+                  {canWrite && (
+                    <RowActions
+                      onEdit={() => setModal({ kind: 'line', entity: line })}
+                      onDelete={() => setDelTarget({ kind: 'line', entity: line })}
+                    />
+                  )}
+                  {canWrite && (
+                    <Button variant="ghost" size="sm" onClick={() => setModal({ kind: 'product', lineId: line.id })}>
+                      <Plus size={13} /> {t('products.newProduct')}
+                    </Button>
+                  )}
                 </div>
 
                 {lineProducts.length === 0 ? (
@@ -407,10 +414,12 @@ export function ProductsView() {
                                 </Badge>
                               </div>
                             </div>
-                            <RowActions
-                              onEdit={() => setModal({ kind: 'product', entity: product })}
-                              onDelete={() => setDelTarget({ kind: 'product', entity: product })}
-                            />
+                            {canWrite && (
+                              <RowActions
+                                onEdit={() => setModal({ kind: 'product', entity: product })}
+                                onDelete={() => setDelTarget({ kind: 'product', entity: product })}
+                              />
+                            )}
                           </div>
                           {product.description && (
                             <p className="mb-3 line-clamp-2 text-[12.5px] leading-normal text-fg-2">
@@ -423,12 +432,14 @@ export function ProductsView() {
                             <span className="text-[11px] font-semibold uppercase tracking-wider text-fg-3">
                               {t('products.releasesLabel')}
                             </span>
-                            <button
-                              onClick={() => setModal({ kind: 'release', productId: product.id })}
-                              className="hover-surface inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11.5px] text-fg-3"
-                            >
-                              <Plus size={12} /> {t('products.newRelease')}
-                            </button>
+                            {canWrite && (
+                              <button
+                                onClick={() => setModal({ kind: 'release', productId: product.id })}
+                                className="hover-surface inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11.5px] text-fg-3"
+                              >
+                                <Plus size={12} /> {t('products.newRelease')}
+                              </button>
+                            )}
                           </div>
                           {rels.length === 0 ? (
                             <div className="text-[12px] text-fg-3">{t('products.noReleases')}</div>
@@ -459,10 +470,12 @@ export function ProductsView() {
                                       {Math.round(r.progress * 100)}%
                                     </span>
                                     <div className="opacity-0 transition-opacity group-hover:opacity-100">
-                                      <RowActions
-                                        onEdit={() => setModal({ kind: 'release', entity: r })}
-                                        onDelete={() => setDelTarget({ kind: 'release', entity: r })}
-                                      />
+                                      {canWrite && (
+                                        <RowActions
+                                          onEdit={() => setModal({ kind: 'release', entity: r })}
+                                          onDelete={() => setDelTarget({ kind: 'release', entity: r })}
+                                        />
+                                      )}
                                     </div>
                                   </div>
                                 );

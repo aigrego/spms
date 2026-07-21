@@ -19,6 +19,7 @@ export const ERROR_CODES = [
   'UNAUTHENTICATED',
   'UNAUTHORIZED',
   'FORBIDDEN',
+  'NO_COMPANY',
   // PMS core (PLAN-5)
   'ISSUE_NOT_FOUND',
   'SPRINT_NOT_FOUND',
@@ -50,6 +51,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   UNAUTHENTICATED: '未登录',
   UNAUTHORIZED: '未登录',
   FORBIDDEN: '无权访问',
+  NO_COMPANY: '需要被加入一个公司',
   ISSUE_NOT_FOUND: 'Issue 不存在',
   SPRINT_NOT_FOUND: '迭代不存在',
   PROJECT_NOT_FOUND: '项目不存在',

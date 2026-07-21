@@ -3,10 +3,11 @@ import { db } from '@/db';
 import { members, labels } from '@/db/schema';
 
 /* Identity mapping (Next.js rewrite). Portal directory sync is gone: a human
-   member row projects a local `users` row 1:1 (members.userId → users.id).
-   The current user's member is ensured lazily on first touch; AI agents and
-   the "AI 生成" label are seeded by scripts/seed.ts and re-ensured here as a
-   fallback. Ported from apps/spms-server/src/lib/identity.ts. */
+   member row projects a local `users` row 1:1 per company
+   (members.(companyId, userId) unique). The current user's member is ensured
+   lazily on first touch; AI agents and the "AI 生成" label are seeded PER
+   COMPANY by scripts/seed.ts and re-ensured here as a fallback.
+   Ported from apps/spms-server/src/lib/identity.ts. */
 
 export const AGENT_DEFS = [
   { agentKey: 'atlas', name: 'Atlas', initials: 'A', role: 'plan' },
@@ -33,13 +34,13 @@ export function initialsFor(name: string): string {
 
 export type MemberRow = typeof members.$inferSelect;
 
-// Ensure the four AI agents exist (idempotent; seed already inserts them — this
-// is the fallback for empty databases).
-export async function ensureAgents(): Promise<void> {
+// Ensure the four AI agents exist in the given company (idempotent; seed
+// already inserts them — this is the fallback for empty databases).
+export async function ensureAgents(companyId: string): Promise<void> {
   const existing = await db
     .select({ agentKey: members.agentKey })
     .from(members)
-    .where(eq(members.type, 'agent'));
+    .where(and(eq(members.companyId, companyId), eq(members.type, 'agent')));
   const have = new Set(existing.map((r) => r.agentKey));
   const missing = AGENT_DEFS.filter((a) => !have.has(a.agentKey));
   if (missing.length) {
@@ -48,6 +49,7 @@ export async function ensureAgents(): Promise<void> {
       .values(
         missing.map((a) => ({
           id: crypto.randomUUID(),
+          companyId,
           type: 'agent' as const,
           name: a.name,
           initials: a.initials,
@@ -61,33 +63,48 @@ export async function ensureAgents(): Promise<void> {
   }
 }
 
-// Ensure the well-known "AI 生成" label exists; returns its id.
-export async function ensureAiLabel(): Promise<string> {
-  const [row] = await db.select({ id: labels.id }).from(labels).where(eq(labels.key, 'ai')).limit(1);
+// Ensure the well-known "AI 生成" label exists in the given company; returns
+// its id.
+export async function ensureAiLabel(companyId: string): Promise<string> {
+  const [row] = await db
+    .select({ id: labels.id })
+    .from(labels)
+    .where(and(eq(labels.companyId, companyId), eq(labels.key, 'ai')))
+    .limit(1);
   if (row) return row.id;
   const id = crypto.randomUUID();
   await db
     .insert(labels)
-    .values({ id, key: 'ai', name: 'AI 生成', color: '#FF6B02' })
+    .values({ id, companyId, key: 'ai', name: 'AI 生成', color: '#FF6B02' })
     .onConflictDoNothing();
-  const [after] = await db.select({ id: labels.id }).from(labels).where(eq(labels.key, 'ai')).limit(1);
+  const [after] = await db
+    .select({ id: labels.id })
+    .from(labels)
+    .where(and(eq(labels.companyId, companyId), eq(labels.key, 'ai')))
+    .limit(1);
   return after?.id ?? id;
 }
 
-// Ensure a member row exists for the given local user; create it (human,
-// origin=internal, status=active) when missing. On first creation also ensure
-// the agents + AI label exist (lazy bootstrap fallback). Returns the member row.
-export async function ensureCurrentMember(user: { id: string; name: string }): Promise<MemberRow> {
-  const [existing] = await db.select().from(members).where(eq(members.userId, user.id)).limit(1);
+// Ensure a member row exists for the given local user in the given company;
+// create it (human, origin=internal, status=active) when missing. On first
+// creation also ensure the agents + AI label exist (lazy bootstrap fallback).
+// Returns the member row.
+export async function ensureCurrentMember(user: { id: string; name: string }, companyId: string): Promise<MemberRow> {
+  const [existing] = await db
+    .select()
+    .from(members)
+    .where(and(eq(members.companyId, companyId), eq(members.userId, user.id)))
+    .limit(1);
   if (existing) return existing;
 
-  await ensureAgents();
-  await ensureAiLabel();
+  await ensureAgents(companyId);
+  await ensureAiLabel(companyId);
   const id = crypto.randomUUID();
   await db
     .insert(members)
     .values({
       id,
+      companyId,
       type: 'human',
       name: user.name,
       initials: initialsFor(user.name),
@@ -97,7 +114,11 @@ export async function ensureCurrentMember(user: { id: string; name: string }): P
       agentKey: null,
     })
     .onConflictDoNothing();
-  const [after] = await db.select().from(members).where(eq(members.userId, user.id)).limit(1);
+  const [after] = await db
+    .select()
+    .from(members)
+    .where(and(eq(members.companyId, companyId), eq(members.userId, user.id)))
+    .limit(1);
   if (after) return after;
   // Extremely unlikely: a conflicting insert raced us with a different userId
   // mapping. Fall back to the row we just tried to insert's id.

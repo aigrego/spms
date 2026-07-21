@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import { Header, HEADER_HEIGHT } from '@/components/Header';
 import { Sidebar } from '@/components/Sidebar';
 import { CommandPalette } from '@/components/CommandPalette';
 import { NewIssueModal } from '@/components/NewIssueModal';
@@ -12,6 +13,8 @@ import type { IssueStatus } from '@/lib/types';
 
 interface ShellValue {
   openNewIssue: (preset?: { status?: IssueStatus }) => void;
+  // Opens the ⌘K command palette (the header search box calls this).
+  openCmd: () => void;
 }
 
 const ShellContext = React.createContext<ShellValue | null>(null);
@@ -36,6 +39,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setNewPreset(preset ?? null);
     setNewOpen(true);
   }, []);
+
+  const openCmd = React.useCallback(() => setCmdOpen(true), []);
 
   const openIssue = React.useCallback(
     (key: string) => router.push(`/issues?selected=${encodeURIComponent(key)}`),
@@ -66,20 +71,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-bg">
-        <div className="w-[244px] flex-none border-r border-border bg-surface-2" />
-        <div className="flex-1">
-          <Skeleton rows={9} />
+      <div className="flex h-screen flex-col bg-bg">
+        <div className="flex-none border-b border-border bg-surface" style={{ height: HEADER_HEIGHT }} />
+        <div className="flex min-h-0 flex-1">
+          <div className="w-[244px] flex-none border-r border-border bg-surface-2" />
+          <div className="flex-1">
+            <Skeleton rows={9} />
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <ShellContext.Provider value={{ openNewIssue }}>
-      <div className="flex h-screen overflow-hidden bg-bg">
-        <Sidebar onOpenCmd={() => setCmdOpen(true)} myCount={myCount} />
-        <main className="flex h-screen min-w-0 flex-1 flex-col">{children}</main>
+    <ShellContext.Provider value={{ openNewIssue, openCmd }}>
+      <div className="flex h-screen flex-col overflow-hidden bg-bg">
+        <Header />
+        <div className="flex min-h-0 flex-1">
+          <Sidebar myCount={myCount} />
+          <main className="flex min-w-0 flex-1 flex-col">{children}</main>
+        </div>
 
         <CommandPalette
           open={cmdOpen}

@@ -8,6 +8,13 @@
       "when": 1784593674072,
       "tag": "0000_strong_black_widow",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784598658956,
+      "tag": "0001_bent_mister_fear",
+      "breakpoints": true
     }
   ]
 }

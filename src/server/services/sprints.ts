@@ -3,10 +3,16 @@ import { db } from '@/db';
 import { sprints, sprintSnapshots, issues, projects } from '@/db/schema';
 import { serializeIssueList } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
+import { requirePerm } from '@/lib/permissions';
+import type { Actor } from './types';
 
-/* Sprint business service. Ported from apps/spms-server/src/routes/sprints.ts
-   (tenant scoping removed) — plus createSprint / updateSprint / deleteSprint,
-   which the blueprint did not have (see report). Shared by routes + MCP. */
+/* Sprint business service. Ported from apps/spms-server/src/routes/sprints.ts —
+   plus createSprint / updateSprint / deleteSprint, which the blueprint did not
+   have (see report). Shared by routes + MCP.
+
+   Multi-company: every function takes the Actor and reads/writes strictly
+   inside actor.companyId. Module gates: getBacklog → `backlog` read;
+   everything else sprint-related → `sprints` read/write. */
 
 const withRelations = {
   issueLabels: { with: { label: true } },
@@ -23,19 +29,21 @@ type SprintRow = typeof sprints.$inferSelect;
 export type SprintStatus = SprintRow['status'];
 
 /* ---- list sprints (optionally by team), startDate asc ---- */
-export async function listSprints(filter?: { team?: string }) {
-  const conds = [];
+export async function listSprints(actor: Actor, filter?: { team?: string }) {
+  await requirePerm(actor, 'sprints', 'read');
+  const conds = [eq(sprints.companyId, actor.companyId)];
   if (filter?.team) conds.push(eq(sprints.teamId, filter.team));
   return db
     .select()
     .from(sprints)
-    .where(conds.length ? and(...conds) : undefined)
+    .where(and(...conds))
     .orderBy(asc(sprints.startDate));
 }
 
 /* ---- product backlog: issues not committed to any sprint, backlogRank asc ---- */
-export async function getBacklog(filter?: { team?: string }) {
-  const conds = [isNull(issues.sprintId)];
+export async function getBacklog(actor: Actor, filter?: { team?: string }) {
+  await requirePerm(actor, 'backlog', 'read');
+  const conds = [eq(issues.companyId, actor.companyId), isNull(issues.sprintId)];
   if (filter?.team) conds.push(eq(issues.teamId, filter.team));
   const rows = await db.query.issues.findMany({
     where: and(...conds),
@@ -46,13 +54,14 @@ export async function getBacklog(filter?: { team?: string }) {
 }
 
 /* ---- velocity: completed points per sprint + avg over completed sprints ---- */
-export async function getVelocity(filter?: { team?: string }) {
-  const conds = [];
+export async function getVelocity(actor: Actor, filter?: { team?: string }) {
+  await requirePerm(actor, 'sprints', 'read');
+  const conds = [eq(sprints.companyId, actor.companyId)];
   if (filter?.team) conds.push(eq(sprints.teamId, filter.team));
   const sprintRows = await db
     .select()
     .from(sprints)
-    .where(conds.length ? and(...conds) : undefined)
+    .where(and(...conds))
     .orderBy(asc(sprints.startDate));
 
   const series = [];
@@ -60,7 +69,7 @@ export async function getVelocity(filter?: { team?: string }) {
     const rows = await db
       .select({ storyPoints: issues.storyPoints, status: issues.status })
       .from(issues)
-      .where(eq(issues.sprintId, s.id));
+      .where(and(eq(issues.companyId, actor.companyId), eq(issues.sprintId, s.id)));
     series.push({
       sprintId: s.id,
       name: s.name,
@@ -78,12 +87,15 @@ export async function getVelocity(filter?: { team?: string }) {
 }
 
 /* ---- single sprint: meta + committed issues + computed stats. Missing → null ---- */
-export async function getSprint(id: string) {
-  const sprint = await db.query.sprints.findFirst({ where: eq(sprints.id, id) });
+export async function getSprint(actor: Actor, id: string) {
+  await requirePerm(actor, 'sprints', 'read');
+  const sprint = await db.query.sprints.findFirst({
+    where: and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)),
+  });
   if (!sprint) return null;
 
   const rows = await db.query.issues.findMany({
-    where: eq(issues.sprintId, id),
+    where: and(eq(issues.companyId, actor.companyId), eq(issues.sprintId, id)),
     with: withRelations,
     orderBy: [asc(issues.backlogRank)],
   });
@@ -105,18 +117,24 @@ export async function getSprint(id: string) {
 
 /* ---- burndown: ideal (linear) vs. actual remaining points per day.
    Missing sprint → null. ---- */
-export async function getBurndown(id: string) {
-  const sprint = await db.query.sprints.findFirst({ where: eq(sprints.id, id) });
+export async function getBurndown(actor: Actor, id: string) {
+  await requirePerm(actor, 'sprints', 'read');
+  const sprint = await db.query.sprints.findFirst({
+    where: and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)),
+  });
   if (!sprint) return null;
 
   const committed = sumPoints(
-    await db.select({ storyPoints: issues.storyPoints }).from(issues).where(eq(issues.sprintId, id)),
+    await db
+      .select({ storyPoints: issues.storyPoints })
+      .from(issues)
+      .where(and(eq(issues.companyId, actor.companyId), eq(issues.sprintId, id))),
   );
 
   const snaps = await db
     .select()
     .from(sprintSnapshots)
-    .where(eq(sprintSnapshots.sprintId, id))
+    .where(and(eq(sprintSnapshots.companyId, actor.companyId), eq(sprintSnapshots.sprintId, id)))
     .orderBy(asc(sprintSnapshots.day));
 
   const start = +new Date(sprint.startDate);
@@ -139,14 +157,19 @@ export async function getBurndown(id: string) {
 
 /* ---- move an issue into / out of a sprint (drag from backlog) ----
    sprintId is a sprint id or '_backlog'. */
-export async function moveIssue(sprintIdOrBacklog: string, issueKey: string, storyPoints?: number | null) {
-  const issue = await db.query.issues.findFirst({ where: eq(issues.key, issueKey) });
+export async function moveIssue(actor: Actor, sprintIdOrBacklog: string, issueKey: string, storyPoints?: number | null) {
+  await requirePerm(actor, 'sprints', 'write');
+  const issue = await db.query.issues.findFirst({
+    where: and(eq(issues.companyId, actor.companyId), eq(issues.key, issueKey)),
+  });
   if (!issue) throw new ApiException('ISSUE_NOT_FOUND', `Issue ${issueKey} 不存在`);
 
   const targetSprint = sprintIdOrBacklog === '_backlog' ? null : sprintIdOrBacklog;
   const patch: Partial<typeof issues.$inferInsert> = { sprintId: targetSprint, updatedAt: new Date() };
   if (targetSprint) {
-    const sprint = await db.query.sprints.findFirst({ where: eq(sprints.id, targetSprint) });
+    const sprint = await db.query.sprints.findFirst({
+      where: and(eq(sprints.companyId, actor.companyId), eq(sprints.id, targetSprint)),
+    });
     if (!sprint) throw new ApiException('SPRINT_NOT_FOUND', `Sprint ${targetSprint} 不存在`);
     // PMS-2 §4.3: a sprint belongs to one project — the issue adopts it so the
     // range (project) and time-box (sprint) stay consistent.
@@ -169,18 +192,22 @@ function parseDate(v: Date | string, field: string): Date {
 }
 
 /* The legacy team a sprint inherits — derived from its project. */
-async function teamForProject(projectId: string | null | undefined) {
+async function teamForProject(companyId: string, projectId: string | null | undefined) {
   if (!projectId) return null;
   const [p] = await db
     .select({ teamId: projects.teamId })
     .from(projects)
-    .where(eq(projects.id, projectId))
+    .where(and(eq(projects.companyId, companyId), eq(projects.id, projectId)))
     .limit(1);
   return p?.teamId ?? null;
 }
 
-async function projectExists(id: string) {
-  const [p] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, id)).limit(1);
+async function projectExists(companyId: string, id: string) {
+  const [p] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.companyId, companyId), eq(projects.id, id)))
+    .limit(1);
   return !!p;
 }
 
@@ -196,7 +223,8 @@ export interface CreateSprintInput {
 }
 
 /* ---- create ---- */
-export async function createSprint(input: CreateSprintInput) {
+export async function createSprint(actor: Actor, input: CreateSprintInput) {
+  await requirePerm(actor, 'sprints', 'write');
   if (!input.name.trim()) throw new ApiException('VALIDATION_FAILED', '迭代名称不能为空');
   if (input.startDate === undefined || input.endDate === undefined) {
     throw new ApiException('VALIDATION_FAILED', '迭代开始/结束日期必填');
@@ -204,13 +232,14 @@ export async function createSprint(input: CreateSprintInput) {
   const startDate = parseDate(input.startDate, 'startDate');
   const endDate = parseDate(input.endDate, 'endDate');
   if (+endDate < +startDate) throw new ApiException('VALIDATION_FAILED', '结束日期不能早于开始日期');
-  if (input.projectId && !(await projectExists(input.projectId))) {
+  if (input.projectId && !(await projectExists(actor.companyId, input.projectId))) {
     throw new ApiException('PROJECT_NOT_FOUND');
   }
 
   const id = crypto.randomUUID();
   await db.insert(sprints).values({
     id,
+    companyId: actor.companyId,
     name: input.name.trim(),
     goal: input.goal ?? null,
     status: input.status ?? 'planned',
@@ -218,7 +247,7 @@ export async function createSprint(input: CreateSprintInput) {
     endDate,
     capacity: input.capacity ?? null,
     projectId: input.projectId ?? null,
-    teamId: input.teamId !== undefined ? input.teamId : await teamForProject(input.projectId),
+    teamId: input.teamId !== undefined ? input.teamId : await teamForProject(actor.companyId, input.projectId),
   });
   const [row] = await db.select().from(sprints).where(eq(sprints.id, id)).limit(1);
   return row;
@@ -236,10 +265,15 @@ export interface UpdateSprintInput {
 }
 
 /* ---- update (partial) ---- */
-export async function updateSprint(id: string, input: UpdateSprintInput) {
-  const [existing] = await db.select().from(sprints).where(eq(sprints.id, id)).limit(1);
+export async function updateSprint(actor: Actor, id: string, input: UpdateSprintInput) {
+  await requirePerm(actor, 'sprints', 'write');
+  const [existing] = await db
+    .select()
+    .from(sprints)
+    .where(and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)))
+    .limit(1);
   if (!existing) throw new ApiException('SPRINT_NOT_FOUND');
-  if (input.projectId && !(await projectExists(input.projectId))) {
+  if (input.projectId && !(await projectExists(actor.companyId, input.projectId))) {
     throw new ApiException('PROJECT_NOT_FOUND');
   }
 
@@ -260,7 +294,7 @@ export async function updateSprint(id: string, input: UpdateSprintInput) {
   if (input.projectId !== undefined) {
     patch.projectId = input.projectId;
     // Keep the legacy teamId aligned unless explicitly overridden.
-    if (input.teamId === undefined) patch.teamId = await teamForProject(input.projectId);
+    if (input.teamId === undefined) patch.teamId = await teamForProject(actor.companyId, input.projectId);
   }
   if (input.teamId !== undefined) patch.teamId = input.teamId;
 
@@ -270,12 +304,20 @@ export async function updateSprint(id: string, input: UpdateSprintInput) {
 }
 
 /* ---- delete ---- (committed issues detach: sprintId → null) */
-export async function deleteSprint(id: string) {
-  const [existing] = await db.select({ id: sprints.id }).from(sprints).where(eq(sprints.id, id)).limit(1);
+export async function deleteSprint(actor: Actor, id: string) {
+  await requirePerm(actor, 'sprints', 'write');
+  const [existing] = await db
+    .select({ id: sprints.id })
+    .from(sprints)
+    .where(and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)))
+    .limit(1);
   if (!existing) throw new ApiException('SPRINT_NOT_FOUND');
   // Explicit detach (the DB FK also has onDelete: 'set null'; doing it here keeps
   // the behavior independent of migration state). Issues keep their project.
-  await db.update(issues).set({ sprintId: null }).where(eq(issues.sprintId, id));
+  await db
+    .update(issues)
+    .set({ sprintId: null })
+    .where(and(eq(issues.companyId, actor.companyId), eq(issues.sprintId, id)));
   await db.delete(sprints).where(eq(sprints.id, id));
   return { id };
 }

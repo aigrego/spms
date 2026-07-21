@@ -8,11 +8,11 @@ const STATUSES: readonly IssueStatus[] = ['backlog', 'todo', 'in_progress', 'in_
 
 /* PATCH /api/v1/pms/issues/:key/sub/:subId { status } — toggle a sub-issue. */
 export const PATCH = route(async (req, ctx: Ctx) => {
-  await requireActor();
+  const actor = await requireActor();
   const { key, subId } = await ctx.params;
   const body = await jsonBody<{ status?: IssueStatus }>(req);
   if (!body.status || !STATUSES.includes(body.status)) {
     throw new ApiException('VALIDATION_FAILED', 'status 不合法');
   }
-  return ok(await toggleSubIssue(key, subId, body.status));
+  return ok(await toggleSubIssue(actor, key, subId, body.status));
 });

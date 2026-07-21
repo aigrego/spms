@@ -673,7 +673,8 @@ export function RequirementsView({
 }) {
   const t = useT();
   const router = useRouter();
-  const { projects, projectById } = useAppData();
+  const { projects, projectById, can } = useAppData();
+  const canWrite = can('requirements', 'write');
   const [projectFilter, setProjectFilter] = React.useState(project ?? '');
   // Follow an external ?project= change (e.g. arriving from a project hub tab).
   React.useEffect(() => {
@@ -728,9 +729,11 @@ export function RequirementsView({
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
-          <Button variant="primary" size="md" onClick={() => setNewOpen(true)}>
-            <Plus size={14} /> {t('requirements.new')}
-          </Button>
+          {canWrite && (
+            <Button variant="primary" size="md" onClick={() => setNewOpen(true)}>
+              <Plus size={14} /> {t('requirements.new')}
+            </Button>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {/* type tabs — functional / non-functional */}
@@ -755,7 +758,9 @@ export function RequirementsView({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <InlineCreateRow label={t('requirements.new')} onCreate={quickCreate} className="border-b border-border" />
+        {canWrite && (
+          <InlineCreateRow label={t('requirements.new')} onCreate={quickCreate} className="border-b border-border" />
+        )}
         {list.length === 0 ? (
           <div className="grid h-[40vh] place-items-center text-[13px] text-fg-3">{t('requirements.empty')}</div>
         ) : (

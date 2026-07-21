@@ -279,7 +279,8 @@ export function SprintsView({
 }) {
   const t = useT();
   const sd = useSprintDict();
-  const { projectById, releaseById, productById } = useAppData();
+  const { projectById, releaseById, productById, can } = useAppData();
+  const canWrite = can('sprints', 'write');
   const { data: sprints = [] } = useSprints();
   const active = sprints.find((s) => s.status === 'active') ?? sprints[0];
   const sprintId = sprint ?? active?.id ?? null;
@@ -348,9 +349,11 @@ export function SprintsView({
             </PopoverContent>
           </Popover>
         )}
-        <Button variant="secondary" size="md" onClick={() => setModal({ open: true, sprint: null })}>
-          <Plus size={14} /> {sd.create}
-        </Button>
+        {canWrite && (
+          <Button variant="secondary" size="md" onClick={() => setModal({ open: true, sprint: null })}>
+            <Plus size={14} /> {sd.create}
+          </Button>
+        )}
       </ViewHeader>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -365,13 +368,15 @@ export function SprintsView({
                   <span className="text-[16px] font-semibold text-fg-1">{detail.name}</span>
                   <div className="ml-auto flex items-center gap-1">
                     <ResourcePanelCompact nodeType="sprint" nodeId={detail.id} variant="compact" />
-                    <button
-                      onClick={() => setModal({ open: true, sprint: detail })}
-                      title={sd.edit}
-                      className="grid h-7 w-7 place-items-center rounded-lg text-fg-3 hover:bg-surface-2 hover:text-fg-1"
-                    >
-                      <Pencil size={13.5} />
-                    </button>
+                    {canWrite && (
+                      <button
+                        onClick={() => setModal({ open: true, sprint: detail })}
+                        title={sd.edit}
+                        className="grid h-7 w-7 place-items-center rounded-lg text-fg-3 hover:bg-surface-2 hover:text-fg-1"
+                      >
+                        <Pencil size={13.5} />
+                      </button>
+                    )}
                   </div>
                 </div>
                 {/* PMS-2 §6.6: a sprint belongs to one project → version lineage */}

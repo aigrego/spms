@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { ScanQrCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,7 +9,6 @@ import { authApi, ApiError } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 
 export default function LoginPage() {
-  const router = useRouter();
   const qc = useQueryClient();
   const t = useT();
   const [username, setUsername] = React.useState('');
@@ -39,9 +37,11 @@ export default function LoginPage() {
     try {
       await authApi.login(username.trim(), password);
       // The session cookie is now set — drop any cached pre-login query state
-      // (bootstrap 401 etc.) and enter the app.
+      // (bootstrap 401 etc.) and enter the app. Full navigation guarantees the
+      // (app) tree mounts fresh with the new cookie (SPA 跳转在 dev 下偶发
+      // Suspense 不 resolve，整页跳转最稳).
       qc.clear();
-      router.replace('/issues');
+      window.location.href = '/issues';
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
       setBusy(false);

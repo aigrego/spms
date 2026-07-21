@@ -4,12 +4,17 @@ import { productLines, products, releases } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
 import { assignMember, clearSubtreeAssignments } from '@/lib/assignments';
+import { requirePerm } from '@/lib/permissions';
 import type { Actor } from './types';
 
 /* Lifecycle catalog business service: 产品线 → 产品 → 版本/Release.
-   Ported from apps/spms-server/src/routes/catalog.ts (tenant scoping removed;
-   key allocation now via the counters table). Entities are addressed by their
-   uuid `id`, resolved on the frontend via the bootstrap maps. */
+   Ported from apps/spms-server/src/routes/catalog.ts (key allocation via the
+   counters table). Entities are addressed by their uuid `id`, resolved on the
+   frontend via the bootstrap maps.
+
+   Multi-company: every function takes the Actor and reads/writes strictly
+   inside actor.companyId; keys (PL-N/PD-N/RL-N) are unique per company.
+   Module gate: `products` read/write. */
 
 type ProductRow = typeof products.$inferSelect;
 export type ProductStatus = ProductRow['status'];
@@ -19,8 +24,13 @@ export type LifecyclePhase = ReleaseRow['phase'];
 
 /* ============================ Product lines ============================ */
 
-export async function listProductLines() {
-  return db.select().from(productLines).orderBy(asc(productLines.position));
+export async function listProductLines(actor: Actor) {
+  await requirePerm(actor, 'products', 'read');
+  return db
+    .select()
+    .from(productLines)
+    .where(eq(productLines.companyId, actor.companyId))
+    .orderBy(asc(productLines.position));
 }
 
 export interface CreateProductLineInput {
@@ -30,12 +40,14 @@ export interface CreateProductLineInput {
   position?: number;
 }
 
-export async function createProductLine(input: CreateProductLineInput) {
+export async function createProductLine(actor: Actor, input: CreateProductLineInput) {
+  await requirePerm(actor, 'products', 'write');
   if (!input.name.trim()) throw new ApiException('VALIDATION_FAILED', '名称不能为空');
   const id = crypto.randomUUID();
-  const key = await nextKey('PL');
+  const key = await nextKey(actor.companyId, 'PL');
   await db.insert(productLines).values({
     id,
+    companyId: actor.companyId,
     key,
     name: input.name.trim(),
     description: input.description ?? null,
@@ -52,11 +64,12 @@ export interface UpdateProductLineInput {
   position?: number;
 }
 
-export async function updateProductLine(id: string, input: UpdateProductLineInput) {
+export async function updateProductLine(actor: Actor, id: string, input: UpdateProductLineInput) {
+  await requirePerm(actor, 'products', 'write');
   const [existing] = await db
     .select({ id: productLines.id })
     .from(productLines)
-    .where(eq(productLines.id, id))
+    .where(and(eq(productLines.companyId, actor.companyId), eq(productLines.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('PRODUCT_LINE_NOT_FOUND');
   const patch: Partial<typeof productLines.$inferInsert> = {};
@@ -68,20 +81,21 @@ export async function updateProductLine(id: string, input: UpdateProductLineInpu
   return { id };
 }
 
-export async function deleteProductLine(id: string) {
+export async function deleteProductLine(actor: Actor, id: string) {
+  await requirePerm(actor, 'products', 'write');
   const [existing] = await db
     .select({ id: productLines.id })
     .from(productLines)
-    .where(eq(productLines.id, id))
+    .where(and(eq(productLines.companyId, actor.companyId), eq(productLines.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('PRODUCT_LINE_NOT_FOUND');
   // Clear virtual-team rows across the whole subtree before the cascade delete.
   const childProducts = await db
     .select({ id: products.id })
     .from(products)
-    .where(eq(products.productLineId, id));
+    .where(and(eq(products.companyId, actor.companyId), eq(products.productLineId, id)));
   for (const p of childProducts) {
-    await clearSubtreeAssignments('product', p.id);
+    await clearSubtreeAssignments(actor.companyId, 'product', p.id);
   }
   await db.delete(productLines).where(eq(productLines.id, id));
   return { id };
@@ -89,13 +103,14 @@ export async function deleteProductLine(id: string) {
 
 /* =============================== Products =============================== */
 
-export async function listProducts(filter?: { line?: string }) {
-  const conds = [];
+export async function listProducts(actor: Actor, filter?: { line?: string }) {
+  await requirePerm(actor, 'products', 'read');
+  const conds = [eq(products.companyId, actor.companyId)];
   if (filter?.line) conds.push(eq(products.productLineId, filter.line));
   return db
     .select()
     .from(products)
-    .where(conds.length ? and(...conds) : undefined)
+    .where(and(...conds))
     .orderBy(asc(products.position));
 }
 
@@ -111,17 +126,19 @@ export interface CreateProductInput {
 }
 
 export async function createProduct(actor: Actor, input: CreateProductInput) {
+  await requirePerm(actor, 'products', 'write');
   if (!input.name.trim()) throw new ApiException('VALIDATION_FAILED', '名称不能为空');
   const [line] = await db
     .select({ id: productLines.id })
     .from(productLines)
-    .where(eq(productLines.id, input.productLineId))
+    .where(and(eq(productLines.companyId, actor.companyId), eq(productLines.id, input.productLineId)))
     .limit(1);
   if (!line) throw new ApiException('PRODUCT_LINE_NOT_FOUND');
   const id = crypto.randomUUID();
-  const key = await nextKey('PD');
+  const key = await nextKey(actor.companyId, 'PD');
   await db.insert(products).values({
     id,
+    companyId: actor.companyId,
     productLineId: input.productLineId,
     key,
     name: input.name.trim(),
@@ -134,7 +151,7 @@ export async function createProduct(actor: Actor, input: CreateProductInput) {
   });
   // PMS-2 §2.2: lead double-write — mirror the product lead as a virtual-team
   // assignment on the product node.
-  if (input.leadId) await assignMember('product', id, input.leadId, 'lead', actor.memberId);
+  if (input.leadId) await assignMember(actor.companyId, 'product', id, input.leadId, 'lead', actor.memberId);
   return { id, key };
 }
 
@@ -150,7 +167,12 @@ export interface UpdateProductInput {
 }
 
 export async function updateProduct(actor: Actor, id: string, input: UpdateProductInput) {
-  const [existing] = await db.select({ id: products.id }).from(products).where(eq(products.id, id)).limit(1);
+  await requirePerm(actor, 'products', 'write');
+  const [existing] = await db
+    .select({ id: products.id })
+    .from(products)
+    .where(and(eq(products.companyId, actor.companyId), eq(products.id, id)))
+    .limit(1);
   if (!existing) throw new ApiException('PRODUCT_NOT_FOUND');
   const patch: Partial<typeof products.$inferInsert> = {};
   if (input.productLineId !== undefined) patch.productLineId = input.productLineId;
@@ -162,27 +184,33 @@ export async function updateProduct(actor: Actor, id: string, input: UpdateProdu
   if (input.leadId !== undefined) patch.leadId = input.leadId;
   if (input.position !== undefined) patch.position = input.position;
   await db.update(products).set(patch).where(eq(products.id, id));
-  if (input.leadId) await assignMember('product', id, input.leadId, 'lead', actor.memberId);
+  if (input.leadId) await assignMember(actor.companyId, 'product', id, input.leadId, 'lead', actor.memberId);
   return { id };
 }
 
-export async function deleteProduct(id: string) {
-  const [existing] = await db.select({ id: products.id }).from(products).where(eq(products.id, id)).limit(1);
+export async function deleteProduct(actor: Actor, id: string) {
+  await requirePerm(actor, 'products', 'write');
+  const [existing] = await db
+    .select({ id: products.id })
+    .from(products)
+    .where(and(eq(products.companyId, actor.companyId), eq(products.id, id)))
+    .limit(1);
   if (!existing) throw new ApiException('PRODUCT_NOT_FOUND');
-  await clearSubtreeAssignments('product', id);
+  await clearSubtreeAssignments(actor.companyId, 'product', id);
   await db.delete(products).where(eq(products.id, id));
   return { id };
 }
 
 /* =============================== Releases =============================== */
 
-export async function listReleases(filter?: { product?: string }) {
-  const conds = [];
+export async function listReleases(actor: Actor, filter?: { product?: string }) {
+  await requirePerm(actor, 'products', 'read');
+  const conds = [eq(releases.companyId, actor.companyId)];
   if (filter?.product) conds.push(eq(releases.productId, filter.product));
   return db
     .select()
     .from(releases)
-    .where(conds.length ? and(...conds) : undefined)
+    .where(and(...conds))
     .orderBy(asc(releases.position));
 }
 
@@ -197,18 +225,20 @@ export interface CreateReleaseInput {
   position?: number;
 }
 
-export async function createRelease(input: CreateReleaseInput) {
+export async function createRelease(actor: Actor, input: CreateReleaseInput) {
+  await requirePerm(actor, 'products', 'write');
   if (!input.name.trim()) throw new ApiException('VALIDATION_FAILED', '版本名称不能为空');
   const [product] = await db
     .select({ id: products.id })
     .from(products)
-    .where(eq(products.id, input.productId))
+    .where(and(eq(products.companyId, actor.companyId), eq(products.id, input.productId)))
     .limit(1);
   if (!product) throw new ApiException('PRODUCT_NOT_FOUND');
   const id = crypto.randomUUID();
-  const key = await nextKey('RL');
+  const key = await nextKey(actor.companyId, 'RL');
   await db.insert(releases).values({
     id,
+    companyId: actor.companyId,
     productId: input.productId,
     key,
     name: input.name.trim(),
@@ -233,8 +263,13 @@ export interface UpdateReleaseInput {
   position?: number;
 }
 
-export async function updateRelease(id: string, input: UpdateReleaseInput) {
-  const [existing] = await db.select({ id: releases.id }).from(releases).where(eq(releases.id, id)).limit(1);
+export async function updateRelease(actor: Actor, id: string, input: UpdateReleaseInput) {
+  await requirePerm(actor, 'products', 'write');
+  const [existing] = await db
+    .select({ id: releases.id })
+    .from(releases)
+    .where(and(eq(releases.companyId, actor.companyId), eq(releases.id, id)))
+    .limit(1);
   if (!existing) throw new ApiException('RELEASE_NOT_FOUND');
   const patch: Partial<typeof releases.$inferInsert> = {};
   if (input.productId !== undefined) patch.productId = input.productId;
@@ -249,10 +284,15 @@ export async function updateRelease(id: string, input: UpdateReleaseInput) {
   return { id };
 }
 
-export async function deleteRelease(id: string) {
-  const [existing] = await db.select({ id: releases.id }).from(releases).where(eq(releases.id, id)).limit(1);
+export async function deleteRelease(actor: Actor, id: string) {
+  await requirePerm(actor, 'products', 'write');
+  const [existing] = await db
+    .select({ id: releases.id })
+    .from(releases)
+    .where(and(eq(releases.companyId, actor.companyId), eq(releases.id, id)))
+    .limit(1);
   if (!existing) throw new ApiException('RELEASE_NOT_FOUND');
-  await clearSubtreeAssignments('release', id);
+  await clearSubtreeAssignments(actor.companyId, 'release', id);
   await db.delete(releases).where(eq(releases.id, id));
   return { id };
 }

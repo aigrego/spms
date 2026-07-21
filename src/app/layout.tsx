@@ -36,6 +36,14 @@ export default function RootLayout({
       className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} ${iceland.variable} h-full antialiased`}
     >
       <body className="h-full">
+        {/* Anti-flash theme bootstrap: apply the persisted theme before first
+            paint. Kept in sync with the toggle in components/Header.tsx. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t}}catch(e){}",
+          }}
+        />
         <Providers>{children}</Providers>
       </body>
     </html>

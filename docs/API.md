@@ -1,15 +1,25 @@
 # next-spms API 清单
 
-统一前缀 `/api/v1/pms`。认证：cookie session（`POST /api/auth/login` 获取）。
+业务前缀 `/api/v1/pms`；平台管理前缀 `/api/v1/platform`（仅平台管理员）。认证：cookie session（`POST /api/auth/login` 获取）。
 响应信封：业务结果一律 HTTP 200 + `{ ok:true, data } | { ok:false, error:{ code, message } }`；详情不存在返回 `ok(null)`。
+
+## 权限门（RBAC）
+
+- 每个 service 入口按「路由 → 模块」映射做 `requirePerm(actor, module, read|write)`，不足 → **403 FORBIDDEN**（真实状态码）。
+- 模块映射：`/issues*`→issues · `/requirements*`→requirements · `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases。
+- `company_admin` 与平台管理员恒过；`viewer` 类只读角色调写接口同样 403。
+- **项目创建/删除**额外要求 `company_admin` 或平台管理员（矩阵 projects=write 不够）。
+- bootstrap 无模块门（登录即可），返回里的 `permissions` 供前端过滤 UI。
 
 ## 认证
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/auth/login` | `{ username, password }` → 写 session cookie |
+| POST | `/api/auth/login` | `{ username, password }` → 写 session cookie（payload 含 `cid` 当前公司） |
 | POST | `/api/auth/logout` | 清 cookie |
-| GET | `/api/auth/session` | `{ user: { id, username, name, role } \| null }` |
+| GET | `/api/auth/session` | 未登录 → `ok(null)`；已登录 → `{ user, companies, currentCompany, companyRole, isPlatformAdmin, permissions }`（companies=可进入的公司，平台管理员见全部；permissions=各模块有效级别） |
+| POST | `/api/auth/switch-company` | `{ companyId }` → 重签 cookie 切换当前公司；要求目标公司成员或平台管理员 |
+| POST | `/api/auth/change-password` | `{ oldPassword, newPassword }`（新密码 ≥6 位）；旧密码错误 → 403；飞书扫码账号无密码不可改 |
 | GET | `/api/auth/lark/config` | `{ enabled: boolean }`（飞书是否已配置） |
 | GET | `/api/auth/lark` | 302 跳转飞书授权页 |
 | GET | `/api/auth/lark/callback` | 飞书 OAuth 回调，写 session 后跳 `/issues` |
@@ -18,7 +28,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/bootstrap` | 启动参考数据：`{ me, role, members, teams, labels, projects, sprints, productLines, products, releases }`；projects/releases 的 progress 为派生值 |
+| GET | `/bootstrap` | 启动参考数据：`{ me, role, companyRole, companies, currentCompany, permissions, members, teams, labels, projects, sprints, productLines, products, releases }`；均为**当前公司**沙箱内数据；projects/releases 的 progress 为派生值 |
 
 ## Issues（缺陷 = type='bug'）
 
@@ -46,9 +56,9 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/projects` | **需 admin**；lead 双写（leadId→assignments lead，aiLeadId→member） |
-| PATCH | `/projects/:id` | 部分更新 + lead 双写同步 |
-| DELETE | `/projects/:id` | **需 admin**；先 clearSubtreeAssignments，issues set null，再删 |
+| POST | `/projects` | **需 company_admin 或平台管理员**；lead 双写（leadId→assignments lead，aiLeadId→member） |
+| PATCH | `/projects/:id` | 部分更新 + lead 双写同步（projects=write） |
+| DELETE | `/projects/:id` | **需 company_admin 或平台管理员**；先 clearSubtreeAssignments，issues set null，再删 |
 
 列表走 `/bootstrap`，无独立 GET。
 
@@ -109,6 +119,24 @@
 | PATCH | `/test-cases/:key` | 部分更新 |
 | DELETE | `/test-cases/:key` | 硬删 |
 
+## Platform 平台管理（`/api/v1/platform`，仅平台管理员，否则 403）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/companies` | 全部公司 + 成员数 |
+| POST | `/companies` | `{ key, name, color?, description? }` 创建公司；创建者自动成为其 company_admin |
+| PATCH | `/companies/:id` | 改展示字段（name/color/description；key 不可改） |
+| POST | `/companies/:id/enter` | 重签 cookie 进入该公司（同 switch-company；成员或平台管理员） |
+| GET | `/companies/:id/members` | 公司成员列表（membership + user 信息） |
+| POST | `/companies/:id/members` | `{ username, role, name?, password? }` 加成员；用户名不存在时现场建账号（需 password） |
+| PATCH | `/companies/:id/members/:membershipId` | `{ role }` 改公司内角色 |
+| DELETE | `/companies/:id/members/:membershipId` | 移出成员（user 账号保留） |
+| GET | `/permissions-matrix` | 全量 4 角色 × 10 模块矩阵 |
+| PUT | `/permissions-matrix` | `{ matrix }` 整表替换（逐格校验后 upsert + 缓存失效） |
+| GET | `/mcp-keys` | MCP key 列表（不返回 keyHash/明文） |
+| POST | `/mcp-keys` | `{ name, companyId? }` 签发 key（companyId 省略=平台级）；**明文仅本次返回** |
+| DELETE | `/mcp-keys/:id` | 吊销（写 revokedAt，行保留审计） |
+
 ## 错误码（主要）
 
-`UNAUTHORIZED` `FORBIDDEN` `VALIDATION_FAILED` `NOT_FOUND` `REQUIREMENT_NOT_FOUND` `LIFECYCLE_MISMATCH` `INVITE_FAILED` `RESOURCE_REVOKED`
+`UNAUTHORIZED` `FORBIDDEN` `NO_COMPANY`（用户无公司归属）`VALIDATION_FAILED` `NOT_FOUND` `REQUIREMENT_NOT_FOUND` `LIFECYCLE_MISMATCH` `INVITE_FAILED` `RESOURCE_REVOKED`

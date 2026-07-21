@@ -5,6 +5,7 @@ import { users } from '@/db/schema';
 import { env } from '@/lib/env';
 import { ensureCurrentMember } from '@/lib/identity';
 import { createSessionCookie } from '@/lib/session';
+import { defaultCompanyForUser } from '@/server/http';
 import { larkConfigured } from '@/server/lark';
 
 function loginFail(req: NextRequest) {
@@ -77,8 +78,9 @@ export async function GET(req: NextRequest) {
     }
     if (!u) throw new Error('user upsert failed');
 
-    await ensureCurrentMember(u);
-    const c = await createSessionCookie(u);
+    const company = await defaultCompanyForUser(u);
+    if (company) await ensureCurrentMember(u, company.id);
+    const c = await createSessionCookie(u, company?.id);
     const res = NextResponse.redirect(new URL('/issues', req.url), 302);
     res.cookies.set(c.name, c.value, c.options);
     return res;

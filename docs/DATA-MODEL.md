@@ -3,6 +3,10 @@
 PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 相对原 spms-server 的变更：**去掉所有 tenantId**（无多租户）；新增 `users`、`counters`；`members.portalUserId`→`userId`，删 `homeTenantId`。
 
+二期「多公司沙箱」变更：新增 `companies`、`company_memberships`、`role_permissions`、`mcp_api_keys` 4 张表；
+**全部业务表加 `companyId` NN（→ companies cascade）**，原 `key` 类唯一约束改为 `(companyId, key)` 复合唯一；
+`counters` 主键改为 `(companyId, name)` —— 编号按公司独立。共 22 张表 + 21 个枚举。
+
 ## 枚举
 
 | 枚举 | 取值 |
@@ -30,11 +34,27 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 
 ## 表
 
-### users（新增，登录账号）
-`id` PK · `username` unique NN · `passwordHash` NN · `name` NN · `role` NN 默认 `member`（admin|member）· `larkUnionId` unique · `createdAt` NN
+> **多公司沙箱约定**：以下业务表均带 `companyId` NN → companies cascade（users 除外——账号跨公司）；
+> 表中 `key`/`email`/`userId`/`agentKey` 等原全局唯一约束一律改为 **(companyId, …) 复合唯一**（如 members `(companyId, email)`、issues `(companyId, key)`），下表不再逐一标注 companyId。
 
-### counters（新增，编号序列）
-`name` PK · `value` int NN 默认 0 —— `INSERT ... ON CONFLICT DO UPDATE SET value = counters.value + 1 RETURNING value`
+### users（登录账号）
+`id` PK · `username` unique NN · `passwordHash` NN · `name` NN · `role` NN 默认 `member`（admin=平台管理员 | member=普通用户，**平台级角色**）· `larkUnionId` unique · `createdAt` NN
+
+### companies（新增，公司沙箱）
+`id` PK · `key` unique NN（如 `DEFAULT`/`SAMPLE`）· `name` NN · `color` · `description` · `createdAt` NN
+
+### company_memberships（新增，用户↔公司 + 公司内角色）
+`id` PK · `userId` NN → users cascade · `companyId` NN → companies cascade · `role` NN（`company_admin | product_manager | developer | tester | viewer`）· `createdAt` NN · 唯一 `(userId, companyId)`
+
+### role_permissions（新增，角色×模块权限矩阵，全局参考数据不按公司分）
+复合 PK `(role, module)` · `role` NN（4 个可配置角色：product_manager/developer/tester/viewer）· `module` NN（10 个模块：issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents）· `level` NN（`none | read | write`）
+—— `company_admin` 与平台管理员恒全权限，不入此表；缺失行按 `none` 处理。
+
+### mcp_api_keys（新增，MCP 接入密钥）
+`id` PK · `keyHash` unique NN（sha256 hex，不存明文）· `prefix` NN（前 8 位，仅展示）· `name` NN · `companyId` → companies cascade（**NULL = 平台级 key**，否则公司级）· `createdBy` → users set null · `revokedAt`（吊销标记，行保留审计）· `createdAt` NN
+
+### counters（编号序列，二期改为按公司独立）
+复合 PK `(companyId, name)` · `companyId` NN → companies cascade · `name` NN · `value` int NN 默认 0 —— `INSERT ... ON CONFLICT DO UPDATE SET value = counters.value + 1 RETURNING value`；同一前缀（如 BUG）在不同公司各自从 1 起编。
 
 ### members（人 + AI agent 同表）
 `id` PK · `type` NN 默认 human · `name` NN · `initials` NN · `color` · `role` · `userId` unique（→ users.id）· `agentKey` unique（atlas|forge|sentry|scribe）· `origin` NN 默认 internal · `email` unique · `status` NN 默认 active
@@ -98,3 +118,4 @@ member ─cascade→ assignments；─set null→ author/assignee/lead 引用
 
 - 删 project：requirements/sprints/test_cases 级联删，**issues 只 set null**
 - 删成员：assignments 级联删，其余引用 set null
+- 删公司：公司内全部业务数据、counters、memberships、公司级 mcp_api_keys 级联删（沙箱整体清除）

@@ -7,6 +7,6 @@ type Ctx = { params: Promise<{ id: string }> };
 /* GET /api/v1/pms/sprints/:id/burndown — ideal (linear) vs. snapshot actual;
    null when the sprint is missing. */
 export const GET = route(async (_req, ctx: Ctx) => {
-  await requireActor();
-  return ok(await getBurndown((await ctx.params).id));
+  const actor = await requireActor();
+  return ok(await getBurndown(actor, (await ctx.params).id));
 });

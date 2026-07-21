@@ -1,8 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
-import { labels, members, productLines, products, projects, releases, sprints, teams } from '@/db/schema';
+import { companies, labels, members, productLines, products, projects, releases, sprints, teams } from '@/db/schema';
 import { ApiException, type ErrorCode } from '@/lib/envelope';
 import { ensureAgents } from '@/lib/identity';
 import { computeRollups } from '@/lib/rollup';
@@ -17,42 +17,84 @@ import type { Actor } from '@/server/services/types';
 /* MCP server (Phase D) — a thin adapter over src/server/services/*. Tools share
    the exact business rules of the REST API; this file only does zod validation,
    actor resolution, and result/error wrapping. See docs/MCP.md for the tool
-   contract. Stateless: a fresh McpServer is created per HTTP request. */
+   contract. Stateless: a fresh McpServer is created per HTTP request.
 
-/* ---- MCP 操作者身份 -------------------------------------------------------
-   All writes are attributed to the built-in `scribe` agent member so the
-   activity feed shows them as Agent operations (docs/MCP.md §操作者身份). */
-async function mcpActor(): Promise<Actor> {
-  await ensureAgents(); // fallback for an empty database
+   Multi-company sandbox: the route handler authenticates the request into a
+   McpKeyContext and every tool call resolves its Actor from it —
+     - company-level key  → that company's sandbox, always;
+     - platform-level key → the tool's optional `companyId` argument, defaulting
+       to the first company (createdAt asc);
+     - browser session    → the session user's resolved actor (companyId
+       argument ignored).
+   Key actors act as company_admin via the company's built-in `scribe` agent
+   member, so writes show up as Agent operations (docs/MCP.md §操作者身份). */
+
+export interface McpKeyContext {
+  companyId: string | null; // null = platform-level key
+  source: 'db' | 'env' | 'session';
+  sessionActor?: Actor; // source === 'session': the already-resolved actor
+}
+
+/* The first company (createdAt asc) — default target of a platform-level key
+   when a tool call omits `companyId`. */
+async function defaultCompanyId(): Promise<string | null> {
+  const [c] = await db.select({ id: companies.id }).from(companies).orderBy(asc(companies.createdAt)).limit(1);
+  return c?.id ?? null;
+}
+
+/* MCP 操作者身份：the company's built-in `scribe` agent member, acting as
+   company_admin (keys are minted by platform admins and carry full company
+   access by design). */
+async function buildMcpActor(companyId: string): Promise<Actor> {
+  await ensureAgents(companyId); // fallback for an empty company
   const [scribe] = await db
     .select({ id: members.id })
     .from(members)
-    .where(eq(members.agentKey, 'scribe'))
+    .where(and(eq(members.companyId, companyId), eq(members.agentKey, 'scribe')))
     .limit(1);
   if (!scribe) throw new Error('scribe agent member missing after ensureAgents()');
-  return { userId: 'mcp', memberId: scribe.id, name: 'MCP Agent', role: 'admin' };
+  return {
+    userId: 'mcp',
+    memberId: scribe.id,
+    name: 'MCP Agent',
+    role: 'member',
+    companyId,
+    companyRole: 'company_admin',
+    isPlatformAdmin: false,
+  };
 }
 
 /* ---- bootstrap payload ----------------------------------------------------
-   Mirrors services/meta.bootstrap minus ensureCurrentMember(): the MCP actor
-   has no users row, and calling it with a synthetic id would insert a bogus
-   human member into the resource pool. */
-async function loadBootstrap() {
-  await ensureAgents();
+   Mirrors services/meta.bootstrap minus permissions/companies: the MCP actor
+   is a synthetic agent (no users row), so the membership-driven parts do not
+   apply. currentCompany is kept so the Agent can confirm which sandbox it is
+   operating in. */
+async function loadBootstrap(actor: Actor) {
+  const companyId = actor.companyId;
+  await ensureAgents(companyId);
   const [memberRows, teamRows, labelRows, projectRows, sprintRows, productLineRows, productRows, releaseRows] =
     await Promise.all([
-      db.select().from(members),
-      db.select().from(teams),
-      db.select().from(labels),
-      db.select().from(projects),
-      db.select().from(sprints).orderBy(asc(sprints.startDate)),
-      db.select().from(productLines).orderBy(asc(productLines.position)),
-      db.select().from(products).orderBy(asc(products.position)),
-      db.select().from(releases).orderBy(asc(releases.position)),
+      db.select().from(members).where(eq(members.companyId, companyId)),
+      db.select().from(teams).where(eq(teams.companyId, companyId)),
+      db.select().from(labels).where(eq(labels.companyId, companyId)),
+      db.select().from(projects).where(eq(projects.companyId, companyId)),
+      db.select().from(sprints).where(eq(sprints.companyId, companyId)).orderBy(asc(sprints.startDate)),
+      db
+        .select()
+        .from(productLines)
+        .where(eq(productLines.companyId, companyId))
+        .orderBy(asc(productLines.position)),
+      db.select().from(products).where(eq(products.companyId, companyId)).orderBy(asc(products.position)),
+      db.select().from(releases).where(eq(releases.companyId, companyId)).orderBy(asc(releases.position)),
     ]);
   // Project/release progress is derived from issue completion, not the stored column.
-  const { projectProgress, releaseProgress } = await computeRollups();
+  const { projectProgress, releaseProgress } = await computeRollups(companyId);
+  const [currentCompany] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
   return {
+    me: actor.memberId,
+    role: actor.role,
+    companyRole: actor.companyRole,
+    currentCompany: currentCompany ?? null,
     members: memberRows,
     teams: teamRows,
     labels: labelRows,
@@ -103,6 +145,13 @@ const requirementStatus = z.enum(['draft', 'reviewing', 'approved', 'in_dev', 's
 const testCaseStatus = z.enum(['draft', 'active', 'deprecated']);
 const testResult = z.enum(['untested', 'passed', 'failed', 'blocked']);
 
+/* Company selector attached to every tool: only meaningful for platform-level
+   keys; company-level keys and browser sessions ignore it. */
+const companyIdParam = z
+  .string()
+  .optional()
+  .describe('目标公司 id。平台级 key 时必选目标公司 id（未传默认第一个公司）；公司级 key 忽略此参数');
+
 const CONCEPTS = [
   '概念：Issue 是统一工作项，type=bug 即缺陷、ticket 即工单/任务、backlog 即备忘。',
   '所有实体用展示 key 引用（BUG-3 / TKT-7 / FR-2 / NFR-1 / TC-1），内部 uuid 不暴露。',
@@ -112,8 +161,33 @@ const CONCEPTS = [
 ].join(' ');
 
 /* ---- server factory (one instance per stateless HTTP request) ------------- */
-export function createMcpServer(): McpServer {
+export function createMcpServer(keyContext: McpKeyContext): McpServer {
   const server = new McpServer({ name: 'next-spms', version: '0.1.0' });
+
+  /* Resolve the Actor for one tool call from the authenticated key context. */
+  async function actorFor(requestedCompanyId?: string): Promise<Actor> {
+    if (keyContext.source === 'session') {
+      if (!keyContext.sessionActor) throw new ApiException('UNAUTHORIZED', '会话无效', 401);
+      return keyContext.sessionActor; // the session user's current company; companyId arg ignored
+    }
+    let companyId = keyContext.companyId; // company-level key: pinned sandbox
+    if (!companyId) {
+      // Platform-level key: explicit target wins, else the first company.
+      if (requestedCompanyId) {
+        const [c] = await db
+          .select({ id: companies.id })
+          .from(companies)
+          .where(eq(companies.id, requestedCompanyId))
+          .limit(1);
+        if (!c) throw new ApiException('NOT_FOUND', `公司 ${requestedCompanyId} 不存在`);
+        companyId = c.id;
+      } else {
+        companyId = await defaultCompanyId();
+      }
+    }
+    if (!companyId) throw new ApiException('NOT_FOUND', '不存在任何公司');
+    return buildMcpActor(companyId);
+  }
 
   /* ================= 读 ================= */
 
@@ -121,11 +195,43 @@ export function createMcpServer(): McpServer {
     'spms_get_bootstrap',
     {
       description:
-        `全量参考数据：members（含 agent 成员及其 id）/labels/projects（含派生进度）/sprints/productLines/products/releases。` +
+        `全量参考数据：members（含 agent 成员及其 id）/labels/projects（含派生进度）/sprints/productLines/products/releases，附 currentCompany 标明当前公司沙箱。` +
         `建议会话开始时调用一次，拿到项目 id、迭代 id、成员 id、label id 供后续工具使用。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
+      inputSchema: { companyId: companyIdParam },
     },
-    async () => run(loadBootstrap),
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return loadBootstrap(actor);
+      }),
+  );
+
+  server.registerTool(
+    'spms_list_companies',
+    {
+      description:
+        `公司列表。平台级 key 返回全部公司（按创建时间升序）；公司级 key 只返回 key 所属的那一个公司。` +
+        `返回的 id 可用作其他工具的 companyId 参数（仅平台级 key 需要）。`,
+      annotations: { readOnlyHint: true },
+    },
+    async () =>
+      run(async () => {
+        // Company-scoped contexts (company key, non-admin session) see only
+        // their own company; platform contexts (platform key, admin session)
+        // see them all.
+        const scopedId =
+          keyContext.source === 'session'
+            ? keyContext.sessionActor?.isPlatformAdmin
+              ? null
+              : (keyContext.sessionActor?.companyId ?? null)
+            : keyContext.companyId;
+        if (scopedId) {
+          const [c] = await db.select().from(companies).where(eq(companies.id, scopedId)).limit(1);
+          return c ? [c] : [];
+        }
+        return db.select().from(companies).orderBy(asc(companies.createdAt));
+      }),
   );
 
   server.registerTool(
@@ -136,6 +242,7 @@ export function createMcpServer(): McpServer {
         `assignee/project/sprint 传对应 id（id 可从 spms_get_bootstrap 获得）。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
       inputSchema: {
+        companyId: companyIdParam,
         status: issueStatus.optional().describe('按状态筛选'),
         type: issueType.optional().describe("按类型筛选；type='bug' 即缺陷列表"),
         priority: issuePriority.optional().describe('按紧急度筛选'),
@@ -146,9 +253,10 @@ export function createMcpServer(): McpServer {
     },
     async (args) =>
       run(async () => {
+        const actor = await actorFor(args.companyId);
         // The service natively filters by assignee/project; the rest are
         // post-filtered on the serialized rows (id there is the display key).
-        const rows = await issueSvc.listIssues({ assignee: args.assignee, project: args.project });
+        const rows = await issueSvc.listIssues(actor, { assignee: args.assignee, project: args.project });
         return rows.filter(
           (r) =>
             (args.status === undefined || r.status === args.status) &&
@@ -164,10 +272,16 @@ export function createMcpServer(): McpServer {
     {
       description: `Issue 详情：按展示 key（如 BUG-3）查询，含 labels/subIssues/activities（created/status/comment 等历史流）。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
-      inputSchema: { key: z.string().describe("Issue 展示 key，如 'BUG-3'") },
+      inputSchema: {
+        companyId: companyIdParam,
+        key: z.string().describe("Issue 展示 key，如 'BUG-3'"),
+      },
     },
     async (args) =>
-      run(async () => found(await issueSvc.getIssue(args.key), 'ISSUE_NOT_FOUND', `Issue ${args.key} 不存在`)),
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return found(await issueSvc.getIssue(actor, args.key), 'ISSUE_NOT_FOUND', `Issue ${args.key} 不存在`);
+      }),
   );
 
   server.registerTool(
@@ -176,11 +290,16 @@ export function createMcpServer(): McpServer {
       description: `需求列表（附关联 issue 完成度）。返回的 id 字段是展示 key（FR-N / NFR-N）。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
       inputSchema: {
+        companyId: companyIdParam,
         project: z.string().optional().describe('项目 id'),
         type: requirementType.optional().describe('functional=功能需求 / non_functional=非功能需求'),
       },
     },
-    async (args) => run(() => requirementSvc.listRequirements({ project: args.project, type: args.type })),
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return requirementSvc.listRequirements(actor, { project: args.project, type: args.type });
+      }),
   );
 
   server.registerTool(
@@ -188,12 +307,16 @@ export function createMcpServer(): McpServer {
     {
       description: `需求详情：PRD 描述/验收标准/关联 issue 列表，按展示 key（如 FR-2）查询。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
-      inputSchema: { key: z.string().describe("需求展示 key，如 'FR-2' 或 'NFR-1'") },
+      inputSchema: {
+        companyId: companyIdParam,
+        key: z.string().describe("需求展示 key，如 'FR-2' 或 'NFR-1'"),
+      },
     },
     async (args) =>
-      run(async () =>
-        found(await requirementSvc.getRequirement(args.key), 'REQUIREMENT_NOT_FOUND', `需求 ${args.key} 不存在`),
-      ),
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return found(await requirementSvc.getRequirement(actor, args.key), 'REQUIREMENT_NOT_FOUND', `需求 ${args.key} 不存在`);
+      }),
   );
 
   server.registerTool(
@@ -201,8 +324,13 @@ export function createMcpServer(): McpServer {
     {
       description: `项目列表（含按 issue 完成度派生的 progress）。项目用 uuid id 引用。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
+      inputSchema: { companyId: companyIdParam },
     },
-    async () => run(async () => (await loadBootstrap()).projects),
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return (await loadBootstrap(actor)).projects;
+      }),
   );
 
   server.registerTool(
@@ -210,8 +338,13 @@ export function createMcpServer(): McpServer {
     {
       description: `迭代列表（按开始日期升序）。迭代用 uuid id 引用。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
+      inputSchema: { companyId: companyIdParam },
     },
-    async () => run(() => sprintSvc.listSprints()),
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return sprintSvc.listSprints(actor);
+      }),
   );
 
   server.registerTool(
@@ -219,10 +352,16 @@ export function createMcpServer(): McpServer {
     {
       description: `迭代详情：元信息 + committed issue 列表 + committed/completed/remaining 点数统计。id 从 spms_list_sprints 获得。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
-      inputSchema: { id: z.string().describe('迭代 id（uuid）') },
+      inputSchema: {
+        companyId: companyIdParam,
+        id: z.string().describe('迭代 id（uuid）'),
+      },
     },
     async (args) =>
-      run(async () => found(await sprintSvc.getSprint(args.id), 'SPRINT_NOT_FOUND', `迭代 ${args.id} 不存在`)),
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return found(await sprintSvc.getSprint(actor, args.id), 'SPRINT_NOT_FOUND', `迭代 ${args.id} 不存在`);
+      }),
   );
 
   server.registerTool(
@@ -231,13 +370,19 @@ export function createMcpServer(): McpServer {
       description: `测试用例列表。status：draft|active|deprecated；result：untested|passed|failed|blocked。requirement 传展示 key（FR-N）。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
       inputSchema: {
+        companyId: companyIdParam,
         project: z.string().optional().describe('项目 id'),
         requirement: z.string().optional().describe("需求展示 key，如 'FR-2'"),
         status: testCaseStatus.optional(),
         result: testResult.optional(),
       },
     },
-    async (args) => run(() => testCaseSvc.listTestCases(args)),
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, ...filter } = args;
+        return testCaseSvc.listTestCases(actor, filter);
+      }),
   );
 
   server.registerTool(
@@ -245,8 +390,13 @@ export function createMcpServer(): McpServer {
     {
       description: `成员列表（human/agent，含 id、agentKey、状态）。assigneeId、leadId 等参数从这里取 member id。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
+      inputSchema: { companyId: companyIdParam },
     },
-    async () => run(() => resourceSvc.listMembers()),
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return resourceSvc.listMembers(actor);
+      }),
   );
 
   /* ================= 写 ================= */
@@ -259,6 +409,7 @@ export function createMcpServer(): McpServer {
         `requirementId 传需求展示 key（FR-N）；assigneeId/projectId/sprintId/labels 传对应 id（spms_get_bootstrap 可查）。` +
         `sprint 属于某个项目时，issue 会自动归属该项目（projectId 冲突会报 LIFECYCLE_MISMATCH）。${CONCEPTS}`,
       inputSchema: {
+        companyId: companyIdParam,
         title: z.string().describe('标题（必填）'),
         type: issueType.optional().describe("默认 'ticket'；缺陷传 'bug'"),
         status: issueStatus.optional().describe("默认 'todo'"),
@@ -274,7 +425,12 @@ export function createMcpServer(): McpServer {
         labels: z.array(z.string()).optional().describe('label id 数组（全量替换语义）'),
       },
     },
-    async (args) => run(async () => issueSvc.createIssue(await mcpActor(), args)),
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, ...input } = args;
+        return issueSvc.createIssue(actor, input);
+      }),
   );
 
   server.registerTool(
@@ -284,6 +440,7 @@ export function createMcpServer(): McpServer {
         `更新 Issue（按展示 key，如 BUG-3）：可改 status/priority/importance/title/description/assigneeId/projectId/` +
         `requirementId（展示 key）/sprintId/estimate/storyPoints/labels（全量替换）。只传要改的字段；显式传 null 可清空可空字段。${CONCEPTS}`,
       inputSchema: {
+        companyId: companyIdParam,
         key: z.string().describe("Issue 展示 key，如 'BUG-3'"),
         title: z.string().optional(),
         description: z.string().nullable().optional(),
@@ -302,8 +459,9 @@ export function createMcpServer(): McpServer {
     },
     async (args) =>
       run(async () => {
-        const { key, ...input } = args;
-        return issueSvc.updateIssue(await mcpActor(), key, input);
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, key, ...input } = args;
+        return issueSvc.updateIssue(actor, key, input);
       }),
   );
 
@@ -312,11 +470,16 @@ export function createMcpServer(): McpServer {
     {
       description: `给 Issue 加评论（写入 activities 流，kind=comment，操作者为 MCP Agent/scribe）。${CONCEPTS}`,
       inputSchema: {
+        companyId: companyIdParam,
         key: z.string().describe("Issue 展示 key，如 'BUG-3'"),
         body: z.string().describe('评论内容（不能为空）'),
       },
     },
-    async (args) => run(async () => issueSvc.addComment(await mcpActor(), args.key, args.body)),
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return issueSvc.addComment(actor, args.key, args.body);
+      }),
   );
 
   server.registerTool(
@@ -326,6 +489,7 @@ export function createMcpServer(): McpServer {
         `创建需求（自动分配 key：functional→FR-N，non_functional→NFR-N）。category 仅对 non_functional 有意义。` +
         `releaseId 传版本 id（spms_get_bootstrap 的 releases）。${CONCEPTS}`,
       inputSchema: {
+        companyId: companyIdParam,
         projectId: z.string().describe('项目 id（必填）'),
         title: z.string().describe('需求标题（必填）'),
         type: requirementType.optional().describe("默认 'functional'"),
@@ -337,7 +501,12 @@ export function createMcpServer(): McpServer {
         releaseId: z.string().optional().describe('版本/Release id'),
       },
     },
-    async (args) => run(async () => requirementSvc.createRequirement(await mcpActor(), args)),
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, ...input } = args;
+        return requirementSvc.createRequirement(actor, input);
+      }),
   );
 
   server.registerTool(
@@ -347,6 +516,7 @@ export function createMcpServer(): McpServer {
         `更新需求（按展示 key，如 FR-2）：可改 status/title/type/category/priority/importance/description/` +
         `acceptanceCriteria/releaseId/projectId/position。需求状态：draft|reviewing|approved|in_dev|shipped|rejected。只传要改的字段。${CONCEPTS}`,
       inputSchema: {
+        companyId: companyIdParam,
         key: z.string().describe("需求展示 key，如 'FR-2'"),
         title: z.string().optional(),
         type: requirementType.optional().describe('改为 functional 会清空 category'),
@@ -363,8 +533,9 @@ export function createMcpServer(): McpServer {
     },
     async (args) =>
       run(async () => {
-        const { key, ...input } = args;
-        return requirementSvc.updateRequirement(key, input);
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, key, ...input } = args;
+        return requirementSvc.updateRequirement(actor, key, input);
       }),
   );
 
@@ -373,6 +544,7 @@ export function createMcpServer(): McpServer {
     {
       description: `创建测试用例（自动分配 TC-N key，初始 status=draft、result=untested）。requirementId 传需求展示 key（FR-N）。${CONCEPTS}`,
       inputSchema: {
+        companyId: companyIdParam,
         projectId: z.string().describe('项目 id（必填）'),
         title: z.string().describe('用例标题（必填）'),
         requirementId: z.string().optional().describe("需求展示 key，如 'FR-2'"),
@@ -382,7 +554,12 @@ export function createMcpServer(): McpServer {
         expected: z.string().optional().describe('预期结果'),
       },
     },
-    async (args) => run(async () => testCaseSvc.createTestCase(await mcpActor(), args)),
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, ...input } = args;
+        return testCaseSvc.createTestCase(actor, input);
+      }),
   );
 
   server.registerTool(
@@ -392,6 +569,7 @@ export function createMcpServer(): McpServer {
         `更新测试用例（按展示 key，如 TC-1）：可改 title/priority/status（draft|active|deprecated）/result（untested|passed|failed|blocked）/` +
         `preconditions/steps/expected/requirementId（展示 key）/assigneeId/position。执行结果用 result 字段记录。只传要改的字段。${CONCEPTS}`,
       inputSchema: {
+        companyId: companyIdParam,
         key: z.string().describe("用例展示 key，如 'TC-1'"),
         title: z.string().optional(),
         status: testCaseStatus.optional(),
@@ -408,8 +586,9 @@ export function createMcpServer(): McpServer {
     },
     async (args) =>
       run(async () => {
-        const { key, ...input } = args;
-        return testCaseSvc.updateTestCase(key, input);
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, key, ...input } = args;
+        return testCaseSvc.updateTestCase(actor, key, input);
       }),
   );
 
@@ -420,12 +599,17 @@ export function createMcpServer(): McpServer {
         `把 Issue 移入/移出迭代。sprintId 传迭代 id，或 '_backlog' 移出迭代（回到产品待办）。` +
         `迭代属于项目时 issue 自动归属该项目。可同时更新 storyPoints。${CONCEPTS}`,
       inputSchema: {
+        companyId: companyIdParam,
         sprintId: z.string().describe("迭代 id，或 '_backlog' 移出迭代"),
         issueKey: z.string().describe("Issue 展示 key，如 'BUG-3'"),
         storyPoints: z.number().nullable().optional().describe('可选，同时更新故事点'),
       },
     },
-    async (args) => run(() => sprintSvc.moveIssue(args.sprintId, args.issueKey, args.storyPoints)),
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return sprintSvc.moveIssue(actor, args.sprintId, args.issueKey, args.storyPoints);
+      }),
   );
 
   server.registerTool(
@@ -433,6 +617,7 @@ export function createMcpServer(): McpServer {
     {
       description: `创建项目（初始 status=backlog）。releaseId 传版本 id、leadId 传负责人 member id（spms_get_bootstrap / spms_list_members 可查）。${CONCEPTS}`,
       inputSchema: {
+        companyId: companyIdParam,
         name: z.string().describe('项目名称（必填）'),
         releaseId: z.string().optional().describe('版本/Release id'),
         leadId: z.string().optional().describe('负责人 member id'),
@@ -440,7 +625,12 @@ export function createMcpServer(): McpServer {
         description: z.string().optional().describe('项目描述'),
       },
     },
-    async (args) => run(async () => projectSvc.createProject(await mcpActor(), args)),
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, ...input } = args;
+        return projectSvc.createProject(actor, input);
+      }),
   );
 
   return server;

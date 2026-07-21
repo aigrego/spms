@@ -2,7 +2,14 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, authApi } from '@/lib/api';
+import type {
+  CompanyRole,
+  ModuleKey,
+  PermLevel,
+  SessionCompany,
+  SessionInfo,
+} from '@/lib/api';
 import type {
   Member,
   Team,
@@ -19,6 +26,18 @@ interface AppDataValue {
   // PLAN-5: the current user's member id (from the server, resolved via TDT).
   meId: string | null;
   role: string | null;
+  /* Multi-company sandbox session (P5). */
+  session: SessionInfo | null;
+  sessionLoading: boolean;
+  companies: SessionCompany[];
+  currentCompany: SessionCompany | null;
+  companyRole: CompanyRole | null;
+  isPlatformAdmin: boolean;
+  permissions: Partial<Record<ModuleKey, PermLevel>> | undefined;
+  /* RBAC helper. Admins (session role admin / platform admin / company_admin)
+     are always true. When the backend has not shipped the permissions map yet,
+     fail open so the UI does not go blank mid-rollout. */
+  can: (module: ModuleKey, level: 'read' | 'write') => boolean;
   members: Member[];
   teams: Team[];
   labels: Label[];
@@ -45,7 +64,16 @@ interface AppDataValue {
 const AppDataContext = createContext<AppDataValue | null>(null);
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
-  const { data, isLoading } = useQuery({ queryKey: ['bootstrap'], queryFn: api.bootstrap });
+  const { data: session, isLoading: sessionLoading } = useQuery({
+    queryKey: ['session'],
+    queryFn: authApi.getSession,
+  });
+  // 未登录（如 /login）时不拉取 bootstrap，避免 401 缓存导致登录后首屏空白
+  const { data, isLoading } = useQuery({
+    queryKey: ['bootstrap'],
+    queryFn: api.bootstrap,
+    enabled: !!session?.user,
+  });
 
   const value = useMemo<AppDataValue>(() => {
     const members = data?.members ?? [];
@@ -67,10 +95,36 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     const productMap = new Map(products.map((p) => [p.id, p]));
     const releaseMap = new Map(releases.map((r) => [r.id, r]));
 
+    const sessionInfo = session ?? null;
+    const companyRole = sessionInfo?.companyRole ?? null;
+    const isPlatformAdmin = sessionInfo?.isPlatformAdmin ?? false;
+    const permissions = sessionInfo?.permissions;
+    const can = (module: ModuleKey, level: 'read' | 'write'): boolean => {
+      if (
+        sessionInfo?.user.role === 'admin' ||
+        isPlatformAdmin ||
+        companyRole === 'company_admin'
+      ) {
+        return true;
+      }
+      // Backend has not shipped the permissions map yet — fail open.
+      if (!permissions) return true;
+      const p = permissions[module] ?? 'none';
+      return level === 'write' ? p === 'write' : p !== 'none';
+    };
+
     return {
       loading: isLoading,
       meId: data?.me ?? null,
       role: data?.role ?? null,
+      session: sessionInfo,
+      sessionLoading,
+      companies: sessionInfo?.companies ?? [],
+      currentCompany: sessionInfo?.currentCompany ?? null,
+      companyRole,
+      isPlatformAdmin,
+      permissions,
+      can,
       members,
       teams,
       labels,
@@ -93,7 +147,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       productById: (id) => (id ? productMap.get(id) : undefined),
       releaseById: (id) => (id ? releaseMap.get(id) : undefined),
     };
-  }, [data, isLoading]);
+  }, [data, isLoading, session, sessionLoading]);
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;
 }

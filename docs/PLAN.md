@@ -61,17 +61,40 @@
 
 ## 编号规则
 
-统一走 `counters` 表原子递增（修掉原系统 max+1 竞态）：
+统一走 `counters` 表原子递增（修掉原系统 max+1 竞态）；二期起 counters 主键 `(companyId, name)`，**序号按公司独立**：
 
 | 前缀 | 对象 | 序号范围 |
 |---|---|---|
-| BLG | 备忘 issue | 全局单序号 |
-| TKT | 工单 issue | 全局单序号 |
-| BUG | 缺陷 issue | 全局单序号 |
-| FR | 功能需求 | 独立序号 |
-| NFR | 非功能需求 | 独立序号 |
-| TC | 测试用例 | 全局单序号 |
-| PL / PD / RL | 产品线 / 产品 / 版本 | 各自单序号 |
+| BLG | 备忘 issue | 公司内单序号 |
+| TKT | 工单 issue | 公司内单序号 |
+| BUG | 缺陷 issue | 公司内单序号 |
+| FR | 功能需求 | 公司内独立序号 |
+| NFR | 非功能需求 | 公司内独立序号 |
+| TC | 测试用例 | 公司内单序号 |
+| PL / PD / RL | 产品线 / 产品 / 版本 | 公司内各自单序号 |
+
+## 二期：多公司沙箱 + RBAC + Header ✅ 已完成
+
+### 已确认的决策（二期）
+
+| 维度 | 决策 |
+|---|---|
+| 多公司 | 公司即沙箱：全部业务表加 `companyId`，唯一键改 `(companyId, key)`，编号按公司独立；现有数据归入「默认公司」(DEFAULT)，另有「示例公司」(SAMPLE) 空沙箱 |
+| 角色 | 两层：users.role 平台级（admin=平台管理员）；company_memberships.role 公司级（company_admin + 4 可配置角色） |
+| 权限 | 4 角色 × 10 模块 × 3 档矩阵存 `role_permissions`，全局生效，平台管理员可配；company_admin/平台管理员恒全权限；项目建删额外限 company_admin/平台管理员 |
+| 认证 | session cookie 增加 `cid`（当前公司），switch-company 重签切换 |
+| MCP key | DB key（sha256，不存明文）：公司级钉死沙箱、平台级跨公司；env `MCP_API_KEY` 降级为平台级兜底 |
+| 前端 | 52px 全局 Header（logo + 公司切换器 + 角色 Badge + 全局搜索 ⌘K + 用户下拉）；UI 按 permissions 过滤 |
+
+### 实施阶段（二期）
+
+- **P1：schema 与迁移** ✅ —— `companies` / `company_memberships` / `role_permissions` / `mcp_api_keys` 4 张新表；业务表加 `companyId` NN；唯一键与 counters 复合 PK 改造；现有数据归入默认公司，admin = 平台管理员 + 默认公司 company_admin，env dev-mcp-key 迁移为平台级 key
+- **P2：Actor 与权限门** ✅ —— `requireActor()`（session cid → 公司 + 角色）；`src/lib/permissions.ts` 矩阵读取/60s 缓存/`requirePerm`；services 全量接入
+- **P3：认证扩展** ✅ —— session payload 加 `cid`；`/api/auth/switch-company`、`/api/auth/change-password`；session/bootstrap 返回 companies/currentCompany/companyRole/permissions
+- **P4：平台管理 API** ✅ —— `/api/v1/platform/**`：companies（GET/POST/PATCH + enter + members CRUD）、permissions-matrix（GET/PUT）、mcp-keys（GET/POST/DELETE）
+- **P5：MCP 改造** ✅ —— DB key 鉴权（sha256）+ env 平台级兜底；公司级 key 自动隔离；平台级 key 工具带 `companyId` 参数；新增 `spms_list_companies`（共 20 个工具）；MCP actor = 目标公司 scribe agent（company_admin）
+- **P6：前端 Header 与平台管理页** ✅ —— 52px 全局 Header（公司切换器/角色 Badge/⌘K 全局搜索/用户下拉）；SettingsModal（资料 + 改密码）；`/platform` 四子页（companies/members/matrix/keys，仅平台管理员）；侧边栏与按钮按 permissions 过滤
+- **P7：验证 + 文档** ✅ —— build 绿、多公司隔离与 RBAC 冒烟；docs 与 README 更新
 
 ## 明确不做
 

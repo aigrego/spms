@@ -12,6 +12,6 @@ export const PATCH = route(async (req, ctx: Ctx) => {
 });
 
 export const DELETE = route(async (_req, ctx: Ctx) => {
-  await requireActor();
-  return ok(await deleteProduct((await ctx.params).id));
+  const actor = await requireActor();
+  return ok(await deleteProduct(actor, (await ctx.params).id));
 });
