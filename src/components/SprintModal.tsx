@@ -105,8 +105,9 @@ const inputCls =
 
 /* Lightweight plain confirm for sprint deletion — deleting a sprint only
    unmounts its issues back to the backlog (no cascade), so the type-to-confirm
-   ConfirmDestructive would be overkill. */
-function ConfirmDeleteSprint({
+   ConfirmDestructive would be overkill. Exported for the sprint card's delete
+   action (SprintsView) as well. */
+export function ConfirmDeleteSprint({
   open,
   onOpenChange,
   busy,

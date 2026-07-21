@@ -268,6 +268,11 @@ export const api = {
 
   deleteSprint: (id: string) => request<{ id: string }>(`/sprints/${id}`, { method: 'DELETE' }),
 
+  startSprint: (id: string) => request<Sprint>(`/sprints/${id}/start`, { method: 'POST' }),
+
+  completeSprint: (id: string) =>
+    request<{ sprint: Sprint; movedCount: number }>(`/sprints/${id}/complete`, { method: 'POST' }),
+
   /* ---- Lifecycle catalog: 产品线 → 产品 → 版本/Release ---- */
   productLines: () => request<ProductLine[]>('/product-lines'),
   createProductLine: (input: { name: string; description?: string | null; color?: string }) =>

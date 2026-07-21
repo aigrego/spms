@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne, notInArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { sprints, sprintSnapshots, issues, projects } from '@/db/schema';
 import { serializeIssueList } from '@/lib/serialize';
@@ -21,6 +21,25 @@ const withRelations = {
 } as const;
 
 const DONE_STATUSES = ['done', 'canceled'];
+
+/* At most one active sprint per project — the lifecycle guard shared by
+   startSprint and the raw status PATCH. */
+async function assertNoOtherActive(companyId: string, projectId: string | null, excludeId: string) {
+  if (!projectId) return;
+  const [other] = await db
+    .select({ id: sprints.id })
+    .from(sprints)
+    .where(
+      and(
+        eq(sprints.companyId, companyId),
+        eq(sprints.projectId, projectId),
+        eq(sprints.status, 'active'),
+        ne(sprints.id, excludeId),
+      ),
+    )
+    .limit(1);
+  if (other) throw new ApiException('CONFLICT', '该项目已有进行中的迭代');
+}
 
 const sumPoints = (rows: { storyPoints: number | null }[]) =>
   rows.reduce((s, r) => s + (r.storyPoints ?? 0), 0);
@@ -283,7 +302,16 @@ export async function updateSprint(actor: Actor, id: string, input: UpdateSprint
     patch.name = input.name.trim();
   }
   if (input.goal !== undefined) patch.goal = input.goal;
-  if (input.status !== undefined) patch.status = input.status;
+  if (input.status !== undefined) {
+    // Defense line for raw status PATCHes: activating a sprint goes through the
+    // same one-active-per-project rule as startSprint. (The UI drives planned→
+    // active→completed via the dedicated start/complete endpoints.)
+    if (input.status === 'active' && existing.status !== 'active') {
+      const effProject = input.projectId !== undefined ? input.projectId : existing.projectId;
+      await assertNoOtherActive(actor.companyId, effProject, id);
+    }
+    patch.status = input.status;
+  }
   if (input.startDate !== undefined) patch.startDate = parseDate(input.startDate, 'startDate');
   if (input.endDate !== undefined) patch.endDate = parseDate(input.endDate, 'endDate');
   // Validate the effective date range when either side changes.
@@ -301,6 +329,54 @@ export async function updateSprint(actor: Actor, id: string, input: UpdateSprint
   await db.update(sprints).set(patch).where(eq(sprints.id, id));
   const [row] = await db.select().from(sprints).where(eq(sprints.id, id)).limit(1);
   return row;
+}
+
+/* ---- lifecycle: start (planned → active) ---- */
+export async function startSprint(actor: Actor, id: string) {
+  await requirePerm(actor, 'sprints', 'write');
+  const [existing] = await db
+    .select()
+    .from(sprints)
+    .where(and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)))
+    .limit(1);
+  if (!existing) throw new ApiException('SPRINT_NOT_FOUND');
+  if (existing.status !== 'planned') {
+    throw new ApiException('VALIDATION_FAILED', '仅待开始的迭代可以启动');
+  }
+  await assertNoOtherActive(actor.companyId, existing.projectId, id);
+  await db.update(sprints).set({ status: 'active' }).where(eq(sprints.id, id));
+  const [row] = await db.select().from(sprints).where(eq(sprints.id, id)).limit(1);
+  return row;
+}
+
+/* ---- lifecycle: complete (active → completed) ----
+   Unfinished issues move back to the product backlog (sprintId → null, they
+   keep their project); done/canceled issues stay on the completed sprint. */
+export async function completeSprint(actor: Actor, id: string) {
+  await requirePerm(actor, 'sprints', 'write');
+  const [existing] = await db
+    .select()
+    .from(sprints)
+    .where(and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)))
+    .limit(1);
+  if (!existing) throw new ApiException('SPRINT_NOT_FOUND');
+  if (existing.status !== 'active') {
+    throw new ApiException('VALIDATION_FAILED', '仅进行中的迭代可以完成');
+  }
+  const moved = await db
+    .update(issues)
+    .set({ sprintId: null })
+    .where(
+      and(
+        eq(issues.companyId, actor.companyId),
+        eq(issues.sprintId, id),
+        notInArray(issues.status, ['done', 'canceled']),
+      ),
+    )
+    .returning({ id: issues.id });
+  await db.update(sprints).set({ status: 'completed' }).where(eq(sprints.id, id));
+  const [row] = await db.select().from(sprints).where(eq(sprints.id, id)).limit(1);
+  return { sprint: row, movedCount: moved.length };
 }
 
 /* ---- delete ---- (committed issues detach: sprintId → null) */

@@ -1,20 +1,23 @@
 'use client';
 
 import * as React from 'react';
-import { Target, GripVertical, ArrowRight, Flame, Gauge, ChevronRight, ChevronDown, Plus, Pencil } from 'lucide-react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { Target, GripVertical, ArrowRight, Flame, Gauge, ChevronRight, ChevronDown, Plus, Pencil, Play, CheckCircle2, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Popover, PopoverTrigger, PopoverContent, MenuItem } from '@/components/ui/popover';
 import { StatusIcon } from '@/components/glyphs/StatusIcon';
 import { PriorityIcon } from '@/components/glyphs/PriorityIcon';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { AISlaBadge } from '@/components/glyphs/misc';
 import { ResourcePanelCompact } from '@/components/ResourcePanelCompact';
-import { SprintModal, useSprintDict } from '@/components/SprintModal';
+import { SprintModal, ConfirmDeleteSprint, useSprintDict } from '@/components/SprintModal';
 import { SPRINT_STATUS } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
+import { ApiError } from '@/lib/api';
 import { useAppData } from '@/store/AppData';
-import { useBacklog, useSprints, useSprint, useBurndown, useVelocity, useMoveIssueToSprint } from '@/store/sprints';
+import { useBacklog, useSprints, useSprint, useBurndown, useVelocity, useMoveIssueToSprint, useStartSprint, useCompleteSprint, useDeleteSprint } from '@/store/sprints';
 import type { Issue, Sprint, Burndown, Velocity } from '@/lib/types';
 
 /* Port of spms-app's ScrumViews.tsx (BacklogView + SprintsView). Differences
@@ -266,6 +269,58 @@ export function BacklogView({ onOpen }: { onOpen: (id: string) => void }) {
 /* ------------------------------------------------------------------ */
 /* Sprints view (active sprint board + burndown + velocity)            */
 /* ------------------------------------------------------------------ */
+/* Plain confirm for completing a sprint — warns how many unfinished issues
+   move back to the product backlog. Mirrors ConfirmDeleteSprint's shape. */
+function ConfirmCompleteSprint({
+  open,
+  onOpenChange,
+  unfinished,
+  busy,
+  error,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  unfinished: number;
+  busy?: boolean;
+  error?: string | null;
+  onConfirm: () => void;
+}) {
+  const t = useT();
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent aria-describedby={undefined} className="w-[min(420px,92vw)]">
+        <div className="flex items-start gap-3 px-[18px] pb-1 pt-[18px]">
+          <span
+            className="mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-full"
+            style={{ background: 'var(--brand-orange-faint, var(--surface-2))', color: 'var(--brand-orange)' }}
+          >
+            <CheckCircle2 size={17} />
+          </span>
+          <div className="min-w-0">
+            <DialogPrimitive.Title className="text-[15px] font-semibold text-fg-1">
+              {t('scrum.completeTitle')}
+            </DialogPrimitive.Title>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-fg-2">
+              {unfinished > 0 ? t('scrum.completeBody', { count: unfinished }) : t('scrum.completeBodyDone')}
+            </p>
+            {error && <p className="mt-1.5 text-[12px] text-danger">{error}</p>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-[18px] py-3">
+          <div className="flex-1" />
+          <Button variant="ghost" size="md" onClick={() => onOpenChange(false)}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" size="md" onClick={onConfirm} disabled={busy}>
+            {t('scrum.completeSprint')}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function SprintsView({
   sprint = null,
   onSelectSprint,
@@ -290,6 +345,12 @@ export function SprintsView({
     open: false,
     sprint: null,
   });
+  const [confirmComplete, setConfirmComplete] = React.useState(false);
+  const [confirmDel, setConfirmDel] = React.useState(false);
+  const [lifecycleErr, setLifecycleErr] = React.useState<string | null>(null);
+  const start = useStartSprint();
+  const complete = useCompleteSprint();
+  const del = useDeleteSprint();
   const pick = (id: string) => {
     onSelectSprint?.(id);
     setPickerOpen(false);
@@ -298,6 +359,27 @@ export function SprintsView({
   const { data: detail } = useSprint(sprintId);
   const { data: burndown } = useBurndown(sprintId);
   const { data: velocity } = useVelocity();
+
+  const lifecycleError = (e: unknown) => (e instanceof ApiError ? e.message : String(e));
+  const doStart = (id: string) => {
+    setLifecycleErr(null);
+    start.mutate(id, { onError: (e) => setLifecycleErr(lifecycleError(e)) });
+  };
+  const doComplete = (id: string) => {
+    setLifecycleErr(null);
+    complete.mutate(id, {
+      onSuccess: () => setConfirmComplete(false),
+      onError: (e) => setLifecycleErr(lifecycleError(e)),
+    });
+  };
+  const doDelete = (id: string) => {
+    del.mutate(id, {
+      onSuccess: () => {
+        setConfirmDel(false);
+        if (id === sprintId) onSelectSprint?.('');
+      },
+    });
+  };
 
   const cols = [
     { k: 'todo', label: t('scrum.col.todo'), match: (s: string) => ['backlog', 'todo'].includes(s) },
@@ -366,17 +448,11 @@ export function SprintsView({
                 <div className="mb-1 flex items-center gap-2">
                   <Target size={18} className="text-brand-blue" />
                   <span className="text-[16px] font-semibold text-fg-1">{detail.name}</span>
+                  <Badge tone={SPRINT_STATUS[detail.status].tone} dot>
+                    {t(`sprintStatus.${detail.status}`)}
+                  </Badge>
                   <div className="ml-auto flex items-center gap-1">
                     <ResourcePanelCompact nodeType="sprint" nodeId={detail.id} variant="compact" />
-                    {canWrite && (
-                      <button
-                        onClick={() => setModal({ open: true, sprint: detail })}
-                        title={sd.edit}
-                        className="grid h-7 w-7 place-items-center rounded-lg text-fg-3 hover:bg-surface-2 hover:text-fg-1"
-                      >
-                        <Pencil size={13.5} />
-                      </button>
-                    )}
                   </div>
                 </div>
                 {/* PMS-2 §6.6: a sprint belongs to one project → version lineage */}
@@ -415,6 +491,49 @@ export function SprintsView({
                 <div className="text-[12.5px] text-fg-3">
                   {t('scrum.summary', { done: detail.stats.doneCount, total: detail.stats.issueCount, pts: detail.stats.remainingPoints })}
                 </div>
+                {/* lifecycle actions: start (planned) / complete (active) stay
+                    text buttons; edit is an always-available icon button, delete
+                    an icon button offered while still planned */}
+                {canWrite && (
+                  <div className="mt-3.5 flex items-center gap-2">
+                    {detail.status === 'planned' && (
+                      <Button variant="primary" size="md" onClick={() => doStart(detail.id)} disabled={start.isPending}>
+                        <Play size={14} /> {t('scrum.startSprint')}
+                      </Button>
+                    )}
+                    {detail.status === 'active' && (
+                      <Button
+                        variant="primary"
+                        size="md"
+                        onClick={() => {
+                          setLifecycleErr(null);
+                          setConfirmComplete(true);
+                        }}
+                      >
+                        <CheckCircle2 size={14} /> {t('scrum.completeSprint')}
+                      </Button>
+                    )}
+                    <button
+                      onClick={() => setModal({ open: true, sprint: detail })}
+                      title={sd.edit}
+                      className="grid h-7 w-7 place-items-center rounded-lg text-fg-3 hover:bg-surface-2 hover:text-fg-1"
+                    >
+                      <Pencil size={13.5} />
+                    </button>
+                    {detail.status === 'planned' && (
+                      <button
+                        onClick={() => setConfirmDel(true)}
+                        title={sd.del}
+                        className="grid h-7 w-7 place-items-center rounded-lg text-fg-3 hover:bg-surface-2 hover:text-danger"
+                      >
+                        <Trash2 size={13.5} />
+                      </button>
+                    )}
+                  </div>
+                )}
+                {lifecycleErr && !confirmComplete && (
+                  <div className="mt-2 text-[12px] text-danger">{lifecycleErr}</div>
+                )}
               </div>
 
               {/* burndown */}
@@ -472,6 +591,24 @@ export function SprintsView({
           if (id === sprintId) onSelectSprint?.('');
         }}
       />
+      {detail && (
+        <>
+          <ConfirmCompleteSprint
+            open={confirmComplete}
+            onOpenChange={setConfirmComplete}
+            unfinished={detail.issues.filter((i) => !['done', 'canceled'].includes(i.status)).length}
+            busy={complete.isPending}
+            error={lifecycleErr}
+            onConfirm={() => doComplete(detail.id)}
+          />
+          <ConfirmDeleteSprint
+            open={confirmDel}
+            onOpenChange={setConfirmDel}
+            busy={del.isPending}
+            onConfirm={() => doDelete(detail.id)}
+          />
+        </>
+      )}
     </div>
   );
 }

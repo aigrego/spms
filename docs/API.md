@@ -76,6 +76,8 @@
 | GET | `/sprints/:id` | 元数据 + committed issues + stats |
 | GET | `/sprints/:id/burndown` | ideal 线性 + snapshots actual |
 | PATCH | `/sprints/:id/issues/:issueKey` | 移入/移出（`:id` 可为 `_backlog`）；移入强制 projectId=sprint.projectId |
+| POST | `/sprints/:id/start` | planned → active；同项目已有进行中迭代 → CONFLICT（PATCH 直改 status=active 同样校验） |
+| POST | `/sprints/:id/complete` | active → completed；未完成（非 done/canceled）issues sprintId set null 移回待办，返回 `{ sprint, movedCount }` |
 
 ## Catalog 生命周期目录
 

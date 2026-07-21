@@ -78,6 +78,8 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_create_test_case` | `projectId, title, requirementId?, priority?, preconditions?, steps?, expected?` | 创建测试用例 |
 | `spms_update_test_case` | `key, ...` | 更新用例（含 result: passed/failed/blocked） |
 | `spms_move_issue_to_sprint` | `sprintId（或 '_backlog'）, issueKey, storyPoints?` | 移入/移出迭代 |
+| `spms_start_sprint` | `id` | 启动迭代（planned → active；同项目唯一进行中） |
+| `spms_complete_sprint` | `id` | 完成迭代（active → completed；未完成 Issue 移回待办，返回 movedCount） |
 | `spms_create_project` | `name, releaseId?, leadId?, target?, description?` | 创建项目 |
 
 写工具与 REST API 复用同一套 `src/server/services/*`，业务规则一致（如 sprint-project 一致性校验、REQUIREMENT_NOT_FOUND 等错误码原样抛出）。

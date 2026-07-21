@@ -421,6 +421,38 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   );
 
   reg(
+    'spms_start_sprint',
+    {
+      description: `启动迭代（planned → active）。同一项目同时只能有一个进行中的迭代，冲突时报错。id 从 spms_list_sprints 获得。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        id: z.string().describe('迭代 id（uuid）'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return sprintSvc.startSprint(actor, args.id);
+      }),
+  );
+
+  reg(
+    'spms_complete_sprint',
+    {
+      description: `完成迭代（active → completed）。未完成（非 done/canceled）的 Issue 自动移回产品待办，返回 { sprint, movedCount }。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        id: z.string().describe('迭代 id（uuid）'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return sprintSvc.completeSprint(actor, args.id);
+      }),
+  );
+
+  reg(
     'spms_list_test_cases',
     {
       description: `测试用例列表。status：draft|active|deprecated；result：untested|passed|failed|blocked。requirement 传展示 key（FR-N）。${CONCEPTS}`,

@@ -81,3 +81,31 @@ export function useDeleteSprint() {
     onSuccess: invalidate,
   });
 }
+
+/* Lifecycle: planned → active → completed. Completing also moves unfinished
+   issues back to the backlog, so the backlog/burndown caches go too. */
+function useInvalidateSprintLifecycle() {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateSprints();
+  return () => {
+    invalidate();
+    qc.invalidateQueries({ queryKey: ['backlog'] });
+    qc.invalidateQueries({ queryKey: ['burndown'] });
+  };
+}
+
+export function useStartSprint() {
+  const invalidate = useInvalidateSprintLifecycle();
+  return useMutation({
+    mutationFn: (id: string) => api.startSprint(id),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCompleteSprint() {
+  const invalidate = useInvalidateSprintLifecycle();
+  return useMutation({
+    mutationFn: (id: string) => api.completeSprint(id),
+    onSuccess: invalidate,
+  });
+}

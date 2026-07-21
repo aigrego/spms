@@ -266,6 +266,11 @@ const zhCN: Dict = {
   'scrum.col.in_progress': '进行中',
   'scrum.col.in_review': '评审中',
   'scrum.col.done': '完成',
+  'scrum.startSprint': '启动迭代',
+  'scrum.completeSprint': '完成迭代',
+  'scrum.completeTitle': '完成此迭代？',
+  'scrum.completeBody': '还有 {count} 个未完成事项，完成后它们将移回产品待办列表。',
+  'scrum.completeBodyDone': '所有事项均已完成，确认结束这个迭代？',
 
   // projects / cycles / roadmap / inbox
   'projects.title': '项目',
@@ -794,6 +799,11 @@ const en: Dict = {
   'scrum.col.in_progress': 'In Progress',
   'scrum.col.in_review': 'In Review',
   'scrum.col.done': 'Done',
+  'scrum.startSprint': 'Start sprint',
+  'scrum.completeSprint': 'Complete sprint',
+  'scrum.completeTitle': 'Complete this sprint?',
+  'scrum.completeBody': '{count} unfinished issue(s) will move back to the product backlog.',
+  'scrum.completeBodyDone': 'All issues are done. Close out this sprint?',
 
   'projects.title': 'Projects',
   'projects.new': 'New Project',
@@ -1300,6 +1310,11 @@ const zhTW: Dict = {
   'scrum.col.in_progress': '進行中',
   'scrum.col.in_review': '審查中',
   'scrum.col.done': '完成',
+  'scrum.startSprint': '啟動迭代',
+  'scrum.completeSprint': '完成迭代',
+  'scrum.completeTitle': '完成此迭代？',
+  'scrum.completeBody': '還有 {count} 個未完成事項，完成後將移回產品待辦清單。',
+  'scrum.completeBodyDone': '所有事項均已完成，確認結束這個迭代？',
 
   'projects.title': '專案',
   'projects.new': '新增專案',
