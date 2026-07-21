@@ -53,7 +53,7 @@ function CompanySwitcher() {
   const t = useT();
   const router = useRouter();
   const qc = useQueryClient();
-  const { companies, currentCompany, companyRole, isPlatformAdmin } = useAppData();
+  const { companies, currentCompany, isPlatformAdmin } = useAppData();
   const [open, setOpen] = React.useState(false);
   const [switching, setSwitching] = React.useState(false);
 
@@ -76,9 +76,8 @@ function CompanySwitcher() {
     router.refresh();
   };
 
-  const role = roleLabel(t, companyRole);
-
-  /* 单公司:渲染为纯公司名(保留颜色块),无 chevron、不可点击、不出下拉。 */
+  /* 单公司:渲染为纯公司名(保留颜色块),无 chevron、不可点击、不出下拉。
+     角色徽章只保留在用户菜单里,此处不重复展示。 */
   if (companies.length <= 1) {
     return (
       <div className="flex min-w-0 items-center gap-2">
@@ -92,11 +91,6 @@ function CompanySwitcher() {
             <span className="max-w-[160px] truncate text-fg-3">{t('header.noCompany')}</span>
           )}
         </div>
-        {role && (
-          <Badge tone="blue" className="flex-none">
-            {role}
-          </Badge>
-        )}
       </div>
     );
   }
@@ -161,11 +155,6 @@ function CompanySwitcher() {
           )}
         </PopoverContent>
       </Popover>
-      {role && (
-        <Badge tone="blue" className="flex-none">
-          {role}
-        </Badge>
-      )}
     </div>
   );
 }

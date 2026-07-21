@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, BookOpen, Copy, Check } from 'lucide-react';
+import { Plus, BookOpen, Copy, Check, UserCog, Ban, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TabBtn } from '@/components/ui/segmented';
@@ -130,14 +130,15 @@ export function KeysPanel() {
           <table className="w-full border-collapse">
             <thead className="sticky top-0 bg-bg">
               <tr className="border-b border-border">
-                <th className={thCls}>名称</th>
-                <th className={thCls}>所属人</th>
-                <th className={thCls}>能力</th>
-                <th className={thCls}>范围</th>
-                <th className={thCls}>有效期至</th>
-                <th className={thCls}>最近使用</th>
-                <th className={thCls}>状态</th>
-                <th className={thCls} style={{ width: 110 }} />
+                {/* 名称列吃掉剩余宽度,其余列按内容收紧,宽屏下不再被均摊拉散 */}
+                <th className={`${thCls} w-full`}>名称</th>
+                <th className={`${thCls} whitespace-nowrap`}>所属人</th>
+                <th className={`${thCls} whitespace-nowrap`}>能力</th>
+                <th className={`${thCls} whitespace-nowrap`}>范围</th>
+                <th className={`${thCls} whitespace-nowrap`}>有效期至</th>
+                <th className={`${thCls} whitespace-nowrap`}>最近使用</th>
+                <th className={`${thCls} whitespace-nowrap`}>状态</th>
+                <th className={`${thCls} whitespace-nowrap text-right`} />
               </tr>
             </thead>
             <tbody>
@@ -154,13 +155,15 @@ export function KeysPanel() {
                 return (
                   <tr key={k.id} className="border-b border-border hover:bg-surface-2/60">
                     <td className={tdCls}>
-                      <div className="font-medium">{k.name}</div>
+                      <div className="max-w-[360px] truncate font-medium" title={k.name}>
+                        {k.name}
+                      </div>
                       <code className="font-mono text-[12px] text-fg-3">{k.prefix}…</code>
                     </td>
-                    <td className={tdCls}>
+                    <td className={`${tdCls} whitespace-nowrap`}>
                       <span className="text-fg-2">{k.ownerName ?? '—'}</span>
                     </td>
-                    <td className={tdCls}>
+                    <td className={`${tdCls} whitespace-nowrap`}>
                       <span className="inline-flex gap-1.5">
                         {caps.map((c) => (
                           <Badge key={c} tone={CAP_TONE[c] ?? 'neutral'}>
@@ -169,25 +172,27 @@ export function KeysPanel() {
                         ))}
                       </span>
                     </td>
-                    <td className={tdCls}>{k.companyId ? (k.companyName ?? '—') : '全平台'}</td>
-                    <td className={tdCls}>
+                    <td className={`${tdCls} whitespace-nowrap`}>{k.companyId ? (k.companyName ?? '—') : '全平台'}</td>
+                    <td className={`${tdCls} whitespace-nowrap`}>
                       <span className="text-fg-2">{k.expiresAt ? fmtDate(k.expiresAt) : '永久'}</span>
                     </td>
-                    <td className={tdCls}>
+                    <td className={`${tdCls} whitespace-nowrap`}>
                       <span className="text-fg-3">{k.lastUsedAt ? relativeTime(k.lastUsedAt, t) : '—'}</span>
                     </td>
-                    <td className={tdCls}>
+                    <td className={`${tdCls} whitespace-nowrap`}>
                       <Badge tone={st.tone} dot>
                         {st.label}
                       </Badge>
                     </td>
-                    <td className={tdCls}>
-                      <span className="inline-flex items-center gap-3">
+                    <td className={`${tdCls} whitespace-nowrap text-right`}>
+                      <span className="inline-flex items-center gap-1">
                         <button
-                          className="text-[13px] font-medium text-fg-3 hover:text-fg-1 hover:underline"
+                          title="改所属人"
+                          aria-label="改所属人"
+                          className="grid h-7 w-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-2 hover:text-fg-1"
                           onClick={() => setEditing(k)}
                         >
-                          改所属人
+                          <UserCog size={14} />
                         </button>
                         {!k.revokedAt && (
                           <PopoverConfirm
@@ -197,8 +202,12 @@ export function KeysPanel() {
                             busy={revoke.isPending}
                             onConfirm={() => revoke.mutate(k.id)}
                             trigger={
-                              <button className="text-[13px] font-medium text-danger hover:underline">
-                                吊销
+                              <button
+                                title="吊销"
+                                aria-label="吊销"
+                                className="grid h-7 w-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-danger-50 hover:text-danger"
+                              >
+                                <Ban size={14} />
                               </button>
                             }
                           />
@@ -210,8 +219,12 @@ export function KeysPanel() {
                           busy={remove.isPending}
                           onConfirm={() => remove.mutate(k.id)}
                           trigger={
-                            <button className="text-[13px] font-medium text-fg-3 hover:text-danger hover:underline">
-                              删除
+                            <button
+                              title="删除"
+                              aria-label="删除"
+                              className="grid h-7 w-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-danger-50 hover:text-danger"
+                            >
+                              <Trash2 size={14} />
                             </button>
                           }
                         />
