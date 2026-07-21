@@ -141,8 +141,9 @@
 | POST | `/users` | `{ username, name?, password }` 新建系统账号（role=member，不含席位） |
 | GET | `/permissions-matrix` | 全量 4 角色 × 10 模块矩阵 |
 | PUT | `/permissions-matrix` | `{ matrix }` 整表替换（逐格校验后 upsert + 缓存失效） |
-| GET | `/mcp-keys` | MCP key 列表（不返回 keyHash/明文）；管理员见全部，member 只见自己创建的 |
-| POST | `/mcp-keys` | `{ name, companyId?, capabilities?, expiresInDays? }` 签发 key（管理员：companyId 省略=平台级；member 自助：companyId 省略=当前公司，且必须是其所属公司，显式 null/他人公司 → 403；capabilities ⊆ read/write/delete，默认 `['read','write']`；expiresInDays 省略=永不过期）；**明文仅本次返回** |
+| GET | `/mcp-keys` | MCP key 列表（不返回 keyHash/明文；含 ownerId/ownerName）；管理员见全部，member 只见自己创建的 |
+| POST | `/mcp-keys` | `{ name, companyId?, ownerId?, capabilities?, expiresInDays? }` 签发 key（管理员：companyId 省略=平台级；member 自助：companyId 省略=当前公司，且必须是其所属公司，显式 null/他人公司 → 403；ownerId=所属人，省略=创建人，公司级 key 的所属人必须是该公司成员或平台管理员；capabilities ⊆ read/write/delete，默认 `['read','write']`；expiresInDays 省略=永不过期）；**明文仅本次返回** |
+| PATCH | `/mcp-keys/:id` | `{ ownerId }` 修改所属人（MCP 调用的第一人称身份）；member 只能改自己的 key，否则 403 |
 | DELETE | `/mcp-keys/:id` | 吊销（写 revokedAt，行保留审计）；带 `?permanent=1` 时硬删除该 key 行；member 只能操作自己的 key，否则 403 |
 
 ## 错误码（主要）

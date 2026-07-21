@@ -84,5 +84,6 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## 操作者身份
 
-- **API key 调用**：Actor = 目标公司的内置 `scribe` agent member，companyRole=company_admin（key 在 /agent-access 签发，设计上即拥有公司内完整权限）；activities 的 `whoId` 记为该 scribe，评论/变更在历史流中可追溯来源是 Agent 操作。
+- **DB key 调用**：Actor = 令牌的**所属人**（`ownerId`，默认创建人，可在 /agent-access 随时修改），companyRole = 所属人在目标公司的真实 membership 角色（平台管理员无 membership 时按 `company_admin`）。activities 的 `whoId` 记为所属人的 member id，"我的 issue"即所属人名下 issue；写操作同时受所属人 RBAC 角色（权限矩阵）与 key 能力上限双重约束。所属人不是目标公司成员且非平台管理员 → `FORBIDDEN`；所属人用户被删除 → `UNAUTHORIZED`。
+- **env 兜底 key**：Actor = 目标公司的内置 `scribe` agent member，companyRole=company_admin（开发兼容的遗留行为）。
 - **浏览器 session 调用**（调试）：Actor = 会话用户本人及其当前公司，权限与其 RBAC 角色一致。

@@ -51,7 +51,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 —— `company_admin` 与平台管理员恒全权限，不入此表；缺失行按 `none` 处理。
 
 ### mcp_api_keys（新增，MCP 接入密钥）
-`id` PK · `keyHash` unique NN（sha256 hex，不存明文）· `prefix` NN（前 8 位，仅展示）· `name` NN · `companyId` → companies cascade（**NULL = 平台级 key**，否则公司级）· `createdBy` → users set null · `revokedAt`（吊销标记，行保留审计）· `createdAt` NN
+`id` PK · `keyHash` unique NN（sha256 hex，不存明文）· `prefix` NN（前 8 位，仅展示）· `name` NN · `companyId` → companies cascade（**NULL = 平台级 key**，否则公司级）· `createdBy` → users set null · `ownerId` → users set null（**所属人**：MCP 调用的第一人称身份，默认=创建人，可改）· `revokedAt`（吊销标记，行保留审计）· `createdAt` NN
 
 ### counters（编号序列，二期改为按公司独立）
 复合 PK `(companyId, name)` · `companyId` NN → companies cascade · `name` NN · `value` int NN 默认 0 —— `INSERT ... ON CONFLICT DO UPDATE SET value = counters.value + 1 RETURNING value`；同一前缀（如 BUG）在不同公司各自从 1 起编。

@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { and, asc, count, eq } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db';
 import { companies, companyMemberships, mcpApiKeys, rolePermissions, users } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
@@ -372,10 +373,11 @@ async function isCompanyMember(userId: string, companyId: string): Promise<boole
   return !!m;
 }
 
-/* ---- MCP keys visible to the actor (+ company name + creator name; NULL
-   company = platform scope). Admins see all keys; members only their own
+/* ---- MCP keys visible to the actor (+ company name + creator/owner names;
+   NULL company = platform scope). Admins see all keys; members only their own
    (incl. expired/revoked). keyHash is never returned. ---- */
 export async function listMcpKeys(actor: Actor) {
+  const owners = alias(users, 'owner');
   const rows = db
     .select({
       id: mcpApiKeys.id,
@@ -385,6 +387,8 @@ export async function listMcpKeys(actor: Actor) {
       companyName: companies.name,
       createdBy: mcpApiKeys.createdBy,
       createdByName: users.name,
+      ownerId: mcpApiKeys.ownerId,
+      ownerName: owners.name,
       capabilities: mcpApiKeys.capabilities,
       expiresAt: mcpApiKeys.expiresAt,
       lastUsedAt: mcpApiKeys.lastUsedAt,
@@ -394,6 +398,7 @@ export async function listMcpKeys(actor: Actor) {
     .from(mcpApiKeys)
     .leftJoin(companies, eq(mcpApiKeys.companyId, companies.id))
     .leftJoin(users, eq(mcpApiKeys.createdBy, users.id))
+    .leftJoin(owners, eq(mcpApiKeys.ownerId, owners.id))
     .where(actor.isPlatformAdmin ? undefined : eq(mcpApiKeys.createdBy, actor.userId))
     .orderBy(asc(mcpApiKeys.createdAt));
   return rows;
@@ -408,8 +413,21 @@ export interface CreateMcpKeyInput {
      their current company; explicit null (platform-level) → 403; any other
      company must be one of their memberships. */
   companyId?: string | null;
+  /* 所属人：持 key 调 MCP 时的第一人称身份。默认创建人本人。公司级 key 的
+     所属人必须是该公司成员（或平台管理员）；平台级 key 只校验用户存在，
+     membership 在每次调用时按目标公司解析。 */
+  ownerId?: string;
   capabilities?: McpCapability[]; // default ['read','write']
   expiresInDays?: number | null; // null/omitted → 永不过期
+}
+
+/* ---- owner validation shared by create/update ---- */
+async function validateKeyOwner(companyId: string | null, ownerId: string): Promise<void> {
+  const [u] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, ownerId)).limit(1);
+  if (!u) throw new ApiException('VALIDATION_FAILED', '所属人用户不存在');
+  if (companyId && u.role !== 'admin' && !(await isCompanyMember(ownerId, companyId))) {
+    throw new ApiException('VALIDATION_FAILED', '所属人必须是该公司成员');
+  }
 }
 
 /* ---- mint an MCP key: the plaintext is returned ONCE, only sha256 is stored ---- */
@@ -431,6 +449,9 @@ export async function createMcpKey(actor: Actor, input: CreateMcpKeyInput) {
     companyId = input.companyId;
   }
   if (companyId && !(await companyExists(companyId))) throw new ApiException('NOT_FOUND', '公司不存在');
+
+  const ownerId = input.ownerId ?? actor.userId;
+  await validateKeyOwner(companyId, ownerId);
 
   const capabilities = input.capabilities ?? ['read', 'write'];
   if (
@@ -456,6 +477,7 @@ export async function createMcpKey(actor: Actor, input: CreateMcpKeyInput) {
     name,
     companyId,
     createdBy: actor.userId,
+    ownerId,
     capabilities: capabilities.join(','),
     expiresAt,
   });
@@ -463,9 +485,9 @@ export async function createMcpKey(actor: Actor, input: CreateMcpKeyInput) {
 }
 
 /* ---- shared owner check: members may only touch their own keys ---- */
-async function requireKeyOwner(actor: Actor, id: string): Promise<void> {
+async function requireKeyOwner(actor: Actor, id: string) {
   const [k] = await db
-    .select({ id: mcpApiKeys.id, createdBy: mcpApiKeys.createdBy })
+    .select({ id: mcpApiKeys.id, createdBy: mcpApiKeys.createdBy, companyId: mcpApiKeys.companyId })
     .from(mcpApiKeys)
     .where(eq(mcpApiKeys.id, id))
     .limit(1);
@@ -473,6 +495,17 @@ async function requireKeyOwner(actor: Actor, id: string): Promise<void> {
   if (!actor.isPlatformAdmin && k.createdBy !== actor.userId) {
     throw new ApiException('FORBIDDEN', '只能操作自己创建的令牌', 403);
   }
+  return k;
+}
+
+/* ---- change a key's 所属人 (the first-person identity for MCP calls) ---- */
+export async function updateMcpKey(actor: Actor, id: string, input: { ownerId?: string }) {
+  const k = await requireKeyOwner(actor, id);
+  const ownerId = input.ownerId?.trim();
+  if (!ownerId) throw new ApiException('VALIDATION_FAILED', '所属人不能为空');
+  await validateKeyOwner(k.companyId, ownerId);
+  await db.update(mcpApiKeys).set({ ownerId }).where(eq(mcpApiKeys.id, id));
+  return { id };
 }
 
 /* ---- revoke a key (id stays for audit; revokedAt marks it dead) ---- */

@@ -72,6 +72,8 @@ export interface McpKey {
   companyName: string | null;
   createdBy: string | null;
   createdByName: string | null;
+  ownerId: string | null; // 所属人：MCP 调用的第一人称身份
+  ownerName: string | null;
   capabilities: string; // 逗号分隔：read,write,delete
   expiresAt: string | null; // null = 永不过期
   lastUsedAt: string | null;
@@ -82,6 +84,7 @@ export interface McpKey {
 export interface CreateMcpKeyInput {
   name: string;
   companyId?: string | null; // member 省略 = 服务端归属当前公司;null = 平台级(仅管理员)
+  ownerId?: string; // 所属人，省略 = 创建人本人
   capabilities: McpCapability[];
   expiresInDays: number | null; // null = 永不过期
 }
@@ -189,6 +192,8 @@ export const platformApi = {
   mcpKeys: () => request<McpKey[]>('/mcp-keys'),
   createMcpKey: (input: CreateMcpKeyInput) =>
     request<{ id: string; key: string; prefix: string }>('/mcp-keys', json('POST', input)),
+  updateMcpKey: (id: string, input: { ownerId: string }) =>
+    request<{ id: string }>(`/mcp-keys/${id}`, json('PATCH', input)),
   revokeMcpKey: (id: string) => request<{ id: string }>(`/mcp-keys/${id}`, { method: 'DELETE' }),
   // 硬删除（不留审计行），区别于上面的吊销。
   deleteMcpKey: (id: string) => request<{ id: string }>(`/mcp-keys/${id}?permanent=1`, { method: 'DELETE' }),

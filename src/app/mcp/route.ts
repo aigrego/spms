@@ -46,6 +46,7 @@ async function authenticate(req: Request): Promise<McpKeyContext | null> {
         .select({
           id: mcpApiKeys.id,
           companyId: mcpApiKeys.companyId,
+          ownerId: mcpApiKeys.ownerId,
           capabilities: mcpApiKeys.capabilities,
           expiresAt: mcpApiKeys.expiresAt,
           lastUsedAt: mcpApiKeys.lastUsedAt,
@@ -61,12 +62,13 @@ async function authenticate(req: Request): Promise<McpKeyContext | null> {
         }
         return {
           companyId: row.companyId,
+          ownerId: row.ownerId,
           source: 'db',
           capabilities: row.capabilities.split(',').map((c) => c.trim()).filter(Boolean),
         };
       }
       if (envMcpApiKeys().includes(key)) {
-        return { companyId: null, source: 'env', capabilities: FULL_CAPABILITIES };
+        return { companyId: null, ownerId: null, source: 'env', capabilities: FULL_CAPABILITIES };
       }
       // An explicitly presented but unknown key must not fall through to the
       // cookie session — that would mask typos and let a revoked key keep
@@ -76,7 +78,7 @@ async function authenticate(req: Request): Promise<McpKeyContext | null> {
   }
   try {
     const sessionActor = await requireActor();
-    return { companyId: sessionActor.companyId, source: 'session', sessionActor, capabilities: FULL_CAPABILITIES };
+    return { companyId: sessionActor.companyId, ownerId: null, source: 'session', sessionActor, capabilities: FULL_CAPABILITIES };
   } catch (e) {
     if (e instanceof ApiException) return null; // UNAUTHORIZED / NO_COMPANY → 401 below
     throw e;

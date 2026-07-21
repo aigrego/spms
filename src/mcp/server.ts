@@ -2,9 +2,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
-import { companies, labels, members, productLines, products, projects, releases, sprints, teams } from '@/db/schema';
+import { companies, companyMemberships, labels, members, productLines, products, projects, releases, sprints, teams, users } from '@/db/schema';
 import { ApiException, type ErrorCode } from '@/lib/envelope';
-import { ensureAgents } from '@/lib/identity';
+import { ensureAgents, ensureCurrentMember } from '@/lib/identity';
 import { computeRollups } from '@/lib/rollup';
 import * as issueSvc from '@/server/services/issues';
 import * as projectSvc from '@/server/services/projects';
@@ -26,11 +26,16 @@ import type { Actor } from '@/server/services/types';
        to the first company (createdAt asc);
      - browser session    → the session user's resolved actor (companyId
        argument ignored).
-   Key actors act as company_admin via the company's built-in `scribe` agent
-   member, so writes show up as Agent operations (docs/MCP.md §操作者身份). */
+   DB key actors act as the key's 所属人 (owner; defaults to the creator) with
+   that user's real company role — first-person identity and RBAC both come from
+   the owner. Env fallback keys (no owner) keep the legacy behavior of acting
+   as the company's built-in `scribe` agent (docs/MCP.md §操作者身份). */
 
 export interface McpKeyContext {
   companyId: string | null; // null = platform-level key
+  /* 令牌所属人 (users.id)。DB key 必有（老数据已回填为创建人）；env 兜底 key
+     与浏览器 session 为 null。 */
+  ownerId: string | null;
   source: 'db' | 'env' | 'session';
   sessionActor?: Actor; // source === 'session': the already-resolved actor
   // DB key 的能力上限（read/write/delete）；env 兜底 key 与浏览器会话为全量。
@@ -44,10 +49,39 @@ async function defaultCompanyId(): Promise<string | null> {
   return c?.id ?? null;
 }
 
-/* MCP 操作者身份：the company's built-in `scribe` agent member, acting as
-   company_admin (keys are minted by platform admins and carry full company
-   access by design). */
-async function buildMcpActor(companyId: string): Promise<Actor> {
+/* MCP 操作者身份：DB key → 令牌所属人本人，companyRole 取其在目标公司的真实
+   membership 角色（与 requireActor() 同规则：平台管理员无 membership 时按
+   company_admin）。所属人非目标公司成员 → FORBIDDEN。
+   ownerId 为空（env 兜底 key）→ 公司内置 `scribe` agent member + company_admin
+   的遗留行为。 */
+async function buildMcpActor(companyId: string, ownerId: string | null): Promise<Actor> {
+  if (ownerId) {
+    const [u] = await db
+      .select({ id: users.id, name: users.name, role: users.role })
+      .from(users)
+      .where(eq(users.id, ownerId))
+      .limit(1);
+    if (!u) throw new ApiException('UNAUTHORIZED', '令牌所属人不存在，请在 /agent-access 修改令牌所属人', 401);
+    const isPlatformAdmin = u.role === 'admin';
+    const [ms] = await db
+      .select({ role: companyMemberships.role })
+      .from(companyMemberships)
+      .where(and(eq(companyMemberships.userId, u.id), eq(companyMemberships.companyId, companyId)))
+      .limit(1);
+    if (!ms && !isPlatformAdmin) {
+      throw new ApiException('FORBIDDEN', '令牌所属人不是该公司成员，请在 /agent-access 修改令牌所属人', 403);
+    }
+    const member = await ensureCurrentMember(u, companyId);
+    return {
+      userId: u.id,
+      memberId: member.id,
+      name: u.name,
+      role: u.role,
+      companyId,
+      companyRole: ms?.role ?? 'company_admin',
+      isPlatformAdmin,
+    };
+  }
   await ensureAgents(companyId); // fallback for an empty company
   const [scribe] = await db
     .select({ id: members.id })
@@ -208,7 +242,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }
     }
     if (!companyId) throw new ApiException('NOT_FOUND', '不存在任何公司');
-    return buildMcpActor(companyId);
+    return buildMcpActor(companyId, keyContext.ownerId);
   }
 
   /* ================= 读 ================= */

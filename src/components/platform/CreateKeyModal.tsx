@@ -7,7 +7,8 @@ import { Copy, Check, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api';
 import type { McpCapability } from '@/lib/platformApi';
-import { useCompanies, useCreateMcpKey } from '@/store/platform';
+import { useCompanies, useCompanyMembers, useCreateMcpKey, usePlatformUsers } from '@/store/platform';
+import { useAppData } from '@/store/AppData';
 import { fieldLabel, inputCls } from './common';
 import { cn } from '@/lib/utils';
 
@@ -62,8 +63,26 @@ function CapRow({
   );
 }
 
+/* 所属人候选。管理员:选了公司 → 该公司成员(平台接口);全平台 → 全部用户。
+   非管理员(自助):当前公司 bootstrap 的 human 成员(平台 members 接口是
+   管理员专属)。返回值是 { id: users.id, name } 列表。 */
+export function useOwnerCandidates(platformAdmin: boolean, companyId: string | null) {
+  const { members } = useAppData();
+  const companyMembers = useCompanyMembers(platformAdmin ? companyId : null);
+  const platformUsers = usePlatformUsers(platformAdmin && !companyId);
+  if (platformAdmin) {
+    if (companyId) {
+      return (companyMembers.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
+    }
+    return (platformUsers.data ?? []).map((u) => ({ id: u.userId, name: u.name }));
+  }
+  return members
+    .filter((m) => m.type === 'human' && (m as { userId?: string | null }).userId)
+    .map((m) => ({ id: (m as { userId?: string | null }).userId as string, name: m.name }));
+}
+
 /* 新建 Agent 令牌:名称 + 能力上限(read/write/delete)+ 范围(全平台/某公司)
-   + 有效期。成功后明文 key 仅本次返回,弹出一次性展示对话框。
+   + 所属人(默认自己)+ 有效期。成功后明文 key 仅本次返回,弹出一次性展示对话框。
    platformAdmin=false(member 自助)时隐藏范围选择,令牌自动归属当前公司。 */
 export function CreateKeyModal({
   open,
@@ -82,17 +101,27 @@ export function CreateKeyModal({
   const [name, setName] = React.useState('');
   const [caps, setCaps] = React.useState<McpCapability[]>(['read', 'write']);
   const [companyId, setCompanyId] = React.useState<string>(''); // '' = 全平台
+  const [ownerId, setOwnerId] = React.useState<string>(''); // '' = 我自己(创建人)
   const [expiresInDays, setExpiresInDays] = React.useState<number | null>(30);
   const [error, setError] = React.useState<string | null>(null);
+
+  const ownerOptions = useOwnerCandidates(platformAdmin, platformAdmin ? companyId || null : null);
 
   React.useEffect(() => {
     if (!open) return;
     setName('');
     setCaps(['read', 'write']);
     setCompanyId('');
+    setOwnerId('');
     setExpiresInDays(30);
     setError(null);
   }, [open]);
+
+  // 切换范围时已选所属人可能不在新公司候选里,随范围一起重置回"我自己"。
+  const changeCompany = (v: string) => {
+    setCompanyId(v);
+    setOwnerId('');
+  };
 
   const toggleCap = (c: McpCapability) =>
     setCaps((cur) => (cur.includes(c) ? cur.filter((x) => x !== c) : [...cur, c]));
@@ -104,6 +133,7 @@ export function CreateKeyModal({
         name: name.trim(),
         // member 不传 companyId —— 服务端自动归属其当前公司
         companyId: platformAdmin ? companyId || null : undefined,
+        ownerId: ownerId || undefined,
         capabilities: caps,
         expiresInDays,
       });
@@ -148,7 +178,7 @@ export function CreateKeyModal({
           {platformAdmin && (
             <div>
               <span className={fieldLabel}>范围</span>
-              <select className={inputCls} value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+              <select className={inputCls} value={companyId} onChange={(e) => changeCompany(e.target.value)}>
                 <option value="">全平台</option>
                 {companies.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -158,6 +188,17 @@ export function CreateKeyModal({
               </select>
             </div>
           )}
+          <div>
+            <span className={fieldLabel}>所属人(Agent 以此身份操作)</span>
+            <select className={inputCls} value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+              <option value="">我自己(默认)</option>
+              {ownerOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <span className={fieldLabel}>有效期</span>
             <select

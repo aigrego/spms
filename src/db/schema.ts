@@ -188,6 +188,9 @@ export const mcpApiKeys = pgTable('mcp_api_keys', {
   name: text('name').notNull(),
   companyId: text('company_id').references(() => companies.id, { onDelete: 'cascade' }),
   createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  // 所属人：持 key 调 MCP 时的第一人称身份（默认创建人，可修改）。NULL（用户被删）
+  // 时 key 调用报 UNAUTHORIZED，需在 /agent-access 重新指定所属人。
+  ownerId: text('owner_id').references(() => users.id, { onDelete: 'set null' }),
   // 能力上限：逗号分隔的 read/write/delete。MCP 层强制：读工具要 read、写工具要
   // write（delete 预留，当前无删除类工具）。
   capabilities: text('capabilities').notNull().default('read,write'),

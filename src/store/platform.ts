@@ -50,8 +50,8 @@ export function useEnterCompany() {
 }
 
 /* ---- members ---- */
-export function usePlatformUsers() {
-  return useQuery({ queryKey: platformKeys.users(), queryFn: () => platformApi.users() });
+export function usePlatformUsers(enabled = true) {
+  return useQuery({ queryKey: platformKeys.users(), queryFn: () => platformApi.users(), enabled });
 }
 
 export function useCreateUser() {
@@ -142,6 +142,14 @@ export function useCreateMcpKey() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateMcpKeyInput) => platformApi.createMcpKey(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: platformKeys.mcpKeys() }),
+  });
+}
+
+export function useUpdateMcpKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ownerId }: { id: string; ownerId: string }) => platformApi.updateMcpKey(id, { ownerId }),
     onSuccess: () => qc.invalidateQueries({ queryKey: platformKeys.mcpKeys() }),
   });
 }

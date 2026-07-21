@@ -6,9 +6,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TabBtn } from '@/components/ui/segmented';
 import { Skeleton, StateBlock } from '@/components/StateBlock';
-import { useMcpKeys, useRevokeMcpKey, useDeleteMcpKey } from '@/store/platform';
-import { CreateKeyModal, KeyRevealDialog } from '@/components/platform/CreateKeyModal';
-import { PopoverConfirm, fmtDate, tdCls, thCls } from '@/components/platform/common';
+import { useMcpKeys, useRevokeMcpKey, useDeleteMcpKey, useUpdateMcpKey } from '@/store/platform';
+import { CreateKeyModal, KeyRevealDialog, useOwnerCandidates } from '@/components/platform/CreateKeyModal';
+import { PopoverConfirm, fmtDate, tdCls, thCls, fieldLabel, inputCls } from '@/components/platform/common';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { ApiError } from '@/lib/api';
 import { useAppData } from '@/store/AppData';
 import { useT } from '@/lib/i18n';
 import { relativeTime } from '@/lib/time';
@@ -67,6 +70,7 @@ export function KeysPanel() {
   const [tab, setTab] = React.useState<'mine' | 'all'>('mine');
   const [modalOpen, setModalOpen] = React.useState(false);
   const [issued, setIssued] = React.useState<{ id: string; key: string; prefix: string } | null>(null);
+  const [editing, setEditing] = React.useState<McpKey | null>(null);
 
   const myId = session?.user.id ?? null;
   const mine = (keys ?? []).filter((k) => k.createdBy === myId);
@@ -127,6 +131,7 @@ export function KeysPanel() {
             <thead className="sticky top-0 bg-bg">
               <tr className="border-b border-border">
                 <th className={thCls}>名称</th>
+                <th className={thCls}>所属人</th>
                 <th className={thCls}>能力</th>
                 <th className={thCls}>范围</th>
                 <th className={thCls}>有效期至</th>
@@ -138,7 +143,7 @@ export function KeysPanel() {
             <tbody>
               {!shown.length && (
                 <tr className="border-b border-border">
-                  <td colSpan={7} className="px-4 py-10 text-center text-[13px] text-fg-3">
+                  <td colSpan={8} className="px-4 py-10 text-center text-[13px] text-fg-3">
                     {tab === 'mine' ? '你还没有令牌' : '还没有任何令牌'}
                   </td>
                 </tr>
@@ -151,6 +156,9 @@ export function KeysPanel() {
                     <td className={tdCls}>
                       <div className="font-medium">{k.name}</div>
                       <code className="font-mono text-[12px] text-fg-3">{k.prefix}…</code>
+                    </td>
+                    <td className={tdCls}>
+                      <span className="text-fg-2">{k.ownerName ?? '—'}</span>
                     </td>
                     <td className={tdCls}>
                       <span className="inline-flex gap-1.5">
@@ -175,6 +183,12 @@ export function KeysPanel() {
                     </td>
                     <td className={tdCls}>
                       <span className="inline-flex items-center gap-3">
+                        <button
+                          className="text-[13px] font-medium text-fg-3 hover:text-fg-1 hover:underline"
+                          onClick={() => setEditing(k)}
+                        >
+                          改所属人
+                        </button>
                         {!k.revokedAt && (
                           <PopoverConfirm
                             title={`吊销「${k.name}」?`}
@@ -241,6 +255,69 @@ export function KeysPanel() {
 
       <CreateKeyModal open={modalOpen} onOpenChange={setModalOpen} onIssued={setIssued} platformAdmin={isPlatformAdmin} />
       <KeyRevealDialog issued={issued} onClose={() => setIssued(null)} />
+      {editing && <EditOwnerModal k={editing} platformAdmin={isPlatformAdmin} onClose={() => setEditing(null)} />}
     </div>
+  );
+}
+
+/* 修改令牌所属人:候选与新建时一致(公司级 key → 该公司成员;平台级 → 全部
+   用户;普通成员 → bootstrap 的 human 成员)。 */
+function EditOwnerModal({
+  k,
+  platformAdmin,
+  onClose,
+}: {
+  k: McpKey;
+  platformAdmin: boolean;
+  onClose: () => void;
+}) {
+  const update = useUpdateMcpKey();
+  const [ownerId, setOwnerId] = React.useState(k.ownerId ?? '');
+  const [error, setError] = React.useState<string | null>(null);
+  const options = useOwnerCandidates(platformAdmin, k.companyId);
+
+  const submit = async () => {
+    setError(null);
+    try {
+      await update.mutateAsync({ id: k.id, ownerId });
+      onClose();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '保存失败,请重试');
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent aria-describedby={undefined} className="w-[min(420px,92vw)]">
+        <DialogPrimitive.Title className="px-[18px] pb-1 pt-4 text-[15px] font-semibold text-fg-1">
+          修改所属人「{k.name}」
+        </DialogPrimitive.Title>
+        <div className="flex flex-col gap-3 px-[18px] py-3">
+          <div>
+            <span className={fieldLabel}>所属人(Agent 以此身份操作)</span>
+            <select className={inputCls} value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+              {!options.some((o) => o.id === ownerId) && (
+                <option value={ownerId}>{k.ownerName ?? '当前所属人'}</option>
+              )}
+              {options.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {error && <div className="rounded-lg bg-danger-50 px-3 py-2 text-[12.5px] text-danger">{error}</div>}
+        </div>
+        <div className="flex items-center gap-2 border-t border-border px-[18px] py-3">
+          <div className="flex-1" />
+          <Button variant="ghost" size="md" onClick={onClose}>
+            取消
+          </Button>
+          <Button variant="primary" size="md" onClick={submit} disabled={!ownerId || update.isPending}>
+            保存
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
