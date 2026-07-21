@@ -16,11 +16,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { SettingsModal } from '@/components/SettingsModal';
 import { useShell } from '@/components/AppShell';
 import { useAppData } from '@/store/AppData';
 import { authApi, type CompanyRole, type SessionCompany } from '@/lib/api';
 import { useT } from '@/lib/i18n';
+import { applyTheme } from '@/lib/theme';
 import type { Member } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -77,6 +77,29 @@ function CompanySwitcher() {
 
   const role = roleLabel(t, companyRole);
 
+  /* 单公司:渲染为纯公司名(保留颜色块),无 chevron、不可点击、不出下拉。 */
+  if (companies.length <= 1) {
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="flex h-8 min-w-0 items-center gap-2 rounded-lg border border-border bg-surface px-2 text-[13px] font-medium text-fg-1">
+          {currentCompany ? (
+            <>
+              <CompanyMark company={currentCompany} size={18} />
+              <span className="max-w-[160px] truncate">{currentCompany.name}</span>
+            </>
+          ) : (
+            <span className="max-w-[160px] truncate text-fg-3">{t('header.noCompany')}</span>
+          )}
+        </div>
+        {role && (
+          <Badge tone="blue" className="flex-none">
+            {role}
+          </Badge>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-w-0 items-center gap-2">
       <Popover open={open} onOpenChange={setOpen}>
@@ -126,7 +149,7 @@ function CompanySwitcher() {
               <div
                 onClick={() => {
                   setOpen(false);
-                  router.push('/platform');
+                  router.push('/settings?tab=companies');
                 }}
                 className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-fg-1 hover:bg-surface-2"
               >
@@ -169,7 +192,6 @@ function UserMenu() {
   const router = useRouter();
   const qc = useQueryClient();
   const { session, companyRole, me } = useAppData();
-  const [settingsOpen, setSettingsOpen] = React.useState(false);
   // Lazy init is safe here: the user menu only renders after the client-side
   // session query resolves (never during SSR), and the anti-flash inline
   // script has already applied the persisted theme by then.
@@ -178,14 +200,9 @@ function UserMenu() {
   );
 
   const toggleTheme = () => {
-    const next = light ? 'dark' : 'light';
-    document.documentElement.dataset.theme = next;
-    try {
-      localStorage.setItem('theme', next);
-    } catch {
-      // private mode etc. — theme just won't persist
-    }
-    setLight(!light);
+    const next = !light;
+    applyTheme(next ? 'light' : 'dark');
+    setLight(next);
   };
 
   const logout = async () => {
@@ -239,7 +256,7 @@ function UserMenu() {
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>
+          <DropdownMenuItem onSelect={() => router.push('/profile')}>
             <Settings size={15} className="flex-none text-fg-3" />
             {t('header.settings')}
           </DropdownMenuItem>
@@ -258,7 +275,6 @@ function UserMenu() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   );
 }
@@ -278,7 +294,7 @@ export function Header() {
       {/* Left: logo + company switcher */}
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <Link href="/issues" className="flex flex-none items-baseline gap-1 whitespace-nowrap">
-          <span className="text-[15px] font-bold tracking-tight text-fg-1">XGENT</span>
+          <span className="text-[15px] font-bold tracking-tight text-fg-1">AI Grego</span>
           <span className="text-[15px] font-semibold tracking-tight text-fg-3">Track</span>
         </Link>
         {sessionLoading || !session ? (

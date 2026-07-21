@@ -35,6 +35,32 @@ export function useSyncDirectory() {
   return useMutation({ mutationFn: () => api.syncDirectory(), onSuccess: invalidate });
 }
 
+/* ---- 公司席位(研发资源 · 内部成员段) ---- */
+export function useSeats() {
+  return useQuery({ queryKey: ['seats'], queryFn: () => api.seats() });
+}
+export function useUpdateSeatRole() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, role }: { id: string; role: string }) => api.updateSeatRole(id, role),
+    // 角色变化影响 session 里的 permissions(若是本人)与席位列表。
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seats'] });
+      qc.invalidateQueries({ queryKey: ['session'] });
+    },
+  });
+}
+export function useRemoveSeat() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.removeSeat(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seats'] });
+      qc.invalidateQueries({ queryKey: ['bootstrap'] });
+    },
+  });
+}
+
 /* ---- per-node virtual team ---- */
 export function useNodeAssignments(nodeType: AssignmentNodeType, nodeId: string | null | undefined) {
   return useQuery({

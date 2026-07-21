@@ -166,15 +166,17 @@ export const companyMemberships = pgTable(
 
 /* Role permissions — the configurable per-module access matrix for the
    non-admin company roles. level: 'none' | 'read' | 'write'.
-   company_admin is implicit full access and intentionally not seeded here. */
+   company_admin is implicit full access and intentionally not seeded here.
+   companyId '' = 全局默认;非空 = 该公司对全局的按单元格覆盖。 */
 export const rolePermissions = pgTable(
   'role_permissions',
   {
+    companyId: text('company_id').notNull().default(''),
     role: text('role').notNull(),
     module: text('module').notNull(),
     level: text('level').notNull(),
   },
-  (t) => [primaryKey({ columns: [t.role, t.module] })],
+  (t) => [primaryKey({ columns: [t.companyId, t.role, t.module] })],
 );
 
 /* MCP API keys — sha256(key) is stored, never the raw key. `prefix` keeps
@@ -186,6 +188,13 @@ export const mcpApiKeys = pgTable('mcp_api_keys', {
   name: text('name').notNull(),
   companyId: text('company_id').references(() => companies.id, { onDelete: 'cascade' }),
   createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  // 能力上限：逗号分隔的 read/write/delete。MCP 层强制：读工具要 read、写工具要
+  // write（delete 预留，当前无删除类工具）。
+  capabilities: text('capabilities').notNull().default('read,write'),
+  // null = 永不过期；到期即 401（无需吊销）。
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  // 最近一次通过 MCP 鉴权的时间（60s 节流写入）。
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -10,8 +10,10 @@ import { ApiException } from './envelope';
                                 configurable roles below)
 
    The configurable matrix lives in `role_permissions` (4 roles × 10 modules,
-   seeded by scripts/seed.ts). company_admin and platform admins are implicit
-   full access and are intentionally NOT in the matrix. */
+   seeded by scripts/seed.ts). Two scopes: companyId '' = 全局默认;非空 =
+   该公司对全局的按单元格覆盖(公司行覆盖全局行)。company_admin and
+   platform admins are implicit full access and are intentionally NOT in the
+   matrix. */
 
 export const MODULES = [
   'issues',
@@ -47,38 +49,49 @@ function emptyMatrix(): Matrix {
   return m as Matrix;
 }
 
-/* The matrix is global reference data (not per company), read on every
-   permission check — cache it in-process for 60s. */
+/* Matrices are read on every permission check — cache per scope in-process
+   for 60s. Key: '' = 全局默认;否则 companyId(已合并全局行)。 */
 const CACHE_TTL_MS = 60_000;
-let cache: { at: number; matrix: Matrix } | null = null;
+const cache = new Map<string, { at: number; matrix: Matrix }>();
 
-export function invalidateMatrixCache(): void {
-  cache = null;
+export function invalidateMatrixCache(companyId?: string): void {
+  if (companyId === undefined) cache.clear();
+  else cache.delete(companyId);
 }
 
-export async function getMatrix(): Promise<Matrix> {
+/* Effective matrix for a scope: global rows (''), overlaid cell-by-cell with
+   the company's own rows when companyId is given. */
+export async function getMatrix(companyId?: string): Promise<Matrix> {
+  const key = companyId ?? '';
   const now = Date.now();
-  if (cache && now - cache.at < CACHE_TTL_MS) return cache.matrix;
+  const hit = cache.get(key);
+  if (hit && now - hit.at < CACHE_TTL_MS) return hit.matrix;
+
   const rows = await db
-    .select({ role: rolePermissions.role, module: rolePermissions.module, level: rolePermissions.level })
+    .select({ companyId: rolePermissions.companyId, role: rolePermissions.role, module: rolePermissions.module, level: rolePermissions.level })
     .from(rolePermissions);
   const matrix = emptyMatrix();
-  for (const r of rows) {
-    if (!(CONFIGURABLE_ROLES as readonly string[]).includes(r.role)) continue;
-    if (!(MODULES as readonly string[]).includes(r.module)) continue;
-    if (!(LEVELS as readonly string[]).includes(r.level)) continue;
-    matrix[r.role as ConfigurableRole][r.module as Module] = r.level as Level;
-  }
-  cache = { at: now, matrix };
+  const apply = (scope: string) => {
+    for (const r of rows) {
+      if (r.companyId !== scope) continue;
+      if (!(CONFIGURABLE_ROLES as readonly string[]).includes(r.role)) continue;
+      if (!(MODULES as readonly string[]).includes(r.module)) continue;
+      if (!(LEVELS as readonly string[]).includes(r.level)) continue;
+      matrix[r.role as ConfigurableRole][r.module as Module] = r.level as Level;
+    }
+  };
+  apply('');
+  if (companyId) apply(companyId);
+  cache.set(key, { at: now, matrix });
   return matrix;
 }
 
 /* Effective level of a company role on a module. company_admin is constant
    full access (not stored in the matrix); unknown roles fall back to 'none'. */
-export async function levelFor(companyRole: string | null | undefined, module: Module): Promise<Level> {
+export async function levelFor(companyRole: string | null | undefined, module: Module, companyId?: string): Promise<Level> {
   if (companyRole === 'company_admin') return 'write';
   if (!companyRole || !(CONFIGURABLE_ROLES as readonly string[]).includes(companyRole)) return 'none';
-  const matrix = await getMatrix();
+  const matrix = await getMatrix(companyId);
   return matrix[companyRole as ConfigurableRole][module];
 }
 
@@ -87,6 +100,7 @@ export async function levelFor(companyRole: string | null | undefined, module: M
 export interface PermActor {
   companyRole: string | null;
   isPlatformAdmin: boolean;
+  companyId?: string;
 }
 
 /* Gate: throws ApiException FORBIDDEN (403) when the actor's effective level
@@ -94,7 +108,7 @@ export interface PermActor {
    unconditionally; level 'none' fails even a 'read' check. */
 export async function requirePerm(actor: PermActor, module: Module, need: 'read' | 'write'): Promise<void> {
   if (actor.isPlatformAdmin || actor.companyRole === 'company_admin') return;
-  const level = await levelFor(actor.companyRole, module);
+  const level = await levelFor(actor.companyRole, module, actor.companyId);
   if (LEVEL_RANK[level] < LEVEL_RANK[need]) {
     throw new ApiException('FORBIDDEN', '没有该模块的访问权限', 403);
   }
@@ -109,7 +123,7 @@ export async function permsForActor(actor: PermActor): Promise<Record<Module, Le
     for (const m of MODULES) out[m] = 'write';
     return out;
   }
-  const matrix = await getMatrix();
+  const matrix = await getMatrix(actor.companyId);
   for (const m of MODULES) {
     out[m] =
       actor.companyRole && (CONFIGURABLE_ROLES as readonly string[]).includes(actor.companyRole)

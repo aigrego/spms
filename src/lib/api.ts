@@ -13,6 +13,7 @@ import type {
   ProductLine,
   Product,
   Release,
+
   ProductStatus,
   ReleaseStatus,
   Requirement,
@@ -33,6 +34,7 @@ import type {
   TestCaseStatus,
   TestResult,
 } from './types';
+import type { PermissionsMatrix } from './platformApi';
 
 // Standalone Next.js rewrite: every business call hits the app's own API routes
 // at /api/v1/pms/** (cookie session auth — the browser attaches the cookie).
@@ -142,6 +144,16 @@ export interface InviteResourceInput {
   userId?: string;
   portalUserId?: string;
   homeTenantId?: string;
+}
+
+/* 公司席位:能进入本公司的系统用户及其公司角色(研发资源 · 内部成员段)。 */
+export interface Seat {
+  membershipId: string;
+  userId: string;
+  username: string;
+  name: string;
+  role: string; // company_admin | product_manager | developer | tester | viewer
+  createdAt: string;
 }
 
 export interface ProjectInput {
@@ -316,6 +328,16 @@ export const api = {
   revokeResource: (id: string) =>
     request<{ id: string; status: string }>(`/resources/${id}/revoke`, { method: 'POST' }),
 
+  /* ---- 公司席位(研发资源 · 内部成员段) ---- */
+  seats: () => request<Seat[]>('/seats'),
+  updateSeatRole: (id: string, role: string) => request<{ id: string; role: string }>(`/seats/${id}`, json('PATCH', { role })),
+  removeSeat: (id: string) => request<{ id: string }>(`/seats/${id}`, { method: 'DELETE' }),
+
+  /* ---- 本公司权限矩阵(全局默认 + 本公司覆盖) ---- */
+  companyMatrix: () => request<PermissionsMatrix>('/permissions-matrix'),
+  saveCompanyMatrix: (matrix: PermissionsMatrix['matrix']) =>
+    request<unknown>('/permissions-matrix', json('PUT', { matrix })),
+
   /* ---- 节点资源指派 / 虚拟团队 (PMS-2 §5.2) ---- */
   assignments: (nodeType: AssignmentNodeType, nodeId: string) =>
     request<AssignmentRow[]>(`/assignments?nodeType=${nodeType}&nodeId=${nodeId}`),
@@ -346,6 +368,8 @@ export interface SessionUser {
   // Multi-company sandbox: platform admins see every company and the
   // /platform console. Absent while the backend rolls out — treated as false.
   isPlatformAdmin?: boolean;
+  // Whether a Lark identity is linked (profile page security tab).
+  larkBound?: boolean;
 }
 
 /* Multi-company sandbox contracts (P5). All optional on the wire while the
@@ -424,6 +448,9 @@ export const authApi = {
     authRequest<unknown>('/api/auth/switch-company', json('POST', { companyId })),
   changePassword: (oldPassword: string, newPassword: string) =>
     authRequest<unknown>('/api/auth/change-password', json('POST', { oldPassword, newPassword })),
+  // Update the signed-in user's display name (profile page).
+  updateProfile: (name: string) =>
+    authRequest<{ user: SessionUser }>('/api/auth/profile', json('PATCH', { name })),
   // 飞书扫码登录配置探测（Phase B2 提供）；未配置/失败时返回 null，按钮隐藏。
   larkConfig: async (): Promise<{ configured: boolean; url?: string } | null> => {
     try {

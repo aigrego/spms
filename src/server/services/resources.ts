@@ -1,10 +1,11 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
-import { members, users } from '@/db/schema';
+import { companyMemberships, members, users } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import { initialsFor, colorFor } from '@/lib/identity';
 import { unassignMemberEverywhere } from '@/lib/assignments';
 import { requirePerm } from '@/lib/permissions';
+import { COMPANY_ROLES, type CompanyRole } from './platform';
 import type { Actor } from './types';
 
 /* PMS-2 §5.1 — 研发资源池 (resource pool) business service. Ported from
@@ -116,4 +117,60 @@ export async function revoke(actor: Actor, id: string) {
   await unassignMemberEverywhere(actor.companyId, m.id);
   await db.update(members).set({ status: 'revoked' }).where(eq(members.id, m.id));
   return { id: m.id, status: 'revoked' as const };
+}
+
+/* ============================ Seats (公司席位) ============================
+   席位 = company_memberships:哪些系统用户能进入本公司、以什么公司角色。
+   在研发资源页展示与配置;写操作仅 company_admin / 平台管理员。 */
+
+function requireSeatAdmin(actor: Actor): void {
+  if (actor.isPlatformAdmin || actor.companyRole === 'company_admin') return;
+  throw new ApiException('FORBIDDEN', '需要公司管理员权限', 403);
+}
+
+/* ---- list the current company's seats (memberships ⋈ users) ---- */
+export async function listSeats(actor: Actor) {
+  await requirePerm(actor, 'resources', 'read');
+  return db
+    .select({
+      membershipId: companyMemberships.id,
+      userId: users.id,
+      username: users.username,
+      name: users.name,
+      role: companyMemberships.role,
+      createdAt: companyMemberships.createdAt,
+    })
+    .from(companyMemberships)
+    .innerJoin(users, eq(companyMemberships.userId, users.id))
+    .where(eq(companyMemberships.companyId, actor.companyId))
+    .orderBy(asc(companyMemberships.createdAt));
+}
+
+async function seatInCompany(actor: Actor, membershipId: string) {
+  const [m] = await db
+    .select({ id: companyMemberships.id })
+    .from(companyMemberships)
+    .where(and(eq(companyMemberships.id, membershipId), eq(companyMemberships.companyId, actor.companyId)))
+    .limit(1);
+  if (!m) throw new ApiException('MEMBER_NOT_FOUND', '成员不存在');
+  return m;
+}
+
+/* ---- change a seat's company role (管理员/产品/开发/测试/访客) ---- */
+export async function updateSeatRole(actor: Actor, membershipId: string, role: CompanyRole) {
+  requireSeatAdmin(actor);
+  if (!(COMPANY_ROLES as readonly string[]).includes(role)) {
+    throw new ApiException('VALIDATION_FAILED', `role 必须是内置角色之一（${COMPANY_ROLES.join(' / ')}）`);
+  }
+  await seatInCompany(actor, membershipId);
+  await db.update(companyMemberships).set({ role }).where(eq(companyMemberships.id, membershipId));
+  return { id: membershipId, role };
+}
+
+/* ---- revoke a seat (the user account and other seats survive) ---- */
+export async function removeSeat(actor: Actor, membershipId: string) {
+  requireSeatAdmin(actor);
+  await seatInCompany(actor, membershipId);
+  await db.delete(companyMemberships).where(eq(companyMemberships.id, membershipId));
+  return { id: membershipId };
 }

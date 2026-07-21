@@ -3,6 +3,7 @@ import { and, asc, count, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { companies, companyMemberships, mcpApiKeys, rolePermissions, users } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
+import { ensureCurrentMember } from '@/lib/identity';
 import { hashPassword } from '@/lib/password';
 import {
   CONFIGURABLE_ROLES,
@@ -16,9 +17,12 @@ import type { Actor } from './types';
 
 /* Platform-admin business service (multi-company sandbox): company CRUD,
    per-company membership management, the global role-permission matrix, and
-   MCP API keys. Every function is platform-admin only — checked INSIDE the
-   service (routes build the actor via requireActor; MCP must never call this
-   module with a non-admin actor). */
+   MCP API keys. Everything except the MCP-key functions is platform-admin only
+   — checked INSIDE the service (routes build the actor via requireActor; MCP
+   must never call this module with a non-admin actor). MCP keys are
+   self-service: members list/create/revoke/delete only their OWN keys, scoped
+   to a company they belong to (never platform-level); admins keep full
+   visibility. */
 
 // The 5 built-in company roles: company_admin + the 4 configurable ones.
 export const COMPANY_ROLES = ['company_admin', ...CONFIGURABLE_ROLES] as const;
@@ -112,6 +116,90 @@ export async function updateCompany(actor: Actor, id: string, patch: UpdateCompa
 
 /* ============================ Company members ============================ */
 
+/* ---- every system user with their company seats (平台成员目录) ---- */
+export async function listAllUsers(actor: Actor) {
+  requirePlatformAdmin(actor);
+  const rows = await db
+    .select({
+      userId: users.id,
+      username: users.username,
+      name: users.name,
+      platformRole: users.role,
+      userCreatedAt: users.createdAt,
+      membershipId: companyMemberships.id,
+      membershipRole: companyMemberships.role,
+      companyId: companies.id,
+      companyName: companies.name,
+      companyColor: companies.color,
+    })
+    .from(users)
+    .leftJoin(companyMemberships, eq(companyMemberships.userId, users.id))
+    .leftJoin(companies, eq(companyMemberships.companyId, companies.id))
+    .orderBy(asc(users.createdAt), asc(companyMemberships.createdAt));
+
+  const byUser = new Map<
+    string,
+    {
+      userId: string;
+      username: string;
+      name: string;
+      platformRole: string;
+      createdAt: Date;
+      seats: { membershipId: string; role: string; companyId: string; companyName: string; companyColor: string | null }[];
+    }
+  >();
+  for (const r of rows) {
+    let u = byUser.get(r.userId);
+    if (!u) {
+      u = {
+        userId: r.userId,
+        username: r.username,
+        name: r.name,
+        platformRole: r.platformRole,
+        createdAt: r.userCreatedAt,
+        seats: [],
+      };
+      byUser.set(r.userId, u);
+    }
+    if (r.membershipId && r.companyId && r.companyName) {
+      u.seats.push({
+        membershipId: r.membershipId,
+        role: r.membershipRole ?? 'viewer',
+        companyId: r.companyId,
+        companyName: r.companyName,
+        companyColor: r.companyColor,
+      });
+    }
+  }
+  return [...byUser.values()];
+}
+
+export interface CreateUserInput {
+  username: string;
+  name?: string;
+  password: string;
+}
+
+/* ---- create a bare system account (no seat; seats are assigned per company) ---- */
+export async function createUser(actor: Actor, input: CreateUserInput) {
+  requirePlatformAdmin(actor);
+  const username = input.username?.trim();
+  if (!username) throw new ApiException('VALIDATION_FAILED', '用户名不能为空');
+  if (!/^[a-zA-Z0-9_.-]+$/.test(username)) {
+    throw new ApiException('VALIDATION_FAILED', '用户名只能包含字母、数字、_ . -');
+  }
+  if (!input.password || input.password.length < 6) {
+    throw new ApiException('VALIDATION_FAILED', '初始密码至少 6 位');
+  }
+  const [dupe] = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
+  if (dupe) throw new ApiException('INVITE_FAILED', '用户名已存在');
+
+  const id = crypto.randomUUID();
+  const name = input.name?.trim() || username;
+  await db.insert(users).values({ id, username, passwordHash: await hashPassword(input.password), name, role: 'member' });
+  return { id, username, name };
+}
+
 /* ---- a company's memberships joined with the users row ---- */
 export async function listMembers(actor: Actor, companyId: string) {
   requirePlatformAdmin(actor);
@@ -172,6 +260,8 @@ export async function addMember(actor: Actor, companyId: string, input: AddMembe
 
   const id = crypto.randomUUID();
   await db.insert(companyMemberships).values({ id, userId: u.id, companyId, role: input.role });
+  // 席位分配即把用户投影进本公司资源池(幂等),供指派/研发资源使用。
+  await ensureCurrentMember({ id: u.id, name: u.name }, companyId);
   return { id, userId: u.id, username: u.username, name: u.name, role: input.role };
 }
 
@@ -204,15 +294,7 @@ export async function removeMember(actor: Actor, companyId: string, membershipId
 
 /* ========================= Role permission matrix ========================= */
 
-/* ---- the full 4 roles × 10 modules matrix (every cell has a value) ---- */
-export async function getPermissionsMatrix(actor: Actor) {
-  requirePlatformAdmin(actor);
-  return { roles: CONFIGURABLE_ROLES, modules: MODULES, matrix: await getMatrix() };
-}
-
-/* ---- replace the matrix: validate every cell, upsert, then bust the cache ---- */
-export async function savePermissionsMatrix(actor: Actor, matrix: Matrix) {
-  requirePlatformAdmin(actor);
+function validateMatrix(matrix: Matrix): void {
   for (const role of CONFIGURABLE_ROLES) {
     const row = matrix[role];
     if (!row) throw new ApiException('VALIDATION_FAILED', `缺少角色 ${role} 的权限配置`);
@@ -223,28 +305,78 @@ export async function savePermissionsMatrix(actor: Actor, matrix: Matrix) {
       }
     }
   }
+}
+
+async function upsertMatrix(scope: string, matrix: Matrix): Promise<void> {
   for (const role of CONFIGURABLE_ROLES) {
     for (const mod of MODULES) {
       await db
         .insert(rolePermissions)
-        .values({ role, module: mod, level: matrix[role][mod] })
+        .values({ companyId: scope, role, module: mod, level: matrix[role][mod] })
         .onConflictDoUpdate({
-          target: [rolePermissions.role, rolePermissions.module],
+          target: [rolePermissions.companyId, rolePermissions.role, rolePermissions.module],
           set: { level: matrix[role][mod] },
         });
     }
   }
+}
+
+/* 公司级矩阵的访问门槛:平台管理员,或该公司的 company_admin。 */
+function requireCompanyMatrixAccess(actor: Actor, companyId: string): void {
+  if (actor.isPlatformAdmin) return;
+  if (actor.companyRole === 'company_admin' && actor.companyId === companyId) return;
+  throw new ApiException('FORBIDDEN', '需要公司管理员权限', 403);
+}
+
+/* ---- the full 4 roles × 10 modules matrix (every cell has a value) ---- */
+export async function getPermissionsMatrix(actor: Actor) {
+  requirePlatformAdmin(actor);
+  return { roles: CONFIGURABLE_ROLES, modules: MODULES, matrix: await getMatrix() };
+}
+
+/* ---- replace the GLOBAL default matrix (scope ''): validate, upsert, bust cache ---- */
+export async function savePermissionsMatrix(actor: Actor, matrix: Matrix) {
+  requirePlatformAdmin(actor);
+  validateMatrix(matrix);
+  await upsertMatrix('', matrix);
   invalidateMatrixCache();
   return { roles: CONFIGURABLE_ROLES, modules: MODULES, matrix: await getMatrix() };
 }
 
+/* ---- a company's effective matrix (global default + 本公司覆盖) ---- */
+export async function getCompanyMatrix(actor: Actor, companyId: string) {
+  requireCompanyMatrixAccess(actor, companyId);
+  if (!(await companyExists(companyId))) throw new ApiException('NOT_FOUND', '公司不存在');
+  return { roles: CONFIGURABLE_ROLES, modules: MODULES, matrix: await getMatrix(companyId) };
+}
+
+/* ---- replace a company's override matrix ---- */
+export async function saveCompanyMatrix(actor: Actor, companyId: string, matrix: Matrix) {
+  requireCompanyMatrixAccess(actor, companyId);
+  if (!(await companyExists(companyId))) throw new ApiException('NOT_FOUND', '公司不存在');
+  validateMatrix(matrix);
+  await upsertMatrix(companyId, matrix);
+  invalidateMatrixCache(companyId);
+  return { roles: CONFIGURABLE_ROLES, modules: MODULES, matrix: await getMatrix(companyId) };
+}
+
 /* =============================== MCP API keys =============================== */
 
-/* ---- all MCP keys (+ company name; NULL company = platform scope). keyHash
-   is never returned. ---- */
+/* ---- membership check for member self-service key scoping ---- */
+async function isCompanyMember(userId: string, companyId: string): Promise<boolean> {
+  const [m] = await db
+    .select({ id: companyMemberships.id })
+    .from(companyMemberships)
+    .where(and(eq(companyMemberships.userId, userId), eq(companyMemberships.companyId, companyId)))
+    .limit(1);
+  return !!m;
+}
+
+/* ---- MCP keys visible to the actor (+ company name + creator name; NULL
+   company = platform scope). Admins see all keys; members only their own
+   (incl. expired/revoked). keyHash is never returned. ---- */
 export async function listMcpKeys(actor: Actor) {
-  requirePlatformAdmin(actor);
-  return db
+  const rows = db
     .select({
       id: mcpApiKeys.id,
       prefix: mcpApiKeys.prefix,
@@ -252,40 +384,107 @@ export async function listMcpKeys(actor: Actor) {
       companyId: mcpApiKeys.companyId,
       companyName: companies.name,
       createdBy: mcpApiKeys.createdBy,
+      createdByName: users.name,
+      capabilities: mcpApiKeys.capabilities,
+      expiresAt: mcpApiKeys.expiresAt,
+      lastUsedAt: mcpApiKeys.lastUsedAt,
       revokedAt: mcpApiKeys.revokedAt,
       createdAt: mcpApiKeys.createdAt,
     })
     .from(mcpApiKeys)
     .leftJoin(companies, eq(mcpApiKeys.companyId, companies.id))
+    .leftJoin(users, eq(mcpApiKeys.createdBy, users.id))
+    .where(actor.isPlatformAdmin ? undefined : eq(mcpApiKeys.createdBy, actor.userId))
     .orderBy(asc(mcpApiKeys.createdAt));
+  return rows;
 }
+
+export const MCP_CAPABILITIES = ['read', 'write', 'delete'] as const;
+export type McpCapability = (typeof MCP_CAPABILITIES)[number];
 
 export interface CreateMcpKeyInput {
   name: string;
-  companyId?: string | null; // null/omitted → platform-level key
+  /* Platform admin: null/omitted → platform-level key. Member: omitted →
+     their current company; explicit null (platform-level) → 403; any other
+     company must be one of their memberships. */
+  companyId?: string | null;
+  capabilities?: McpCapability[]; // default ['read','write']
+  expiresInDays?: number | null; // null/omitted → 永不过期
 }
 
 /* ---- mint an MCP key: the plaintext is returned ONCE, only sha256 is stored ---- */
 export async function createMcpKey(actor: Actor, input: CreateMcpKeyInput) {
-  requirePlatformAdmin(actor);
   const name = input.name?.trim();
   if (!name) throw new ApiException('VALIDATION_FAILED', '名称不能为空');
-  const companyId = input.companyId ?? null;
+
+  let companyId: string | null;
+  if (actor.isPlatformAdmin) {
+    companyId = input.companyId ?? null;
+  } else if (input.companyId === undefined) {
+    companyId = actor.companyId; // 自助创建默认归属当前公司
+  } else if (input.companyId === null) {
+    throw new ApiException('FORBIDDEN', '平台级令牌仅平台管理员可创建', 403);
+  } else {
+    if (!(await isCompanyMember(actor.userId, input.companyId))) {
+      throw new ApiException('FORBIDDEN', '只能在自己所属的公司下创建令牌', 403);
+    }
+    companyId = input.companyId;
+  }
   if (companyId && !(await companyExists(companyId))) throw new ApiException('NOT_FOUND', '公司不存在');
+
+  const capabilities = input.capabilities ?? ['read', 'write'];
+  if (
+    capabilities.length === 0 ||
+    capabilities.some((c) => !(MCP_CAPABILITIES as readonly string[]).includes(c))
+  ) {
+    throw new ApiException('VALIDATION_FAILED', '能力只能包含 read/write/delete，且至少一项');
+  }
+  const expiresInDays = input.expiresInDays ?? null;
+  if (expiresInDays != null && (!Number.isInteger(expiresInDays) || expiresInDays < 1)) {
+    throw new ApiException('VALIDATION_FAILED', '有效期必须是正整数天数');
+  }
+  const expiresAt = expiresInDays != null ? new Date(Date.now() + expiresInDays * 86_400_000) : null;
 
   const key = `spms_${randomBytes(16).toString('hex')}`; // spms_ + 32 hex chars
   const keyHash = createHash('sha256').update(key).digest('hex');
   const prefix = key.slice(0, 8);
   const id = crypto.randomUUID();
-  await db.insert(mcpApiKeys).values({ id, keyHash, prefix, name, companyId, createdBy: actor.userId });
+  await db.insert(mcpApiKeys).values({
+    id,
+    keyHash,
+    prefix,
+    name,
+    companyId,
+    createdBy: actor.userId,
+    capabilities: capabilities.join(','),
+    expiresAt,
+  });
   return { id, key, prefix };
+}
+
+/* ---- shared owner check: members may only touch their own keys ---- */
+async function requireKeyOwner(actor: Actor, id: string): Promise<void> {
+  const [k] = await db
+    .select({ id: mcpApiKeys.id, createdBy: mcpApiKeys.createdBy })
+    .from(mcpApiKeys)
+    .where(eq(mcpApiKeys.id, id))
+    .limit(1);
+  if (!k) throw new ApiException('NOT_FOUND', 'API Key 不存在');
+  if (!actor.isPlatformAdmin && k.createdBy !== actor.userId) {
+    throw new ApiException('FORBIDDEN', '只能操作自己创建的令牌', 403);
+  }
 }
 
 /* ---- revoke a key (id stays for audit; revokedAt marks it dead) ---- */
 export async function revokeMcpKey(actor: Actor, id: string) {
-  requirePlatformAdmin(actor);
-  const [k] = await db.select({ id: mcpApiKeys.id }).from(mcpApiKeys).where(eq(mcpApiKeys.id, id)).limit(1);
-  if (!k) throw new ApiException('NOT_FOUND', 'API Key 不存在');
+  await requireKeyOwner(actor, id);
   await db.update(mcpApiKeys).set({ revokedAt: new Date() }).where(eq(mcpApiKeys.id, id));
+  return { id };
+}
+
+/* ---- hard-delete a key row (unlike revoke, no audit trail is kept) ---- */
+export async function deleteMcpKey(actor: Actor, id: string) {
+  await requireKeyOwner(actor, id);
+  await db.delete(mcpApiKeys).where(eq(mcpApiKeys.id, id));
   return { id };
 }

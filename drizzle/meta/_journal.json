@@ -15,6 +15,20 @@
       "when": 1784598658956,
       "tag": "0001_bent_mister_fear",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784608777415,
+      "tag": "0002_brief_lady_deathstrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784621926491,
+      "tag": "0003_curious_blizzard",
+      "breakpoints": true
     }
   ]
 }

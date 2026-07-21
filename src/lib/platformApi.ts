@@ -24,6 +24,22 @@ export interface PlatformMember {
   createdAt: string;
 }
 
+/* 平台成员目录:系统用户 + 其公司席位。 */
+export interface PlatformUser {
+  userId: string;
+  username: string;
+  name: string;
+  platformRole: 'admin' | 'member';
+  createdAt: string;
+  seats: {
+    membershipId: string;
+    role: CompanyRole;
+    companyId: string;
+    companyName: string;
+    companyColor: string | null;
+  }[];
+}
+
 /* 服务端 members 返回扁平行，在此统一映射为 PlatformMember */
 interface RawMember {
   id: string;
@@ -46,15 +62,28 @@ export interface PermissionsMatrix {
   matrix: Record<string, Record<string, PermLevel>>;
 }
 
+export type McpCapability = 'read' | 'write' | 'delete';
+
 export interface McpKey {
   id: string;
   name: string;
   prefix: string;
   companyId: string | null; // null = 平台级
   companyName: string | null;
-  createdBy: string;
+  createdBy: string | null;
+  createdByName: string | null;
+  capabilities: string; // 逗号分隔：read,write,delete
+  expiresAt: string | null; // null = 永不过期
+  lastUsedAt: string | null;
   createdAt: string;
   revokedAt: string | null;
+}
+
+export interface CreateMcpKeyInput {
+  name: string;
+  companyId?: string | null; // member 省略 = 服务端归属当前公司;null = 平台级(仅管理员)
+  capabilities: McpCapability[];
+  expiresInDays: number | null; // null = 永不过期
 }
 
 export interface CreateCompanyInput {
@@ -135,6 +164,10 @@ export const platformApi = {
   enterCompany: (id: string) => request<unknown>(`/companies/${id}/enter`, { method: 'POST' }),
 
   /* ---- members ---- */
+  // 平台成员目录：全部系统用户 + 公司席位；新建系统账号
+  users: () => request<PlatformUser[]>('/users'),
+  createUser: (input: { username: string; name?: string; password: string }) =>
+    request<{ id: string; username: string; name: string }>('/users', json('POST', input)),
   // 服务端返回扁平行 { id, userId, username, name, role, createdAt }，在此映射为 PlatformMember
   members: async (companyId: string) =>
     (await request<RawMember[]>(`/companies/${companyId}/members`)).map(mapMember),
@@ -154,9 +187,11 @@ export const platformApi = {
 
   /* ---- mcp keys ---- */
   mcpKeys: () => request<McpKey[]>('/mcp-keys'),
-  createMcpKey: (input: { name: string; companyId: string | null }) =>
+  createMcpKey: (input: CreateMcpKeyInput) =>
     request<{ id: string; key: string; prefix: string }>('/mcp-keys', json('POST', input)),
   revokeMcpKey: (id: string) => request<{ id: string }>(`/mcp-keys/${id}`, { method: 'DELETE' }),
+  // 硬删除（不留审计行），区别于上面的吊销。
+  deleteMcpKey: (id: string) => request<{ id: string }>(`/mcp-keys/${id}?permanent=1`, { method: 'DELETE' }),
 };
 
 export type PlatformApi = typeof platformApi;

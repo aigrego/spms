@@ -20,11 +20,18 @@ export const GET = route(async () => {
   const session = await getSession();
   if (!session) return ok(null);
   const [u] = await db
-    .select({ id: users.id, username: users.username, name: users.name, role: users.role })
+    .select({
+      id: users.id,
+      username: users.username,
+      name: users.name,
+      role: users.role,
+      larkUnionId: users.larkUnionId,
+    })
     .from(users)
     .where(eq(users.id, session.uid))
     .limit(1);
   if (!u) return ok(null);
+  const user = { id: u.id, username: u.username, name: u.name, role: u.role, larkBound: !!u.larkUnionId };
 
   const isPlatformAdmin = u.role === 'admin';
   const companyList = await listCompaniesForUser(u);
@@ -35,7 +42,7 @@ export const GET = route(async () => {
     companyRole =
       (await membershipRoleOf(u.id, currentCompany.id)) ?? (isPlatformAdmin ? 'company_admin' : null);
   }
-  const permissions = await permsForActor({ companyRole, isPlatformAdmin });
+  const permissions = await permsForActor({ companyRole, isPlatformAdmin, companyId: currentCompany?.id });
 
-  return ok({ user: u, companies: companyList, currentCompany, companyRole, isPlatformAdmin, permissions });
+  return ok({ user, companies: companyList, currentCompany, companyRole, isPlatformAdmin, permissions });
 });

@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+.chrome-profile
+.kimi-code
 
 # next.js
 /.next/

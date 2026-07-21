@@ -14,8 +14,10 @@ import {
   Users,
   FlaskConical,
   Inbox,
+  Settings,
+  CircleUserRound,
+  KeyRound,
 } from 'lucide-react';
-import { Avatar } from '@/components/glyphs/Avatar';
 import { useAppData } from '@/store/AppData';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -75,7 +77,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
    by the company-scoped RBAC permissions (P5): an entry needs read access to
    its module, and a section label is hidden when its whole group is gone. */
 export function Sidebar({ myCount }: { myCount: number }) {
-  const { agents, can } = useAppData();
+  const { can } = useAppData();
   const t = useT();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -92,7 +94,6 @@ export function Sidebar({ myCount }: { myCount: number }) {
   const showRoadmap = can('roadmap', 'read');
   const showBacklog = can('backlog', 'read');
   const showSprints = can('sprints', 'read');
-  const showAgents = can('agents', 'read');
 
   const showLifecycle = showProducts || showRequirements || showTestcases;
   const showWorkspace = showProjects || showResources || showRoadmap;
@@ -207,25 +208,33 @@ export function Sidebar({ myCount }: { myCount: number }) {
           </>
         )}
 
-        {showAgents && (
-          <>
-            <SectionLabel>AI Agents</SectionLabel>
-            <div className="flex flex-col gap-px">
-              {agents.map((ag) => (
-                <a
-                  key={ag.id}
-                  className="hover-surface flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5"
-                >
-                  <Avatar person={ag} size={20} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12.5px] font-medium text-fg-2">{ag.name}</div>
-                  </div>
-                  <span className="h-1.5 w-1.5 flex-none rounded-full bg-success" />
-                </a>
-              ))}
-            </div>
-          </>
-        )}
+        {/* AI Agents 区块暂时隐藏:这里原展示 4 个内置 agent 成员(atlas/forge/
+            sentry/scribe),与 MCP 对接配置(/agent-access 独立页面)无关,
+            后续需要时恢复。 */}
+      </div>
+
+      {/* Bottom: agent access + settings + profile, visible to every signed-in user. */}
+      <div className="flex-none border-t border-border px-3 py-2">
+        <div className="flex flex-col gap-px">
+          <NavItem
+            icon={<KeyRound size={16} />}
+            label={t('nav.agentAccess')}
+            active={pathname.startsWith('/agent-access')}
+            href="/agent-access"
+          />
+          <NavItem
+            icon={<Settings size={16} />}
+            label={t('nav.settings')}
+            active={pathname.startsWith('/settings')}
+            href="/settings"
+          />
+          <NavItem
+            icon={<CircleUserRound size={16} />}
+            label={t('nav.profile')}
+            active={pathname.startsWith('/profile')}
+            href="/profile"
+          />
+        </div>
       </div>
     </aside>
   );

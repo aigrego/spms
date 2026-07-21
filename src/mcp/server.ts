@@ -33,6 +33,8 @@ export interface McpKeyContext {
   companyId: string | null; // null = platform-level key
   source: 'db' | 'env' | 'session';
   sessionActor?: Actor; // source === 'session': the already-resolved actor
+  // DB key 的能力上限（read/write/delete）；env 兜底 key 与浏览器会话为全量。
+  capabilities: string[];
 }
 
 /* The first company (createdAt asc) — default target of a platform-level key
@@ -164,6 +166,26 @@ const CONCEPTS = [
 export function createMcpServer(keyContext: McpKeyContext): McpServer {
   const server = new McpServer({ name: 'next-spms', version: '0.1.0' });
 
+  /* 能力门（DB key 的 capabilities 是上限）：带 readOnlyHint 的工具要 read，
+     其余写工具要 write；delete 预留（当前无删除类工具）。超限不执行，直接
+     返回 FORBIDDEN 工具错误。env 兜底 key / 浏览器会话为全量能力。
+     实现上包装 server.registerTool 并保持其泛型签名，调用点类型推断不变。 */
+  type LooseConfig = { annotations?: { readOnlyHint?: boolean } };
+  type LooseHandler = (callArgs: unknown, extra: unknown) => unknown;
+  const reg = ((name: string, config: LooseConfig, handler: LooseHandler) => {
+    const cap = config.annotations?.readOnlyHint ? 'read' : 'write';
+    const guarded: LooseHandler = async (callArgs, extra) => {
+      if (!keyContext.capabilities.includes(cap)) {
+        return errResult(
+          'FORBIDDEN',
+          `此 API Key 没有「${cap === 'read' ? '读取' : '写入'}」能力（签发时未勾选），请换用具备该能力的 Key`,
+        );
+      }
+      return handler(callArgs, extra);
+    };
+    return server.registerTool(name, config as never, guarded as never);
+  }) as unknown as typeof server.registerTool;
+
   /* Resolve the Actor for one tool call from the authenticated key context. */
   async function actorFor(requestedCompanyId?: string): Promise<Actor> {
     if (keyContext.source === 'session') {
@@ -191,7 +213,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
 
   /* ================= 读 ================= */
 
-  server.registerTool(
+  reg(
     'spms_get_bootstrap',
     {
       description:
@@ -207,7 +229,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_list_companies',
     {
       description:
@@ -234,7 +256,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_list_issues',
     {
       description:
@@ -267,7 +289,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_get_issue',
     {
       description: `Issue 详情：按展示 key（如 BUG-3）查询，含 labels/subIssues/activities（created/status/comment 等历史流）。${CONCEPTS}`,
@@ -284,7 +306,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_list_requirements',
     {
       description: `需求列表（附关联 issue 完成度）。返回的 id 字段是展示 key（FR-N / NFR-N）。${CONCEPTS}`,
@@ -302,7 +324,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_get_requirement',
     {
       description: `需求详情：PRD 描述/验收标准/关联 issue 列表，按展示 key（如 FR-2）查询。${CONCEPTS}`,
@@ -319,7 +341,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_list_projects',
     {
       description: `项目列表（含按 issue 完成度派生的 progress）。项目用 uuid id 引用。${CONCEPTS}`,
@@ -333,7 +355,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_list_sprints',
     {
       description: `迭代列表（按开始日期升序）。迭代用 uuid id 引用。${CONCEPTS}`,
@@ -347,7 +369,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_get_sprint',
     {
       description: `迭代详情：元信息 + committed issue 列表 + committed/completed/remaining 点数统计。id 从 spms_list_sprints 获得。${CONCEPTS}`,
@@ -364,7 +386,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_list_test_cases',
     {
       description: `测试用例列表。status：draft|active|deprecated；result：untested|passed|failed|blocked。requirement 传展示 key（FR-N）。${CONCEPTS}`,
@@ -385,7 +407,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_list_members',
     {
       description: `成员列表（human/agent，含 id、agentKey、状态）。assigneeId、leadId 等参数从这里取 member id。${CONCEPTS}`,
@@ -401,7 +423,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
 
   /* ================= 写 ================= */
 
-  server.registerTool(
+  reg(
     'spms_create_issue',
     {
       description:
@@ -433,7 +455,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_update_issue',
     {
       description:
@@ -465,7 +487,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_add_comment',
     {
       description: `给 Issue 加评论（写入 activities 流，kind=comment，操作者为 MCP Agent/scribe）。${CONCEPTS}`,
@@ -482,7 +504,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_create_requirement',
     {
       description:
@@ -509,7 +531,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_update_requirement',
     {
       description:
@@ -539,7 +561,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_create_test_case',
     {
       description: `创建测试用例（自动分配 TC-N key，初始 status=draft、result=untested）。requirementId 传需求展示 key（FR-N）。${CONCEPTS}`,
@@ -562,7 +584,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_update_test_case',
     {
       description:
@@ -592,7 +614,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_move_issue_to_sprint',
     {
       description:
@@ -612,7 +634,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
-  server.registerTool(
+  reg(
     'spms_create_project',
     {
       description: `创建项目（初始 status=backlog）。releaseId 传版本 id、leadId 传负责人 member id（spms_get_bootstrap / spms_list_members 可查）。${CONCEPTS}`,

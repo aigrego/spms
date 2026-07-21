@@ -20,7 +20,7 @@ const iceland = Iceland({
 });
 
 export const metadata: Metadata = {
-  title: 'XGENT Track',
+  title: 'AI Grego Track',
   description: '研发工作区',
 };
 
@@ -32,16 +32,17 @@ export default function RootLayout({
   return (
     <html
       lang="zh-CN"
-      data-theme="dark"
+      data-theme="light"
       className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} ${iceland.variable} h-full antialiased`}
     >
       <body className="h-full">
-        {/* Anti-flash theme bootstrap: apply the persisted theme before first
-            paint. Kept in sync with the toggle in components/Header.tsx. */}
+        {/* Anti-flash theme bootstrap: resolve the persisted preference
+            ('light' | 'dark' | 'system', default light) before first paint.
+            Kept in sync with src/lib/theme.ts. */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t}}catch(e){}",
+              "try{var t=localStorage.getItem('theme');var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light'}catch(e){}",
           }}
         />
         <Providers>{children}</Providers>

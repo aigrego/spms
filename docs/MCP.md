@@ -7,7 +7,13 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 - **URL**：`http://localhost:3000/mcp`
 - **鉴权**：请求头 `Authorization: Bearer <key>`，按以下顺序判定：
-  1. **DB key**（推荐）：sha256(key) 命中 `mcp_api_keys.keyHash` 且未吊销。key 由平台管理员在 **`/platform/keys`** 签发（或 `POST /api/v1/platform/mcp-keys`），**明文仅签发时返回一次**，库里只存哈希与前 8 位 prefix。
+  1. **DB key**（推荐）：sha256(key) 命中 `mcp_api_keys.keyHash` 且未吊销、未过期。任何登录用户都可在侧边栏 **Agent 接入**（`/agent-access`）自助签发自己的 key（或 `POST /api/v1/platform/mcp-keys`）：普通成员只能签所属公司范围的公司级 key（省略 companyId = 当前公司），平台级 key 仍仅平台管理员可签。**明文仅签发时返回一次**，库里只存哈希与前 8 位 prefix。
+
+### key 能力、有效期与使用记录
+
+- **能力上限**（`capabilities`，逗号分隔）：`read` = 11 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`）；`write` = 9 个写工具；`delete` 预留（当前无删除类工具）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
+- **有效期**（`expiresAt`，NULL = 永久）：到期后鉴权直接 401，无需吊销。
+- **最近使用**（`lastUsedAt`）：每次通过 MCP 鉴权时刷新（60s 节流），在令牌列表展示。
   2. **env 兜底**：未命中 DB 时回退到 env `MCP_API_KEY`（逗号分隔多个），一律视为**平台级** key（开发兼容）。
   3. 浏览器登录 session 也可访问（便于调试），操作范围 = 会话当前公司。
 
@@ -18,7 +24,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | 公司级 | `mcp_api_keys.companyId` 非空 | 钉死该公司沙箱，所有工具只读写本公司数据（自动隔离） |
 | 平台级 | `companyId` NULL（含 env key） | 可跨公司：每个工具带可选 `companyId` 参数指定目标公司，**未传默认第一个公司**（createdAt 最早） |
 
-客户端配置示例（Claude Code / 其他 MCP host，key 换成 /platform/keys 签发的明文）：
+客户端配置示例（Claude Code / 其他 MCP host，key 换成 /agent-access 签发的明文）：
 
 ```json
 {
@@ -26,7 +32,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
     "next-spms": {
       "type": "http",
       "url": "http://localhost:3000/mcp",
-      "headers": { "Authorization": "Bearer <在 /platform/keys 签发的 key>" }
+      "headers": { "Authorization": "Bearer <在 /agent-access 签发的 key>" }
     }
   }
 }
@@ -78,5 +84,5 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## 操作者身份
 
-- **API key 调用**：Actor = 目标公司的内置 `scribe` agent member，companyRole=company_admin（key 由平台管理员签发，设计上即拥有公司内完整权限）；activities 的 `whoId` 记为该 scribe，评论/变更在历史流中可追溯来源是 Agent 操作。
+- **API key 调用**：Actor = 目标公司的内置 `scribe` agent member，companyRole=company_admin（key 在 /agent-access 签发，设计上即拥有公司内完整权限）；activities 的 `whoId` 记为该 scribe，评论/变更在历史流中可追溯来源是 Agent 操作。
 - **浏览器 session 调用**（调试）：Actor = 会话用户本人及其当前公司，权限与其 RBAC 角色一致。

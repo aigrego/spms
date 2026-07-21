@@ -20,6 +20,7 @@
 | GET | `/api/auth/session` | 未登录 → `ok(null)`；已登录 → `{ user, companies, currentCompany, companyRole, isPlatformAdmin, permissions }`（companies=可进入的公司，平台管理员见全部；permissions=各模块有效级别） |
 | POST | `/api/auth/switch-company` | `{ companyId }` → 重签 cookie 切换当前公司；要求目标公司成员或平台管理员 |
 | POST | `/api/auth/change-password` | `{ oldPassword, newPassword }`（新密码 ≥6 位）；旧密码错误 → 403；飞书扫码账号无密码不可改 |
+| PATCH | `/api/auth/profile` | `{ name }` → 更新当前用户姓名，并同步各公司 member 行的 name/initials |
 | GET | `/api/auth/lark/config` | `{ enabled: boolean }`（飞书是否已配置） |
 | GET | `/api/auth/lark` | 302 跳转飞书授权页 |
 | GET | `/api/auth/lark/callback` | 飞书 OAuth 回调，写 session 后跳 `/issues` |
@@ -94,6 +95,11 @@
 | GET | `/resources` | 全部 members（type,name 排序），含 origin/email/status |
 | POST | `/resources/invite` | `{ name?, email?, userId? }`，email/userId 至少其一；重复 → INVITE_FAILED；origin=external, status=invited |
 | POST | `/resources/:id/revoke` | 仅 external；unassignMemberEverywhere + status=revoked |
+| GET | `/seats` | 当前公司席位列表（memberships ⋈ users，研发资源"内部成员"段数据源） |
+| PATCH | `/seats/:id` | `{ role }` 改席位的公司角色（company_admin 或平台管理员） |
+| DELETE | `/seats/:id` | 回收席位（company_admin 或平台管理员；账号与其他席位保留） |
+| GET | `/permissions-matrix` | 本公司有效矩阵（全局默认 + 本公司覆盖；company_admin 或平台管理员） |
+| PUT | `/permissions-matrix` | `{ matrix }` 整表替换本公司覆盖矩阵（同上） |
 
 （原系统的 `sync-directory` 依赖 portal，已移除）
 
@@ -119,7 +125,7 @@
 | PATCH | `/test-cases/:key` | 部分更新 |
 | DELETE | `/test-cases/:key` | 硬删 |
 
-## Platform 平台管理（`/api/v1/platform`，仅平台管理员，否则 403）
+## Platform 平台管理（`/api/v1/platform`，仅平台管理员，否则 403；`/mcp-keys` 除外，见下）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -128,14 +134,16 @@
 | PATCH | `/companies/:id` | 改展示字段（name/color/description；key 不可改） |
 | POST | `/companies/:id/enter` | 重签 cookie 进入该公司（同 switch-company；成员或平台管理员） |
 | GET | `/companies/:id/members` | 公司成员列表（membership + user 信息） |
-| POST | `/companies/:id/members` | `{ username, role, name?, password? }` 加成员；用户名不存在时现场建账号（需 password） |
+| POST | `/companies/:id/members` | `{ username, role, name?, password? }` 加成员（=分配席位）；用户名不存在时现场建账号（需 password）；分配时同步投影进资源池 |
 | PATCH | `/companies/:id/members/:membershipId` | `{ role }` 改公司内角色 |
-| DELETE | `/companies/:id/members/:membershipId` | 移出成员（user 账号保留） |
+| DELETE | `/companies/:id/members/:membershipId` | 移出成员（=回收席位；user 账号保留） |
+| GET | `/users` | 平台成员目录：全部系统用户 + 各自公司席位 |
+| POST | `/users` | `{ username, name?, password }` 新建系统账号（role=member，不含席位） |
 | GET | `/permissions-matrix` | 全量 4 角色 × 10 模块矩阵 |
 | PUT | `/permissions-matrix` | `{ matrix }` 整表替换（逐格校验后 upsert + 缓存失效） |
-| GET | `/mcp-keys` | MCP key 列表（不返回 keyHash/明文） |
-| POST | `/mcp-keys` | `{ name, companyId? }` 签发 key（companyId 省略=平台级）；**明文仅本次返回** |
-| DELETE | `/mcp-keys/:id` | 吊销（写 revokedAt，行保留审计） |
+| GET | `/mcp-keys` | MCP key 列表（不返回 keyHash/明文）；管理员见全部，member 只见自己创建的 |
+| POST | `/mcp-keys` | `{ name, companyId?, capabilities?, expiresInDays? }` 签发 key（管理员：companyId 省略=平台级；member 自助：companyId 省略=当前公司，且必须是其所属公司，显式 null/他人公司 → 403；capabilities ⊆ read/write/delete，默认 `['read','write']`；expiresInDays 省略=永不过期）；**明文仅本次返回** |
+| DELETE | `/mcp-keys/:id` | 吊销（写 revokedAt，行保留审计）；带 `?permanent=1` 时硬删除该 key 行；member 只能操作自己的 key，否则 403 |
 
 ## 错误码（主要）
 

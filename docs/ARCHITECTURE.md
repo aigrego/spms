@@ -70,12 +70,14 @@ next-spms/
 │   │   │   ├── issues/  products/  requirements/  testcases/
 │   │   │   ├── projects/  projects/[id]/  resources/
 │   │   │   ├── roadmap/  backlog/  sprints/  sprints/[id]/
-│   │   │   ├── platform/         # 平台管理（companies/members/matrix/keys，仅平台管理员）
+│   │   │   ├── settings/         # 设置页（偏好 + 平台管理 Tab，平台管理仅平台管理员；旧 /platform 重定向至此）
+│   │   │   ├── agent-access/     # Agent 接入页（MCP 令牌自助管理，所有登录用户；member 仅自己的公司级 key）
+│   │   │   ├── profile/          # 个人资料页（资料/安全/已授权应用三 Tab）
 │   │   ├── api/v1/pms/**/route.ts   # 业务 API（路径与原系统一致）
-│   │   ├── api/v1/platform/**/route.ts # 平台管理 API（仅平台管理员）
+│   │   ├── api/v1/platform/**/route.ts # 平台管理 API（仅平台管理员；mcp-keys 支持 member 自助）
 │   │   ├── api/auth/           # login/logout/session/switch-company/change-password/lark/*
 │   │   └── mcp/route.ts        # MCP Streamable HTTP 端点
-│   ├── components/             # ui/ glyphs/ menus/ inline/ Header/ Sidebar/ SettingsModal/ 各详情抽屉
+│   ├── components/             # ui/ glyphs/ menus/ inline/ Header/ Sidebar/ profile/(改密码表单)/ platform/(设置页四个管理面板)/ 各详情抽屉
 │   ├── views/ 或 components/   # 各页面视图（IssuesView/ProjectHub/...）
 │   ├── store/                  # React Query hooks + AppDataProvider
 │   └── lib/ (前端)             # types / api client / i18n
@@ -107,20 +109,26 @@ next-spms/
 ### 权限模型（RBAC，二期）
 
 **两层角色**：
-- 平台级：`users.role` —— `admin`（平台管理员，恒全权限，可进 /platform）| `member`（普通用户）
+- 平台级：`users.role` —— `admin`（平台管理员，恒全权限，可见 /settings 平台管理 Tab）| `member`（普通用户）
 - 公司级：`company_memberships.role` —— `company_admin`（公司管理员，恒全权限）+ 4 个可配置角色
   `product_manager`（产品经理）/ `developer`（开发）/ `tester`（测试）/ `viewer`（只读）
 
+**席位与成员目录**（三期）：
+- **席位 = `company_memberships` 行**：决定用户能否进入某公司沙箱及公司角色。
+- 平台管理员在 设置 → 成员管理 看**全部系统用户**（目录 + 新建用户）；在 公司管理 的公司卡片 → **席位**抽屉里把用户分配进/回收出某公司（默认角色 viewer）。
+- 公司管理员在 **研发资源 → 内部成员** 给本公司席位成员调整公司角色 / 移除席位（`/api/v1/pms/seats`）。
+- 席位分配时把用户幂等投影进本公司资源池（`members` 表，供指派）。
+
 **角色×模块矩阵**（`src/lib/permissions.ts`）：
 - 4 个可配置角色 × 10 个模块（issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents）× 3 档（`none < read < write`）
-- 矩阵存 `role_permissions` 表，**全局生效**（不按公司分），平台管理员在 /platform/matrix 配置（PUT 整表替换）
-- `company_admin` 与平台管理员恒全权限，不入矩阵；缺失行按 `none` 处理；进程内缓存 60s
+- 矩阵存 `role_permissions` 表，**两层拆分**：`companyId=''` 为全局默认（平台管理员在 /settings?tab=matrix 配置），`companyId=<公司>` 为本公司覆盖（company_admin 在 /settings?tab=company-matrix 配置，`/api/v1/pms/permissions-matrix`）；生效值 = 全局 + 按单元格覆盖
+- `company_admin` 与平台管理员恒全权限，不入矩阵；缺失行按 `none` 处理；进程内按公司缓存 60s
 - **项目创建/删除**额外限定 `company_admin` 或平台管理员（不受矩阵 projects=write 影响）
 
 **权限门**：services 每个入口 `requirePerm(actor, module, 'read'|'write')`，不足抛 `FORBIDDEN`（403）。
 前端经 `GET /api/auth/session`（或 bootstrap）拿到 `permissions`（当前用户各模块有效级别），按此过滤侧边栏与按钮。
 
-默认矩阵（seed 写入，可在 /platform/matrix 改）：
+默认矩阵（seed 写入全局层，可在 /settings?tab=matrix 改）：
 
 | 角色 | write 模块 | read 模块 | none |
 |---|---|---|---|

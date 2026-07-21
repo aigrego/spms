@@ -32,6 +32,10 @@ function envMcpApiKeys(): string[] {
     .filter(Boolean);
 }
 
+/* Full-access capability set for non-DB auth sources (env fallback keys and
+   browser sessions predate per-key capabilities). */
+const FULL_CAPABILITIES = ['read', 'write', 'delete'];
+
 async function authenticate(req: Request): Promise<McpKeyContext | null> {
   const auth = req.headers.get('authorization');
   if (auth?.toLowerCase().startsWith('bearer ')) {
@@ -39,12 +43,31 @@ async function authenticate(req: Request): Promise<McpKeyContext | null> {
     if (key) {
       const keyHash = createHash('sha256').update(key).digest('hex');
       const [row] = await db
-        .select({ id: mcpApiKeys.id, companyId: mcpApiKeys.companyId })
+        .select({
+          id: mcpApiKeys.id,
+          companyId: mcpApiKeys.companyId,
+          capabilities: mcpApiKeys.capabilities,
+          expiresAt: mcpApiKeys.expiresAt,
+          lastUsedAt: mcpApiKeys.lastUsedAt,
+        })
         .from(mcpApiKeys)
         .where(and(eq(mcpApiKeys.keyHash, keyHash), isNull(mcpApiKeys.revokedAt)))
         .limit(1);
-      if (row) return { companyId: row.companyId, source: 'db' };
-      if (envMcpApiKeys().includes(key)) return { companyId: null, source: 'env' };
+      // Expired keys are dead without needing a revoke.
+      if (row && (!row.expiresAt || row.expiresAt.getTime() > Date.now())) {
+        // Throttled last-used touch: at most one write per key per minute.
+        if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > 60_000) {
+          await db.update(mcpApiKeys).set({ lastUsedAt: new Date() }).where(eq(mcpApiKeys.id, row.id));
+        }
+        return {
+          companyId: row.companyId,
+          source: 'db',
+          capabilities: row.capabilities.split(',').map((c) => c.trim()).filter(Boolean),
+        };
+      }
+      if (envMcpApiKeys().includes(key)) {
+        return { companyId: null, source: 'env', capabilities: FULL_CAPABILITIES };
+      }
       // An explicitly presented but unknown key must not fall through to the
       // cookie session — that would mask typos and let a revoked key keep
       // working from a logged-in browser.
@@ -53,7 +76,7 @@ async function authenticate(req: Request): Promise<McpKeyContext | null> {
   }
   try {
     const sessionActor = await requireActor();
-    return { companyId: sessionActor.companyId, source: 'session', sessionActor };
+    return { companyId: sessionActor.companyId, source: 'session', sessionActor, capabilities: FULL_CAPABILITIES };
   } catch (e) {
     if (e instanceof ApiException) return null; // UNAUTHORIZED / NO_COMPANY → 401 below
     throw e;
