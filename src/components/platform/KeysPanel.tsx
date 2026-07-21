@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, BookOpen } from 'lucide-react';
+import { Plus, BookOpen, Copy, Check } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TabBtn } from '@/components/ui/segmented';
@@ -27,10 +27,29 @@ function statusOf(k: McpKey): { label: string; tone: 'success' | 'warning' | 'ne
   return { label: '有效', tone: 'success' };
 }
 
-function CodeBox({ children }: { children: React.ReactNode }) {
+function CodeBox({ text, children }: { text: string; children: React.ReactNode }) {
+  const [copied, setCopied] = React.useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard may be unavailable (non-secure context) — the text is selectable anyway
+    }
+  };
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-surface-2 px-3 py-2.5 font-mono text-[12.5px] whitespace-pre text-fg-1">
+    <div className="group relative overflow-x-auto rounded-lg border border-border bg-surface-2 px-3 py-2.5 font-mono text-[12.5px] whitespace-pre text-fg-1">
       {children}
+      <button
+        type="button"
+        onClick={copy}
+        title="复制"
+        aria-label="复制"
+        className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-md border border-border bg-surface text-fg-3 opacity-0 shadow-1 transition-opacity hover:text-fg-1 group-hover:opacity-100"
+      >
+        {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
+      </button>
     </div>
   );
 }
@@ -54,6 +73,7 @@ export function KeysPanel() {
   const shown = isPlatformAdmin && tab === 'all' ? (keys ?? []) : mine;
 
   const endpoint = typeof window !== 'undefined' ? `${window.location.origin}/mcp` : '/mcp';
+  const claudeCmd = `claude mcp add --transport http ai-grego-track ${endpoint} --header "Authorization: Bearer spms_…"`;
   const cursorConfig = `{
   "mcpServers": {
     "ai-grego-track": {
@@ -102,16 +122,6 @@ export function KeysPanel() {
           <Skeleton rows={5} />
         ) : isError ? (
           <StateBlock icon="alert" tone="danger" title="令牌列表加载失败" body="请稍后重试。" />
-        ) : !shown.length ? (
-          <StateBlock
-            title={tab === 'mine' ? '你还没有令牌' : '还没有任何令牌'}
-            body="新建令牌供 MCP / 编码 Agent 访问平台或公司数据。"
-            action={
-              <Button variant="primary" size="md" onClick={() => setModalOpen(true)}>
-                <Plus size={14} /> 新建令牌
-              </Button>
-            }
-          />
         ) : (
           <table className="w-full border-collapse">
             <thead className="sticky top-0 bg-bg">
@@ -126,6 +136,13 @@ export function KeysPanel() {
               </tr>
             </thead>
             <tbody>
+              {!shown.length && (
+                <tr className="border-b border-border">
+                  <td colSpan={7} className="px-4 py-10 text-center text-[13px] text-fg-3">
+                    {tab === 'mine' ? '你还没有令牌' : '还没有任何令牌'}
+                  </td>
+                </tr>
+              )}
               {shown.map((k) => {
                 const st = statusOf(k);
                 const caps = k.capabilities.split(',').map((c) => c.trim()).filter(Boolean);
@@ -202,17 +219,17 @@ export function KeysPanel() {
           <div className="flex flex-col gap-3.5">
             <div>
               <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-fg-3">MCP 端点</div>
-              <CodeBox>{endpoint}</CodeBox>
+              <CodeBox text={endpoint}>{endpoint}</CodeBox>
             </div>
             <div>
               <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-fg-3">Claude Code</div>
-              <CodeBox>{`claude mcp add --transport http ai-grego-track ${endpoint} --header "Authorization: Bearer spms_…"`}</CodeBox>
+              <CodeBox text={claudeCmd}>{claudeCmd}</CodeBox>
             </div>
             <div>
               <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-fg-3">
                 Cursor (.cursor/mcp.json)
               </div>
-              <CodeBox>{cursorConfig}</CodeBox>
+              <CodeBox text={cursorConfig}>{cursorConfig}</CodeBox>
             </div>
             <p className="text-[12.5px] leading-relaxed text-fg-3">
               工具清单与工作流详见平台文档 docs/MCP.md。令牌即以该 Key 的能力与范围调用
