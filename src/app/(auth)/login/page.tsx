@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ScanQrCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Logo } from '@/components/Logo';
 import { authApi, ApiError } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 
@@ -51,6 +52,9 @@ export default function LoginPage() {
   return (
     <div className="grid min-h-screen place-items-center bg-bg px-6">
       <div className="w-full max-w-[360px] rounded-xl border border-border bg-surface p-6 shadow-3">
+        <div className="mb-3 flex justify-center">
+          <Logo size={44} />
+        </div>
         <h1 className="m-0 text-center text-[19px] font-semibold tracking-tight text-fg-1">
           {t('app.title')}
         </h1>

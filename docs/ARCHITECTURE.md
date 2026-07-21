@@ -111,7 +111,7 @@ next-spms/
 **两层角色**：
 - 平台级：`users.role` —— `admin`（平台管理员，恒全权限，可见 /settings 平台管理 Tab）| `member`（普通用户）
 - 公司级：`company_memberships.role` —— `company_admin`（公司管理员，恒全权限）+ 4 个可配置角色
-  `product_manager`（产品经理）/ `developer`（开发）/ `tester`（测试）/ `viewer`（只读）
+  `product_manager`（产品）/ `developer`（开发）/ `tester`（测试）/ `viewer`（只读）
 
 **席位与成员目录**（三期）：
 - **席位 = `company_memberships` 行**：决定用户能否进入某公司沙箱及公司角色。

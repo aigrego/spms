@@ -37,7 +37,7 @@ const zhCN: Dict = {
   'header.logout': '退出登录',
 
   'role.company_admin': '公司管理员',
-  'role.product_manager': '产品经理',
+  'role.product_manager': '产品',
   'role.developer': '开发',
   'role.tester': '测试',
   'role.viewer': '访客',
@@ -575,7 +575,7 @@ const en: Dict = {
   'header.logout': 'Sign out',
 
   'role.company_admin': 'Company admin',
-  'role.product_manager': 'Product manager',
+  'role.product_manager': 'Product',
   'role.developer': 'Developer',
   'role.tester': 'Tester',
   'role.viewer': 'Viewer',
@@ -1081,7 +1081,7 @@ const zhTW: Dict = {
   'header.logout': '登出',
 
   'role.company_admin': '公司管理員',
-  'role.product_manager': '產品經理',
+  'role.product_manager': '產品',
   'role.developer': '開發',
   'role.tester': '測試',
   'role.viewer': '訪客',

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronDown, LogOut, Search, Settings, Shield, Sun } from 'lucide-react';
 import { Avatar } from '@/components/glyphs/Avatar';
+import { Logo } from '@/components/Logo';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -293,9 +294,12 @@ export function Header() {
     >
       {/* Left: logo + company switcher */}
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <Link href="/issues" className="flex flex-none items-baseline gap-1 whitespace-nowrap">
-          <span className="text-[15px] font-bold tracking-tight text-fg-1">AI Grego</span>
-          <span className="text-[15px] font-semibold tracking-tight text-fg-3">Track</span>
+        <Link href="/issues" className="flex flex-none items-center gap-2 whitespace-nowrap">
+          <Logo size={22} />
+          <span className="flex items-baseline gap-1">
+            <span className="text-[15px] font-bold tracking-tight text-fg-1">AI Grego</span>
+            <span className="text-[15px] font-semibold tracking-tight text-fg-3">Track</span>
+          </span>
         </Link>
         {sessionLoading || !session ? (
           <div className="skeleton h-8 w-[160px] rounded-lg" />

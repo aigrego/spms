@@ -103,7 +103,7 @@ export interface AddMemberInput {
 /* 角色 / 模块中文映射（权限矩阵 + 成员页共用）。 */
 export const ROLE_LABELS: Record<CompanyRole, string> = {
   company_admin: '公司管理员',
-  product_manager: '产品经理',
+  product_manager: '产品',
   developer: '开发',
   tester: '测试',
   viewer: '访客',
