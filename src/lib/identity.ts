@@ -1,6 +1,6 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { members, labels } from '@/db/schema';
+import { members, labels, companyMemberships } from '@/db/schema';
 
 /* Identity mapping (Next.js rewrite). Portal directory sync is gone: a human
    member row projects a local `users` row 1:1 per company
@@ -83,6 +83,51 @@ export async function ensureAiLabel(companyId: string): Promise<string> {
     .where(and(eq(labels.companyId, companyId), eq(labels.key, 'ai')))
     .limit(1);
   return after?.id ?? id;
+}
+
+// Claim pending external invites (研发资源页「邀请外部资源」写入的 members 行:
+// origin='external', status='invited', userId=null) whose email matches the
+// OAuth-verified identity. For every claimed row: backfill userId, flip to
+// internal/active, and grant a company seat (company_memberships, 默认
+// 'viewer' — 与平台管理员手动分配席位的默认角色一致). One email may be
+// invited by several companies — every inviting company gets a seat.
+// Returns the number of claimed invites.
+export async function claimExternalInvites(user: { id: string }, email: string): Promise<number> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return 0;
+  const invites = await db
+    .select({ id: members.id, companyId: members.companyId })
+    .from(members)
+    .where(
+      and(
+        sql`lower(${members.email}) = ${normalized}`,
+        eq(members.origin, 'external'),
+        eq(members.status, 'invited'),
+        isNull(members.userId),
+      ),
+    );
+  let claimed = 0;
+  for (const inv of invites) {
+    // Skip companies where the user already projects a member row — the
+    // (companyId, userId) unique index forbids backfilling this invite; the
+    // seat/member already exists so there is nothing to claim.
+    const [existing] = await db
+      .select({ id: members.id })
+      .from(members)
+      .where(and(eq(members.companyId, inv.companyId), eq(members.userId, user.id)))
+      .limit(1);
+    if (existing) continue;
+    await db
+      .update(members)
+      .set({ userId: user.id, origin: 'internal', status: 'active' })
+      .where(eq(members.id, inv.id));
+    await db
+      .insert(companyMemberships)
+      .values({ id: crypto.randomUUID(), userId: user.id, companyId: inv.companyId, role: 'viewer' })
+      .onConflictDoNothing();
+    claimed += 1;
+  }
+  return claimed;
 }
 
 // Ensure a member row exists for the given local user in the given company;

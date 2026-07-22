@@ -7,7 +7,7 @@ import { requireUser } from '@/lib/session';
 import { jsonBody, route } from '@/server/http';
 
 /* POST /api/auth/change-password { oldPassword, newPassword } → verifies the
-   old password, then replaces the hash. Lark-only accounts carry '!lark' as
+   old password, then replaces the hash. OAuth-only accounts carry '!oauth' as
    their hash — never a valid bcrypt hash — so the old-password check fails
    and they cannot set a password here. */
 export const POST = route(async (req) => {

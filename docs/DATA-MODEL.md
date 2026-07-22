@@ -12,7 +12,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 | 枚举 | 取值 |
 |---|---|
 | member_type | `human \| agent` |
-| member_origin | `internal \| external`（external=邮箱挂名外部资源，不能登录） |
+| member_origin | `internal \| external`（external=邮箱挂名外部资源；该邮箱的飞书/Lark 账号首次登录时自动认领：回填 userId、转 internal/active 并补 viewer 席位） |
 | member_status | `active \| invited \| revoked` |
 | issue_status | `backlog \| todo \| in_progress \| in_review \| done \| canceled` |
 | issue_priority | `urgent \| high \| medium \| low \| none`（紧急度） |

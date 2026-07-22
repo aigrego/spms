@@ -10,9 +10,9 @@ import { defaultCompanyForUser, jsonBody, route } from '@/server/http';
 /* POST /api/auth/login { username, password } → session cookie + the user.
    On success the session also lands on a default company (first membership;
    platform admins without memberships fall back to the first company) — the
-   cookie carries it as `cid`. Lark-only accounts carry '!lark' as their hash
-   — never a valid bcrypt hash, so verifyPassword fails and password login
-   stays disabled for them. */
+   cookie carries it as `cid`. OAuth-only accounts carry '!oauth' as their
+   hash — never a valid bcrypt hash, so verifyPassword fails and password
+   login stays disabled for them. */
 export const POST = route(async (req) => {
   const body = await jsonBody<{ username?: string; password?: string }>(req);
   const username = body.username?.trim();

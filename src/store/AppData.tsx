@@ -68,11 +68,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     queryKey: ['session'],
     queryFn: authApi.getSession,
   });
-  // 未登录（如 /login）时不拉取 bootstrap，避免 401 缓存导致登录后首屏空白
+  // 未登录（如 /login）时不拉取 bootstrap，避免 401 缓存导致登录后首屏空白；
+  // 无任何公司席位（如未匹配邀请的新 OAuth 用户）时同样不拉取 —— 所有数据
+  // 接口都会 403 NO_COMPANY，页面直接渲染空态，等平台管理员分配席位。
   const { data, isLoading } = useQuery({
     queryKey: ['bootstrap'],
     queryFn: api.bootstrap,
-    enabled: !!session?.user,
+    enabled: !!session?.user && session.companies.length > 0,
   });
 
   const value = useMemo<AppDataValue>(() => {

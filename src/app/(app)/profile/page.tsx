@@ -1,9 +1,11 @@
 'use client';
 
 import * as React from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Link2, Shield, Smartphone } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
+import { KeyRound, Shield, Smartphone } from 'lucide-react';
 import { Avatar } from '@/components/glyphs/Avatar';
+import { FeishuMark, LarkMark } from '@/components/LoginArtwork';
 import { ChangePasswordForm } from '@/components/profile/ChangePasswordForm';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -158,8 +160,46 @@ function browserSummary(): string {
 
 function SecurityTab() {
   const t = useT();
+  const qc = useQueryClient();
   const { session } = useAppData();
+  const sp = useSearchParams();
   const larkBound = session?.user.larkBound ?? false;
+  const [busy, setBusy] = React.useState(false);
+  const [unbound, setUnbound] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const { data: oauth } = useQuery({ queryKey: ['oauth-config'], queryFn: authApi.oauthConfig });
+
+  // OAuth 绑定回调跳回 /profile?tab=security&oauth=bound|taken|failed。
+  const oauthResult = sp.get('oauth');
+
+  const unbind = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await authApi.unbindOauth();
+      await qc.invalidateQueries({ queryKey: ['session'] });
+      setUnbound(true);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const bindButton = (p: 'feishu' | 'lark') => (
+    <Button
+      key={p}
+      variant="secondary"
+      size="md"
+      onClick={() => {
+        window.location.href = `/api/auth/${p}/bind`;
+      }}
+    >
+      {p === 'feishu' ? <FeishuMark size={15} /> : <LarkMark size={15} />}
+      {p === 'feishu' ? '飞书' : 'Lark'}
+    </Button>
+  );
 
   return (
     <>
@@ -183,12 +223,29 @@ function SecurityTab() {
       </Card>
 
       <Card title={t('profile.boundWays')}>
+        {oauthResult === 'bound' && (
+          <div className="mb-3 rounded-lg px-3 py-2 text-[12.5px]" style={{ background: 'var(--success-50, #E8F7EE)', color: '#17723B' }}>
+            {t('profile.bindOk')}
+          </div>
+        )}
+        {(oauthResult === 'taken' || oauthResult === 'failed' || error) && (
+          <div className="mb-3 rounded-lg px-3 py-2 text-[12.5px]" style={{ background: 'var(--danger-50)', color: '#8C1B28' }}>
+            {error ?? (oauthResult === 'taken' ? t('profile.oauthTaken') : t('profile.oauthFailed'))}
+          </div>
+        )}
+        {unbound && !larkBound && (
+          <div className="mb-3 rounded-lg px-3 py-2 text-[12.5px]" style={{ background: 'var(--success-50, #E8F7EE)', color: '#17723B' }}>
+            {t('profile.unbindOk')}
+          </div>
+        )}
         {larkBound ? (
           <div className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5">
-            <Link2 size={15} className="flex-none text-fg-3" />
-            <span className="text-[13px] font-medium text-fg-1">{t('profile.lark')}</span>
+            <FeishuMark size={15} />
+            <span className="text-[13px] font-medium text-fg-1">{t('profile.lark')} / Lark</span>
             <div className="flex-1" />
-            <SoonButton>{t('profile.unbind')}</SoonButton>
+            <Button variant="secondary" size="md" disabled={busy} onClick={unbind}>
+              {t('profile.unbind')}
+            </Button>
           </div>
         ) : (
           <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-[12.5px] text-fg-3">
@@ -198,7 +255,9 @@ function SecurityTab() {
         <div className="mt-4">
           <div className="mb-2 text-[12px] text-fg-3">{t('profile.bindNew')}</div>
           <div className="flex flex-wrap gap-2">
-            {['GitHub', 'Google', 'Apple', '微信', '飞书', '钉钉'].map((p) => (
+            {oauth?.feishu && bindButton('feishu')}
+            {oauth?.lark && bindButton('lark')}
+            {['GitHub', 'Google', 'Apple', '微信', '钉钉'].map((p) => (
               <SoonButton key={p}>{p}</SoonButton>
             ))}
           </div>
@@ -237,11 +296,25 @@ function AppsTab() {
 }
 
 /* /profile — account page replacing the old settings modal. Tabs: 资料 /
-   安全 / 已授权应用. Only 姓名保存 and 修改密码 are wired to the backend;
-   everything else is placeholder UI per the product design. */
+   安全 / 已授权应用. 姓名保存、修改密码、飞书/Lark 绑定已对接后端；
+   其余为产品规划中的占位 UI。 */
 export default function ProfilePage() {
+  // Suspense boundary required for useSearchParams (OAuth bind callback lands
+  // on /profile?tab=security&oauth=...).
+  return (
+    <React.Suspense>
+      <ProfilePageInner />
+    </React.Suspense>
+  );
+}
+
+function ProfilePageInner() {
   const t = useT();
-  const [tab, setTab] = React.useState<TabKey>('profile');
+  const sp = useSearchParams();
+  const urlTab = sp.get('tab');
+  const [tab, setTab] = React.useState<TabKey>(
+    urlTab === 'security' || urlTab === 'apps' ? urlTab : 'profile',
+  );
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'profile', label: t('profile.tab.profile') },

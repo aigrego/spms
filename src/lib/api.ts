@@ -377,6 +377,15 @@ export interface SessionUser {
   larkBound?: boolean;
 }
 
+/* 第三方登录配置（登录页按钮展示）。configured 为 false 时该按钮隐藏。 */
+export interface OAuthProviderConfig {
+  feishu?: { configured?: boolean; url?: string } | null;
+  lark?: { configured?: boolean; url?: string } | null;
+}
+
+/* 登录页实际使用的条目：已配置则展示按钮（附授权 url），否则为 null。 */
+export type OAuthEntry = { configured: true; url?: string } | null;
+
 /* Multi-company sandbox contracts (P5). All optional on the wire while the
    backend ships in parallel: the client fails open (full access) when the
    fields are missing. */
@@ -456,13 +465,20 @@ export const authApi = {
   // Update the signed-in user's display name (profile page).
   updateProfile: (name: string) =>
     authRequest<{ user: SessionUser }>('/api/auth/profile', json('PATCH', { name })),
-  // 飞书扫码登录配置探测（Phase B2 提供）；未配置/失败时返回 null，按钮隐藏。
-  larkConfig: async (): Promise<{ configured: boolean; url?: string } | null> => {
+  // 第三方登录（飞书 / Lark）配置探测；未配置/失败时返回 null，按钮隐藏。
+  oauthConfig: async (): Promise<{ feishu: OAuthEntry; lark: OAuthEntry } | null> => {
     try {
-      const data = await authRequest<{ configured?: boolean; url?: string } | null>('/api/auth/lark/config');
-      return data && data.configured ? { configured: true, url: data.url } : null;
+      const data = await authRequest<OAuthProviderConfig | null>('/api/auth/oauth/config');
+      if (!data) return null;
+      const entry = (e?: { configured?: boolean; url?: string } | null): OAuthEntry =>
+        e?.configured ? { configured: true, url: e.url } : null;
+      const feishu = entry(data.feishu);
+      const lark = entry(data.lark);
+      return feishu || lark ? { feishu, lark } : null;
     } catch {
       return null;
     }
   },
+  // 解绑当前账号的飞书/Lark 身份（个人资料-安全页）。
+  unbindOauth: () => authRequest<unknown>('/api/auth/oauth/unbind', json('POST', {})),
 };

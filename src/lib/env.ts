@@ -19,7 +19,11 @@ export const env = {
   get mcpApiKey() {
     return required('MCP_API_KEY');
   },
-  // Lark (飞书) OAuth login — optional; login via Lark is disabled when unset.
+  // Feishu (飞书, CN) OAuth login — optional; the 飞书 button is hidden when unset.
+  feishuAppId: process.env.FEISHU_APP_ID,
+  feishuAppSecret: process.env.FEISHU_APP_SECRET,
+  feishuRedirectUri: process.env.FEISHU_REDIRECT_URI,
+  // Lark (international) OAuth login — optional; the Lark button is hidden when unset.
   larkAppId: process.env.LARK_APP_ID,
   larkAppSecret: process.env.LARK_APP_SECRET,
   larkRedirectUri: process.env.LARK_REDIRECT_URI,

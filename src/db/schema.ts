@@ -26,8 +26,9 @@ import { relations } from 'drizzle-orm';
 export const memberTypeEnum = pgEnum('member_type', ['human', 'agent']);
 // Resource-pool provenance + lifecycle for human members.
 //   internal = a local user; external = an invited guest / email invitee
-//   (nameable + assignable now; real login deferred). origin is ignored
-//   for agents.
+//   (nameable + assignable immediately; auto-claimed via email match on the
+//   invitee's first Feishu/Lark login — see identity.claimExternalInvites).
+//   origin is ignored for agents.
 export const memberOriginEnum = pgEnum('member_origin', ['internal', 'external']);
 export const memberStatusEnum = pgEnum('member_status', ['active', 'invited', 'revoked']);
 export const issueStatusEnum = pgEnum('issue_status', [

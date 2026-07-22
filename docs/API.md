@@ -21,9 +21,14 @@
 | POST | `/api/auth/switch-company` | `{ companyId }` → 重签 cookie 切换当前公司；要求目标公司成员或平台管理员 |
 | POST | `/api/auth/change-password` | `{ oldPassword, newPassword }`（新密码 ≥6 位）；旧密码错误 → 403；飞书扫码账号无密码不可改 |
 | PATCH | `/api/auth/profile` | `{ name }` → 更新当前用户姓名，并同步各公司 member 行的 name/initials |
-| GET | `/api/auth/lark/config` | `{ enabled: boolean }`（飞书是否已配置） |
-| GET | `/api/auth/lark` | 302 跳转飞书授权页 |
-| GET | `/api/auth/lark/callback` | 飞书 OAuth 回调，写 session 后跳 `/issues` |
+| GET | `/api/auth/oauth/config` | `{ feishu: { configured, url? }, lark: { configured, url? } }`（各第三方登录是否已配置） |
+| GET | `/api/auth/feishu/login` | 302 跳转飞书授权页（未配置 → 404） |
+| GET | `/api/auth/feishu/callback` | 飞书 OAuth 回调：union_id 命中→直接登录；否则建 users 账号并按邮箱认领「邀请外部资源」（回填 userId、转 internal、每邀请公司补 viewer 席位）→ 跳 `/issues`；失败跳 `/login?error=feishu` |
+| GET | `/api/auth/lark/login` | 302 跳转 Lark（国际版）授权页（未配置 → 404） |
+| GET | `/api/auth/lark/callback` | Lark OAuth 回调，逻辑同飞书 callback；失败跳 `/login?error=lark` |
+| GET | `/api/auth/<provider>/bind` | 已登录用户发起绑定：写 nonce cookie 后 302 跳授权页（`state=bind.<nonce>`） |
+| GET | `/api/auth/<provider>/callback` | 绑定模式（`state=bind.*`）：校验 nonce + session 后把 union_id 挂到当前用户 → 302 `/profile?tab=security&oauth=bound\|taken\|failed` |
+| POST | `/api/auth/oauth/unbind` | 解绑当前账号的飞书/Lark 身份；纯 OAuth 账号（无密码）拒绝，防止锁死 |
 
 ## Meta
 
