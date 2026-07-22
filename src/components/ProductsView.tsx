@@ -456,7 +456,7 @@ export function ProductsView() {
                                       className="h-2 w-2 flex-none rounded-full"
                                       style={{ background: rs.color }}
                                     />
-                                    <span className="flex-none font-mono text-[12px] font-semibold text-fg-1">
+                                    <span className="min-w-0 truncate font-mono text-[12px] font-semibold text-fg-1">
                                       {r.name}
                                     </span>
                                     <Badge tone={rs.tone}>{t(`releaseStatus.${r.status}`)}</Badge>
@@ -469,7 +469,7 @@ export function ProductsView() {
                                     <span className="w-9 flex-none text-right text-[11px] tabular-nums text-fg-3">
                                       {Math.round(r.progress * 100)}%
                                     </span>
-                                    <div className="opacity-0 transition-opacity group-hover:opacity-100">
+                                    <div className="flex-none opacity-0 transition-opacity group-hover:opacity-100">
                                       {canWrite && (
                                         <RowActions
                                           onEdit={() => setModal({ kind: 'release', entity: r })}
