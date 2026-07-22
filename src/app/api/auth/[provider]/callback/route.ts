@@ -111,13 +111,12 @@ export async function GET(
       // 把 OAuth 昵称/头像同步到认领的（以及所有）member 投影行。
       await syncMemberProjection(u);
     } else {
-      // 老用户登录：昵称/头像有变化则刷新 users 并同步 member 投影。
-      const name = profile.name || u.name;
+      // 老用户登录：name 只在首次建号时写入，之后不再覆盖（用户可自行修改）；
+      // 仅头像跟随 OAuth 资料刷新并同步 member 投影。
       const avatarUrl = profile.avatarUrl ?? null;
-      if (u.name !== name || u.avatarUrl !== avatarUrl) {
-        await db.update(users).set({ name, avatarUrl }).where(eq(users.id, u.id));
-        await syncMemberProjection({ id: u.id, name, avatarUrl });
-        u.name = name;
+      if (u.avatarUrl !== avatarUrl) {
+        await db.update(users).set({ avatarUrl }).where(eq(users.id, u.id));
+        await syncMemberProjection({ id: u.id, name: u.name, avatarUrl });
         u.avatarUrl = avatarUrl;
       }
     }
