@@ -92,7 +92,10 @@ export async function ensureAiLabel(companyId: string): Promise<string> {
 // 'viewer' — 与平台管理员手动分配席位的默认角色一致). One email may be
 // invited by several companies — every inviting company gets a seat.
 // Returns the number of claimed invites.
-export async function claimExternalInvites(user: { id: string }, email: string): Promise<number> {
+export async function claimExternalInvites(
+  user: { id: string; avatarUrl?: string | null },
+  email: string,
+): Promise<number> {
   const normalized = email.trim().toLowerCase();
   if (!normalized) return 0;
   const invites = await db
@@ -119,7 +122,7 @@ export async function claimExternalInvites(user: { id: string }, email: string):
     if (existing) continue;
     await db
       .update(members)
-      .set({ userId: user.id, origin: 'internal', status: 'active' })
+      .set({ userId: user.id, origin: 'internal', status: 'active', avatarUrl: user.avatarUrl ?? null })
       .where(eq(members.id, inv.id));
     await db
       .insert(companyMemberships)
@@ -130,11 +133,28 @@ export async function claimExternalInvites(user: { id: string }, email: string):
   return claimed;
 }
 
+// Sync the user's display profile (name/initials/avatar) onto every member
+// row projecting them — called after OAuth login refreshes the profile and
+// after the profile-page rename, so all companies see the same identity.
+export async function syncMemberProjection(user: {
+  id: string;
+  name: string;
+  avatarUrl?: string | null;
+}): Promise<void> {
+  await db
+    .update(members)
+    .set({ name: user.name, initials: initialsFor(user.name), avatarUrl: user.avatarUrl ?? null })
+    .where(eq(members.userId, user.id));
+}
+
 // Ensure a member row exists for the given local user in the given company;
 // create it (human, origin=internal, status=active) when missing. On first
 // creation also ensure the agents + AI label exist (lazy bootstrap fallback).
 // Returns the member row.
-export async function ensureCurrentMember(user: { id: string; name: string }, companyId: string): Promise<MemberRow> {
+export async function ensureCurrentMember(
+  user: { id: string; name: string; avatarUrl?: string | null },
+  companyId: string,
+): Promise<MemberRow> {
   const [existing] = await db
     .select()
     .from(members)
@@ -157,6 +177,7 @@ export async function ensureCurrentMember(user: { id: string; name: string }, co
       role: null,
       userId: user.id,
       agentKey: null,
+      avatarUrl: user.avatarUrl ?? null,
     })
     .onConflictDoNothing();
   const [after] = await db

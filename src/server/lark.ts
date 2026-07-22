@@ -62,6 +62,8 @@ export interface OAuthProfile {
   // enterprise_email 字段需要应用开通对应 scope（contact:user.email:readonly
   // 等）并重新发布后才返回；拿不到时为 undefined（退化为仅 union_id 匹配）。
   email?: string;
+  // 头像（avatar_big 优先）；user_info 基础字段，无需额外 scope。
+  avatarUrl?: string;
 }
 
 /* authorization code → app_access_token → user_access_token → user_info.
@@ -104,7 +106,15 @@ export async function fetchOAuthProfile(p: OAuthProvider, code: string): Promise
   });
   const info = (await infoRes.json()) as {
     code?: number;
-    data?: { union_id?: string; name?: string; email?: string; enterprise_email?: string };
+    data?: {
+      union_id?: string;
+      name?: string;
+      email?: string;
+      enterprise_email?: string;
+      avatar_url?: string;
+      avatar_middle?: string;
+      avatar_big?: string;
+    };
   };
   const unionId = info.data?.union_id;
   if (info.code !== 0 || !unionId) throw new Error(`user_info failed (code=${info.code})`);
@@ -112,5 +122,6 @@ export async function fetchOAuthProfile(p: OAuthProvider, code: string): Promise
     unionId,
     name: info.data?.name?.trim() || '',
     email: info.data?.email?.trim() || info.data?.enterprise_email?.trim() || undefined,
+    avatarUrl: info.data?.avatar_big || info.data?.avatar_middle || info.data?.avatar_url || undefined,
   };
 }

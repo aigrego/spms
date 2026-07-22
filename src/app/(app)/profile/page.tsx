@@ -66,6 +66,7 @@ function ProfileTab() {
           initials: (user.name || user.username || '?').slice(0, 2),
           color: null,
           role: null,
+          avatarUrl: user.avatarUrl ?? null,
         }
       : null);
 

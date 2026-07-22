@@ -46,7 +46,7 @@ export function MembersPanel() {
                 <tr key={u.userId} className="border-b border-border hover:bg-surface-2/60">
                   <td className={tdCls}>
                     <div className="flex items-center gap-2.5">
-                      <LetterAvatar name={u.name || u.username} />
+                      <LetterAvatar name={u.name || u.username} avatarUrl={u.avatarUrl} />
                       <span className="font-medium">{u.name}</span>
                     </div>
                   </td>

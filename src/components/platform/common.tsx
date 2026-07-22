@@ -35,7 +35,20 @@ export function PlatformHeader({
 
 /* First-letter avatar for platform members (they don't carry the full Member
    shape the glyphs Avatar expects). */
-export function LetterAvatar({ name, size = 24 }: { name: string; size?: number }) {
+export function LetterAvatar({ name, avatarUrl, size = 24 }: { name: string; avatarUrl?: string | null; size?: number }) {
+  if (avatarUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- 外部 OAuth 头像，域名不固定，不适用 next/image
+      <img
+        src={avatarUrl}
+        alt={name}
+        width={size}
+        height={size}
+        className="flex-none rounded-full object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
     <span
       className="grid flex-none place-items-center rounded-full font-semibold text-white"

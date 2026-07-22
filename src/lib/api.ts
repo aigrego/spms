@@ -375,6 +375,8 @@ export interface SessionUser {
   isPlatformAdmin?: boolean;
   // Whether a Lark identity is linked (profile page security tab).
   larkBound?: boolean;
+  // OAuth 头像（飞书/Lark）；空则展示首字母色块。
+  avatarUrl?: string | null;
 }
 
 /* 第三方登录配置（登录页按钮展示）。configured 为 false 时该按钮隐藏。 */

@@ -30,6 +30,7 @@ export interface PlatformUser {
   username: string;
   name: string;
   platformRole: 'admin' | 'member';
+  avatarUrl?: string | null;
   createdAt: string;
   seats: {
     membershipId: string;

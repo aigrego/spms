@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { users } from '@/db/schema';
-import { claimExternalInvites, ensureCurrentMember } from '@/lib/identity';
+import { claimExternalInvites, ensureCurrentMember, syncMemberProjection } from '@/lib/identity';
 import { createSessionCookie, getSession } from '@/lib/session';
 import { defaultCompanyForUser } from '@/server/http';
 import { BIND_STATE_COOKIE, fetchOAuthProfile, parseProvider, providerConfigured } from '@/server/lark';
@@ -97,6 +97,7 @@ export async function GET(
           passwordHash: '!oauth',
           role: 'member',
           larkUnionId: profile.unionId,
+          avatarUrl: profile.avatarUrl ?? null,
         })
         .onConflictDoNothing();
       [u] = await db.select().from(users).where(eq(users.larkUnionId, profile.unionId)).limit(1);
@@ -106,6 +107,18 @@ export async function GET(
         if (claimed > 0) {
           console.info(`[auth/${p}] ${u.username} claimed ${claimed} external invite(s)`);
         }
+      }
+      // 把 OAuth 昵称/头像同步到认领的（以及所有）member 投影行。
+      await syncMemberProjection(u);
+    } else {
+      // 老用户登录：昵称/头像有变化则刷新 users 并同步 member 投影。
+      const name = profile.name || u.name;
+      const avatarUrl = profile.avatarUrl ?? null;
+      if (u.name !== name || u.avatarUrl !== avatarUrl) {
+        await db.update(users).set({ name, avatarUrl }).where(eq(users.id, u.id));
+        await syncMemberProjection({ id: u.id, name, avatarUrl });
+        u.name = name;
+        u.avatarUrl = avatarUrl;
       }
     }
 

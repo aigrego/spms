@@ -26,12 +26,13 @@ export const GET = route(async () => {
       name: users.name,
       role: users.role,
       larkUnionId: users.larkUnionId,
+      avatarUrl: users.avatarUrl,
     })
     .from(users)
     .where(eq(users.id, session.uid))
     .limit(1);
   if (!u) return ok(null);
-  const user = { id: u.id, username: u.username, name: u.name, role: u.role, larkBound: !!u.larkUnionId };
+  const user = { id: u.id, username: u.username, name: u.name, role: u.role, larkBound: !!u.larkUnionId, avatarUrl: u.avatarUrl };
 
   const isPlatformAdmin = u.role === 'admin';
   const companyList = await listCompaniesForUser(u);

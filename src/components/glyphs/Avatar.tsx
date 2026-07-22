@@ -29,10 +29,11 @@ export function Avatar({
   }
 
   const isAgent = person.type === 'agent';
+  const showImage = !isAgent && !!person.avatarUrl;
   return (
     <span
       title={person.name}
-      className="relative grid place-items-center rounded-full font-semibold text-white"
+      className="relative grid place-items-center overflow-hidden rounded-full font-semibold text-white"
       style={{
         width: size,
         height: size,
@@ -45,7 +46,14 @@ export function Avatar({
             : 'none',
       }}
     >
-      {isAgent ? <Sparkles size={size * 0.56} color="var(--brand-orange)" /> : person.initials}
+      {isAgent ? (
+        <Sparkles size={size * 0.56} color="var(--brand-orange)" />
+      ) : showImage ? (
+        // eslint-disable-next-line @next/next/no-img-element -- 外部 OAuth 头像，域名不固定，不适用 next/image
+        <img src={person.avatarUrl!} alt={person.name} width={size} height={size} className="h-full w-full object-cover" />
+      ) : (
+        person.initials
+      )}
     </span>
   );
 }

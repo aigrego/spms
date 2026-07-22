@@ -129,6 +129,8 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   role: text('role').notNull().default('member'), // 'admin' | 'member'
   larkUnionId: text('lark_union_id').unique(),
+  // OAuth 头像（飞书/Lark user_info 的 avatar），登录时刷新；空则展示首字母色块。
+  avatarUrl: text('avatar_url'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -242,6 +244,8 @@ export const members = pgTable(
     origin: memberOriginEnum('origin').notNull().default('internal'),
     email: text('email'),
     status: memberStatusEnum('status').notNull().default('active'),
+    // OAuth 头像（随 users.avatarUrl 同步）；空则展示首字母色块。
+    avatarUrl: text('avatar_url'),
   },
   (t) => [
     uniqueIndex('members_user_uidx').on(t.companyId, t.userId),

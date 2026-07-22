@@ -217,6 +217,7 @@ function UserMenu() {
       initials: (user.name || user.username || '?').slice(0, 2),
       color: null,
       role: null,
+      avatarUrl: user.avatarUrl ?? null,
     };
   const role = roleLabel(t, companyRole);
 

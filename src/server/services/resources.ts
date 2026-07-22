@@ -33,6 +33,7 @@ export function serializeMember(m: MemberRow) {
     origin: m.origin,
     email: m.email,
     status: m.status,
+    avatarUrl: m.avatarUrl,
   };
 }
 

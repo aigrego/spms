@@ -63,6 +63,8 @@ export interface Member {
   email?: string | null;
   homeTenantId?: string | null;
   status?: MemberStatus;
+  // OAuth（飞书/Lark）头像；空则展示首字母色块。
+  avatarUrl?: string | null;
 }
 
 /* PMS-2 §2.2 — 研发资源 (virtual team) assignments. */

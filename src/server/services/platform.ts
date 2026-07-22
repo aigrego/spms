@@ -126,6 +126,7 @@ export async function listAllUsers(actor: Actor) {
       username: users.username,
       name: users.name,
       platformRole: users.role,
+      avatarUrl: users.avatarUrl,
       userCreatedAt: users.createdAt,
       membershipId: companyMemberships.id,
       membershipRole: companyMemberships.role,
@@ -145,6 +146,7 @@ export async function listAllUsers(actor: Actor) {
       username: string;
       name: string;
       platformRole: string;
+      avatarUrl: string | null;
       createdAt: Date;
       seats: { membershipId: string; role: string; companyId: string; companyName: string; companyColor: string | null }[];
     }
@@ -157,6 +159,7 @@ export async function listAllUsers(actor: Actor) {
         username: r.username,
         name: r.name,
         platformRole: r.platformRole,
+        avatarUrl: r.avatarUrl,
         createdAt: r.userCreatedAt,
         seats: [],
       };
