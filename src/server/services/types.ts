@@ -6,7 +6,7 @@
 
 export interface Actor {
   userId: string; // users.id
-  memberId: string; // members.id (the user's projection into the company's resource pool)
+  memberId: string | null; // members.id (the user's projection into the company's resource pool; null for a seat-less platform admin)
   name: string; // users.name (display)
   role: string; // users.role — platform-level ('admin' | 'member')
   companyId: string; // companies.id — the current company sandbox

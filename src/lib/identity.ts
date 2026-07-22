@@ -1,6 +1,7 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { members, labels, companyMemberships } from '@/db/schema';
+import { unassignMemberEverywhere } from '@/lib/assignments';
 
 /* Identity mapping (Next.js rewrite). Portal directory sync is gone: a human
    member row projects a local `users` row 1:1 per company
@@ -148,19 +149,35 @@ export async function syncMemberProjection(user: {
 }
 
 // Ensure a member row exists for the given local user in the given company;
-// create it (human, origin=internal, status=active) when missing. On first
-// creation also ensure the agents + AI label exist (lazy bootstrap fallback).
-// Returns the member row.
+// create it (human, origin=internal, status=active) when missing. Only users
+// holding a seat (company_memberships) are projected — a seat-less platform
+// admin gets null, so merely entering a company sandbox no longer pollutes
+// its resource pool. A previously revoked projection is reactivated when the
+// user holds a seat again. On first creation also ensure the agents + AI
+// label exist (lazy bootstrap fallback). Returns the member row, or null.
 export async function ensureCurrentMember(
   user: { id: string; name: string; avatarUrl?: string | null },
   companyId: string,
-): Promise<MemberRow> {
+): Promise<MemberRow | null> {
+  const [seat] = await db
+    .select({ id: companyMemberships.id })
+    .from(companyMemberships)
+    .where(and(eq(companyMemberships.userId, user.id), eq(companyMemberships.companyId, companyId)))
+    .limit(1);
+
   const [existing] = await db
     .select()
     .from(members)
     .where(and(eq(members.companyId, companyId), eq(members.userId, user.id)))
     .limit(1);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.status === 'revoked' && seat) {
+      await db.update(members).set({ status: 'active' }).where(eq(members.id, existing.id));
+      existing.status = 'active';
+    }
+    return existing;
+  }
+  if (!seat) return null;
 
   await ensureAgents(companyId);
   await ensureAiLabel(companyId);
@@ -189,5 +206,20 @@ export async function ensureCurrentMember(
   // Extremely unlikely: a conflicting insert raced us with a different userId
   // mapping. Fall back to the row we just tried to insert's id.
   const [byId] = await db.select().from(members).where(eq(members.id, id)).limit(1);
-  return byId;
+  return byId ?? null;
+}
+
+/* Revoke a user's member projection in a company (seat removed): strip every
+   node assignment and mark the row revoked so it leaves assignee candidate
+   lists. The row itself survives — issues/activities/etc. reference it without
+   cascade. Re-granting a seat reactivates it via ensureCurrentMember. */
+export async function revokeMemberProjection(companyId: string, userId: string): Promise<void> {
+  const [m] = await db
+    .select({ id: members.id })
+    .from(members)
+    .where(and(eq(members.companyId, companyId), eq(members.userId, userId)))
+    .limit(1);
+  if (!m) return;
+  await unassignMemberEverywhere(companyId, m.id);
+  await db.update(members).set({ status: 'revoked' }).where(eq(members.id, m.id));
 }

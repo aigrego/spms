@@ -4,7 +4,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db';
 import { companies, companyMemberships, mcpApiKeys, rolePermissions, users } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
-import { ensureCurrentMember } from '@/lib/identity';
+import { ensureCurrentMember, revokeMemberProjection } from '@/lib/identity';
 import { hashPassword } from '@/lib/password';
 import {
   CONFIGURABLE_ROLES,
@@ -283,16 +283,18 @@ export async function updateMemberRole(actor: Actor, companyId: string, membersh
   return { id: membershipId, role };
 }
 
-/* ---- remove a membership (the user account itself survives) ---- */
+/* ---- remove a membership (the user account survives; their pool projection
+   is revoked too so they leave assignee candidate lists) ---- */
 export async function removeMember(actor: Actor, companyId: string, membershipId: string) {
   requirePlatformAdmin(actor);
   const [m] = await db
-    .select({ id: companyMemberships.id })
+    .select({ id: companyMemberships.id, userId: companyMemberships.userId })
     .from(companyMemberships)
     .where(and(eq(companyMemberships.id, membershipId), eq(companyMemberships.companyId, companyId)))
     .limit(1);
   if (!m) throw new ApiException('MEMBER_NOT_FOUND', '成员不存在');
   await db.delete(companyMemberships).where(eq(companyMemberships.id, membershipId));
+  await revokeMemberProjection(companyId, m.userId);
   return { id: membershipId };
 }
 

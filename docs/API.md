@@ -104,7 +104,7 @@
 | POST | `/resources/:id/revoke` | 仅 external；unassignMemberEverywhere + status=revoked |
 | GET | `/seats` | 当前公司席位列表（memberships ⋈ users，研发资源"内部成员"段数据源） |
 | PATCH | `/seats/:id` | `{ role }` 改席位的公司角色（company_admin 或平台管理员） |
-| DELETE | `/seats/:id` | 回收席位（company_admin 或平台管理员；账号与其他席位保留） |
+| DELETE | `/seats/:id` | 回收席位（company_admin 或平台管理员；账号与其他席位保留；同步撤销资源池投影） |
 | GET | `/permissions-matrix` | 本公司有效矩阵（全局默认 + 本公司覆盖；company_admin 或平台管理员） |
 | PUT | `/permissions-matrix` | `{ matrix }` 整表替换本公司覆盖矩阵（同上） |
 
@@ -143,7 +143,7 @@
 | GET | `/companies/:id/members` | 公司成员列表（membership + user 信息） |
 | POST | `/companies/:id/members` | `{ username, role, name?, password? }` 加成员（=分配席位）；用户名不存在时现场建账号（需 password）；分配时同步投影进资源池 |
 | PATCH | `/companies/:id/members/:membershipId` | `{ role }` 改公司内角色 |
-| DELETE | `/companies/:id/members/:membershipId` | 移出成员（=回收席位；user 账号保留） |
+| DELETE | `/companies/:id/members/:membershipId` | 移出成员（=回收席位；user 账号保留；同步撤销资源池投影） |
 | GET | `/users` | 平台成员目录：全部系统用户 + 各自公司席位 |
 | POST | `/users` | `{ username, name?, password }` 新建系统账号（role=member，不含席位） |
 | GET | `/permissions-matrix` | 全量 4 角色 × 10 模块矩阵 |

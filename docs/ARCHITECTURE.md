@@ -117,7 +117,7 @@ next-spms/
 - **席位 = `company_memberships` 行**：决定用户能否进入某公司沙箱及公司角色。
 - 平台管理员在 设置 → 成员管理 看**全部系统用户**（目录 + 新建用户）；在 公司管理 的公司卡片 → **席位**抽屉里把用户分配进/回收出某公司（默认角色 viewer）。
 - 公司管理员在 **研发资源 → 内部成员** 给本公司席位成员调整公司角色 / 移除席位（`/api/v1/pms/seats`）。
-- 席位分配时把用户幂等投影进本公司资源池（`members` 表，供指派）。
+- 席位分配时把用户幂等投影进本公司资源池（`members` 表，供指派）；席位移除时同步撤销该投影（移出所有节点指派、状态置 revoked，重新分配席位时自动重激活）。仅持席位的用户才会被懒投影——无席位的平台管理员进入公司沙箱不再产生 `members` 行（其 `Actor.memberId` 为 null）。
 
 **角色×模块矩阵**（`src/lib/permissions.ts`）：
 - 4 个可配置角色 × 10 个模块（issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents）× 3 档（`none < read < write`）

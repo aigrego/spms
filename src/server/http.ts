@@ -123,7 +123,7 @@ export async function requireActor(): Promise<Actor> {
   const member = await ensureCurrentMember(u, resolved.company.id);
   return {
     userId: u.id,
-    memberId: member.id,
+    memberId: member?.id ?? null,
     name: u.name,
     role: u.role,
     companyId: resolved.company.id,

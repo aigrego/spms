@@ -74,7 +74,7 @@ async function buildMcpActor(companyId: string, ownerId: string | null): Promise
     const member = await ensureCurrentMember(u, companyId);
     return {
       userId: u.id,
-      memberId: member.id,
+      memberId: member?.id ?? null,
       name: u.name,
       role: u.role,
       companyId,

@@ -2,7 +2,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { companyMemberships, members, users } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
-import { initialsFor, colorFor } from '@/lib/identity';
+import { initialsFor, colorFor, revokeMemberProjection } from '@/lib/identity';
 import { unassignMemberEverywhere } from '@/lib/assignments';
 import { requirePerm } from '@/lib/permissions';
 import { COMPANY_ROLES, type CompanyRole } from './platform';
@@ -149,7 +149,7 @@ export async function listSeats(actor: Actor) {
 
 async function seatInCompany(actor: Actor, membershipId: string) {
   const [m] = await db
-    .select({ id: companyMemberships.id })
+    .select({ id: companyMemberships.id, userId: companyMemberships.userId })
     .from(companyMemberships)
     .where(and(eq(companyMemberships.id, membershipId), eq(companyMemberships.companyId, actor.companyId)))
     .limit(1);
@@ -168,10 +168,12 @@ export async function updateSeatRole(actor: Actor, membershipId: string, role: C
   return { id: membershipId, role };
 }
 
-/* ---- revoke a seat (the user account and other seats survive) ---- */
+/* ---- revoke a seat (the user account survives; their pool projection is
+   revoked too so they leave assignee candidate lists) ---- */
 export async function removeSeat(actor: Actor, membershipId: string) {
   requireSeatAdmin(actor);
-  await seatInCompany(actor, membershipId);
+  const seat = await seatInCompany(actor, membershipId);
   await db.delete(companyMemberships).where(eq(companyMemberships.id, membershipId));
+  await revokeMemberProjection(actor.companyId, seat.userId);
   return { id: membershipId };
 }
