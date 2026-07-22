@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { put } from '@vercel/blob';
 import { z } from 'zod';
 import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
@@ -7,6 +8,7 @@ import { ApiException, type ErrorCode } from '@/lib/envelope';
 import { ensureAgents, ensureCurrentMember } from '@/lib/identity';
 import { computeRollups } from '@/lib/rollup';
 import * as issueSvc from '@/server/services/issues';
+import * as attachmentSvc from '@/server/services/attachments';
 import * as projectSvc from '@/server/services/projects';
 import * as requirementSvc from '@/server/services/requirements';
 import * as resourceSvc from '@/server/services/resources';
@@ -144,6 +146,8 @@ async function loadBootstrap(actor: Actor) {
 
 /* ---- result / error wrapping --------------------------------------------- */
 type ToolText = { type: 'text'; text: string };
+type ToolImage = { type: 'image'; data: string; mimeType: string };
+type ToolContent = ToolText | ToolImage;
 
 function okResult(data: unknown): { content: ToolText[] } {
   return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
@@ -168,6 +172,20 @@ async function run(fn: () => Promise<unknown>): Promise<{ content: ToolText[] } 
 function found<T>(data: T | null, code: ErrorCode, message: string): T {
   if (data == null) throw new ApiException(code, message);
   return data;
+}
+
+/* Infer an image MIME type from a filename extension (for attachment upload). */
+function imageMimeFromFilename(name: string): string | null {
+  const ext = name.toLowerCase().split('.').pop() ?? '';
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    avif: 'image/avif',
+  };
+  return map[ext] ?? null;
 }
 
 /* ---- zod enums (aligned with src/db/schema.ts pgEnum values) -------------- */
@@ -326,18 +344,42 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   reg(
     'spms_get_issue',
     {
-      description: `Issue 详情：按展示 key（如 BUG-3）查询，含 labels/subIssues/activities（created/status/comment 等历史流）。${CONCEPTS}`,
+      description:
+        `Issue 详情：按展示 key（如 BUG-3）查询，含 labels/subIssues/activities（created/status/comment 等历史流）与 attachments 附件元数据。` +
+        `图片附件会同时以 image 内容块返回，可直接看图识别（如 bug 截图、UI 稿）。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
       inputSchema: {
         companyId: companyIdParam,
         key: z.string().describe("Issue 展示 key，如 'BUG-3'"),
       },
     },
-    async (args) =>
-      run(async () => {
+    async (args) => {
+      try {
         const actor = await actorFor(args.companyId);
-        return found(await issueSvc.getIssue(actor, args.key), 'ISSUE_NOT_FOUND', `Issue ${args.key} 不存在`);
-      }),
+        const issue = found(await issueSvc.getIssue(actor, args.key), 'ISSUE_NOT_FOUND', `Issue ${args.key} 不存在`);
+        const content: ToolContent[] = [{ type: 'text', text: JSON.stringify(issue, null, 2) }];
+        // Inline image attachments as MCP image blocks so the agent can see
+        // them, not just their URLs. Per-image failures degrade to a note.
+        const images = (issue.attachments ?? []).filter((a) => a.contentType.startsWith('image/')).slice(0, 10);
+        const failed: string[] = [];
+        for (const a of images) {
+          try {
+            const res = await fetch(a.url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const buf = Buffer.from(await res.arrayBuffer());
+            content.push({ type: 'text', text: `图片附件：${a.filename}` });
+            content.push({ type: 'image', data: buf.toString('base64'), mimeType: a.contentType });
+          } catch {
+            failed.push(a.filename);
+          }
+        }
+        if (failed.length) content.push({ type: 'text', text: `以下图片附件拉取失败：${failed.join('、')}` });
+        return { content };
+      } catch (e) {
+        if (e instanceof ApiException) return errResult(e.code, e.message);
+        throw e;
+      }
+    },
   );
 
   reg(
@@ -567,6 +609,52 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       run(async () => {
         const actor = await actorFor(args.companyId);
         return issueSvc.addComment(actor, args.key, args.body);
+      }),
+  );
+
+  reg(
+    'spms_upload_issue_attachment',
+    {
+      description:
+        `上传图片附件到 Issue（按展示 key，如 BUG-3）。data 传图片二进制的 base64 编码；支持 jpeg/png/gif/webp/avif，单个 ≤10MB` +
+        `（MCP 调用走 HTTP 请求体，部署平台对请求体大小有限制，过大的图片可能在到达服务前被网关拒绝）。` +
+        `典型用法：Agent 完成任务后先调用本工具上传结果截图，再调用 spms_update_issue 把 status 置为 'done' 关闭 Issue。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        key: z.string().describe("Issue 展示 key，如 'BUG-3'"),
+        filename: z.string().describe("文件名，如 'result.png'"),
+        data: z.string().describe('图片二进制内容的 base64 编码'),
+        contentType: z
+          .enum(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'])
+          .optional()
+          .describe('图片 MIME 类型；不传则按 filename 扩展名推断'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const buf = Buffer.from(args.data, 'base64');
+        if (buf.length === 0 || buf.length > attachmentSvc.MAX_ATTACHMENT_SIZE) {
+          throw new ApiException('VALIDATION_FAILED', '附件大小需在 10MB 以内');
+        }
+        const contentType = args.contentType ?? imageMimeFromFilename(args.filename);
+        if (!contentType) {
+          throw new ApiException('VALIDATION_FAILED', '无法从文件名推断图片类型，请显式传 contentType');
+        }
+        const safeName = args.filename.split(/[\\/]/).pop() || 'image';
+        // Server-side upload (agents can't do the browser client-direct flow).
+        const blob = await put(`issues/${actor.companyId}/${crypto.randomUUID()}-${safeName}`, buf, {
+          access: 'public',
+          contentType,
+          addRandomSuffix: true,
+        });
+        return attachmentSvc.registerAttachment(actor, args.key, {
+          url: blob.url,
+          pathname: blob.pathname,
+          filename: safeName,
+          contentType,
+          size: buf.length,
+        });
       }),
   );
 

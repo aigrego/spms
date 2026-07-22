@@ -52,7 +52,7 @@ async function findByKey(companyId: string, key: string) {
 const fetchDetail = (id: string) =>
   db.query.issues.findFirst({
     where: eq(issues.id, id),
-    with: { ...withRelations, activities: true },
+    with: { ...withRelations, activities: true, attachments: true },
   });
 
 /* Load any member (human or agent) by id, within the company. */

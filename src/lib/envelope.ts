@@ -38,6 +38,8 @@ export const ERROR_CODES = [
   'LIFECYCLE_MISMATCH',
   'INVITE_FAILED',
   'TEST_CASE_NOT_FOUND',
+  // issue attachments
+  'ATTACHMENT_NOT_FOUND',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
@@ -67,6 +69,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   LIFECYCLE_MISMATCH: '生命周期归属不一致（迭代/项目/版本冲突）',
   INVITE_FAILED: '邀请失败',
   TEST_CASE_NOT_FOUND: '测试用例不存在',
+  ATTACHMENT_NOT_FOUND: '附件不存在',
 };
 
 export interface OkEnvelope<T> {

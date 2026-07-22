@@ -154,6 +154,28 @@ export function serializeTestCase(row: {
   };
 }
 
+export function serializeAttachment(row: {
+  id: string;
+  url: string;
+  pathname: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  uploadedById: string | null;
+  createdAt: Date;
+}) {
+  return {
+    id: row.id,
+    url: row.url,
+    pathname: row.pathname,
+    filename: row.filename,
+    contentType: row.contentType,
+    size: row.size,
+    uploadedById: row.uploadedById,
+    createdAt: row.createdAt,
+  };
+}
+
 export function serializeIssueDetail(row: any) {
   const base = serializeIssueList(row);
   return {
@@ -172,5 +194,9 @@ export function serializeIssueDetail(row: any) {
         body: a.body,
         createdAt: a.createdAt,
       })),
+    attachments: ((row.attachments ?? []) as Parameters<typeof serializeAttachment>[0][])
+      .slice()
+      .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt))
+      .map(serializeAttachment),
   };
 }

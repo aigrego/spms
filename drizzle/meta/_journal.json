@@ -43,6 +43,13 @@
       "when": 1784686170229,
       "tag": "0005_quiet_mikhail_rasputin",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784697666056,
+      "tag": "0006_nostalgic_thundra",
+      "breakpoints": true
     }
   ]
 }

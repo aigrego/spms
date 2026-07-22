@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronRight, Box, Layers, Trash2, Plus } from 'lucide-react';
+import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverTrigger, PopoverContent, MenuItem } from '@/components/ui/popover';
@@ -15,9 +15,10 @@ import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, ScopedAssigneeMenu,
 import { useT, useLocale } from '@/lib/i18n';
 import { formatActivityTime } from '@/lib/time';
 import { useAppData } from '@/store/AppData';
-import { useIssue, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue } from '@/store/issues';
+import { useIssue, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue, useRegisterAttachment, useDeleteAttachment } from '@/store/issues';
 import { useIssueCandidates } from '@/store/resources';
 import { useRequirements } from '@/store/requirements';
+import { uploadImage } from '@/lib/upload';
 import type { Activity, IssueStatus, Member } from '@/lib/types';
 
 function ActivityItem({ ev }: { ev: Activity }) {
@@ -153,6 +154,11 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
   const addComment = useAddComment();
   const toggleSub = useToggleSub();
   const del = useDeleteIssue();
+  const registerAttachment = useRegisterAttachment();
+  const deleteAttachment = useDeleteAttachment();
+  // In-flight uploads (blob uploaded, registration pending) — shown as dimmed tiles.
+  const [uploading, setUploading] = React.useState<{ key: string; preview: string }[]>([]);
+  const attachInputRef = React.useRef<HTMLInputElement>(null);
   const { data: projectReqs = [] } = useRequirements(issue?.projectId ? { project: issue.projectId } : undefined);
   // Assignee + @-mention pool: the issue's project research resources (+ AI agents).
   const { data: candData } = useIssueCandidates(id);
@@ -182,6 +188,28 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
   const isPRD = !!docsLabel && issue.labels.includes(docsLabel.id) && issue.aiAssigned;
   const patch = (p: Parameters<typeof update.mutate>[0]['input']) => update.mutate({ id, input: p });
   const candidates = candData?.candidates ?? [];
+
+  // Upload each picked image straight to Blob, then register it on the issue.
+  const addFiles = (files: Iterable<File>) => {
+    for (const file of files) {
+      const key = crypto.randomUUID();
+      setUploading((u) => [...u, { key, preview: URL.createObjectURL(file) }]);
+      uploadImage(file)
+        .then((meta) =>
+          registerAttachment.mutate(
+            { id, meta },
+            { onSettled: () => setUploading((u) => u.filter((x) => x.key !== key)) },
+          ),
+        )
+        .catch(() => setUploading((u) => u.filter((x) => x.key !== key)));
+    }
+  };
+
+  const removeAttachment = (attachmentId: string) => {
+    if (window.confirm(t('issue.confirmDeleteAttachment'))) {
+      deleteAttachment.mutate({ id, attachmentId });
+    }
+  };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard
@@ -273,6 +301,62 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
 
             <div className="mb-[22px] text-sm leading-relaxed text-fg-1">
               {issue.description || t('detail.noDesc')}
+            </div>
+
+            {/* Attachments */}
+            <div className="mb-[22px]">
+              <div className="mb-2 flex items-center gap-1.5 text-[12.5px] font-semibold text-fg-2">
+                <Paperclip size={14} className="text-fg-3" /> {t('issue.attachments')}
+                {issue.attachments.length > 0 && <> · {issue.attachments.length}</>}
+                <div className="flex-1" />
+                <button
+                  onClick={() => attachInputRef.current?.click()}
+                  className="inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[12.5px] font-medium text-fg-2 hover:bg-surface-2"
+                >
+                  <Plus size={13} className="text-fg-3" /> {t('issue.attachImage')}
+                </button>
+              </div>
+              {(issue.attachments.length > 0 || uploading.length > 0) && (
+                <div className="flex flex-wrap gap-2">
+                  {issue.attachments.map((a) => (
+                    <div
+                      key={a.id}
+                      title={a.filename}
+                      className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border"
+                    >
+                      <a href={a.url} target="_blank" rel="noreferrer">
+                        <img src={a.url} alt={a.filename} className="h-full w-full object-cover" />
+                      </a>
+                      <button
+                        onClick={() => removeAttachment(a.id)}
+                        aria-label="delete"
+                        className="absolute right-0.5 top-0.5 hidden h-4 w-4 place-items-center rounded-full bg-black/55 text-white hover:bg-black/75 group-hover:grid"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                  {uploading.map((u) => (
+                    <div key={u.key} className="relative h-16 w-16 overflow-hidden rounded-lg border border-border">
+                      <img src={u.preview} alt="" className="h-full w-full object-cover opacity-60" />
+                      <div className="absolute inset-0 grid place-items-center">
+                        <Loader2 size={16} className="animate-spin text-fg-2" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <input
+                ref={attachInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                onChange={(e) => {
+                  if (e.target.files) addFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
             </div>
 
             {/* AI agent workspace card */}

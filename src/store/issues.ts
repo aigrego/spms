@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { CreateIssueInput, UpdateIssueInput, Api } from '@/lib/api';
+import type { AttachmentMeta, CreateIssueInput, UpdateIssueInput, Api } from '@/lib/api';
 
 /* Issue-list query. "My issues" passes the current user's member id (resolved
    from /bootstrap) as the assignee param. */
@@ -71,6 +71,23 @@ export function useToggleSub() {
   return useMutation({
     mutationFn: ({ id, subId, status }: { id: string; subId: string; status: 'done' | 'todo' }) =>
       api.toggleSub(id, subId, status),
+    onSuccess: (_d, vars) => invalidate(vars.id),
+  });
+}
+
+export function useRegisterAttachment() {
+  const invalidate = useInvalidateIssues();
+  return useMutation({
+    mutationFn: ({ id, meta }: { id: string; meta: AttachmentMeta }) => api.registerAttachment(id, meta),
+    onSuccess: (_d, vars) => invalidate(vars.id),
+  });
+}
+
+export function useDeleteAttachment() {
+  const invalidate = useInvalidateIssues();
+  return useMutation({
+    mutationFn: ({ attachmentId }: { id: string; attachmentId: string }) =>
+      api.deleteAttachment(attachmentId),
     onSuccess: (_d, vars) => invalidate(vars.id),
   });
 }

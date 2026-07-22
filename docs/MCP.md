@@ -48,7 +48,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## Tools
 
-共 **20 个**（读 11 + 写 9）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
+共 **21 个**（读 11 + 写 10）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
 
 ### 读
 
@@ -57,7 +57,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_get_bootstrap` | — | 全量参考数据（members/labels/projects/sprints/产品线/产品/版本 + currentCompany） |
 | `spms_list_companies` | — | **新增**：公司列表（id/key/name/description）；公司级 key 只返回本公司 |
 | `spms_list_issues` | `status? type? priority? assignee? project? sprint?` | Issue 列表（筛选均可选；type=bug 即缺陷列表） |
-| `spms_get_issue` | `key` | Issue 详情（含 labels/subIssues/activities 评论流） |
+| `spms_get_issue` | `key` | Issue 详情（含 labels/subIssues/activities 评论流/attachments 附件）；图片附件同时以 image 内容块返回，Agent 可直接看图识别 |
 | `spms_list_requirements` | `project? type?` | 需求列表（附关联 issue 完成度） |
 | `spms_get_requirement` | `key` | 需求详情（PRD 描述/验收标准/关联 issue） |
 | `spms_list_projects` | — | 项目列表（含派生进度） |
@@ -73,6 +73,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_create_issue` | `title, type?, status?, priority?, importance?, description?, assigneeId?, projectId?, requirementId?, sprintId?, estimate?, storyPoints?, labels?` | 创建 issue（缺陷传 type='bug'）；返回展示 key |
 | `spms_update_issue` | `key, ...任意可更新字段` | 改状态/指派/优先级/标题/描述等 |
 | `spms_add_comment` | `key, body` | 给 issue 加评论 |
+| `spms_upload_issue_attachment` | `key, filename, data, contentType?` | 上传图片附件（data 为 base64；≤10MB，jpeg/png/gif/webp/avif）。配合 `spms_update_issue`（status='done'）实现"传图并关单" |
 | `spms_create_requirement` | `projectId, title, type?, category?, priority?, importance?, description?, acceptanceCriteria?, releaseId?` | 创建需求（自动分配 FR/NFR key） |
 | `spms_update_requirement` | `key, ...` | 更新需求 |
 | `spms_create_test_case` | `projectId, title, requirementId?, priority?, preconditions?, steps?, expected?` | 创建测试用例 |

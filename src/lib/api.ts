@@ -2,6 +2,7 @@ import type {
   Bootstrap,
   Issue,
   IssueDetail,
+  IssueAttachment,
   IssueStatus,
   IssuePriority,
   Importance,
@@ -49,6 +50,15 @@ export class ApiError extends Error {
     this.name = 'ApiError';
     this.code = code;
   }
+}
+
+/* Metadata of an already-uploaded blob, registered as an issue attachment. */
+export interface AttachmentMeta {
+  url: string;
+  pathname: string;
+  filename: string;
+  contentType: string;
+  size: number;
 }
 
 export interface CreateIssueInput {
@@ -221,6 +231,11 @@ export const api = {
 
   addComment: (id: string, body: string) =>
     request<{ id: string }>(`/issues/${id}/comments`, json('POST', { body })),
+
+  registerAttachment: (issueKey: string, meta: AttachmentMeta) =>
+    request<IssueAttachment>(`/issues/${issueKey}/attachments`, json('POST', meta)),
+
+  deleteAttachment: (id: string) => request<{ id: string }>(`/attachments/${id}`, { method: 'DELETE' }),
 
   toggleSub: (id: string, subId: string, status: IssueStatus) =>
     request<{ id: string; status: IssueStatus }>(`/issues/${id}/sub/${subId}`, json('PATCH', { status })),

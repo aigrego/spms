@@ -307,9 +307,21 @@ export interface Issue {
   updatedAt: string;
 }
 
+export interface IssueAttachment {
+  id: string;
+  url: string;
+  pathname: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  uploadedById: string | null;
+  createdAt: string;
+}
+
 export interface IssueDetail extends Issue {
   subIssues: SubIssue[];
   activities: Activity[];
+  attachments: IssueAttachment[];
 }
 
 export interface Notification {

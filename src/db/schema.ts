@@ -530,6 +530,29 @@ export const subIssues = pgTable('sub_issues', {
   position: integer('position').notNull().default(0),
 });
 
+/* Image attachments on an issue (Vercel Blob, client-direct upload).
+   `pathname` is the blob pathname — needed to delete the blob later. */
+export const issueAttachments = pgTable(
+  'issue_attachments',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    issueId: text('issue_id')
+      .references(() => issues.id, { onDelete: 'cascade' })
+      .notNull(),
+    url: text('url').notNull(),
+    pathname: text('pathname').notNull(),
+    filename: text('filename').notNull(),
+    contentType: text('content_type').notNull(),
+    size: integer('size').notNull(),
+    uploadedById: text('uploaded_by_id').references(() => members.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('issue_attachments_issue_idx').on(t.issueId)],
+);
+
 /* Activity / comments feed on an issue */
 export const activities = pgTable('activities', {
   id: text('id').primaryKey(),
@@ -631,6 +654,7 @@ export const issuesRelations = relations(issues, ({ one, many }) => ({
   issueLabels: many(issueLabels),
   subIssues: many(subIssues),
   activities: many(activities),
+  attachments: many(issueAttachments),
 }));
 
 export const productLinesRelations = relations(productLines, ({ many }) => ({
@@ -667,6 +691,11 @@ export const issueLabelsRelations = relations(issueLabels, ({ one }) => ({
 
 export const subIssuesRelations = relations(subIssues, ({ one }) => ({
   issue: one(issues, { fields: [subIssues.issueId], references: [issues.id] }),
+}));
+
+export const issueAttachmentsRelations = relations(issueAttachments, ({ one }) => ({
+  issue: one(issues, { fields: [issueAttachments.issueId], references: [issues.id] }),
+  uploadedBy: one(members, { fields: [issueAttachments.uploadedById], references: [members.id] }),
 }));
 
 export const activitiesRelations = relations(activities, ({ one }) => ({

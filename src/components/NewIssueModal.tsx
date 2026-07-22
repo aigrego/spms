@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Folder, Tag } from 'lucide-react';
+import { Folder, Loader2, Paperclip, Tag, X } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,8 @@ import { ProjectIcon } from '@/components/glyphs/misc';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, ProjectMenu, ScopedAssigneeMenu, LabelMenu } from '@/components/menus';
 import { useT } from '@/lib/i18n';
+import { api, type AttachmentMeta } from '@/lib/api';
+import { uploadImage } from '@/lib/upload';
 import { useAppData } from '@/store/AppData';
 import { useCreateIssue } from '@/store/issues';
 import { useNodeAssignments } from '@/store/resources';
@@ -22,8 +24,10 @@ import type { IssueStatus, IssuePriority, Importance, IssueType, Member } from '
 // triggers (the menu pickers). Radix's Slot needs to attach a ref to the trigger
 // to anchor/open the popover — a plain function component swallows the ref, which
 // silently breaks the menus (the form's options look "dead").
-const Chip = React.forwardRef<HTMLButtonElement, { icon: React.ReactNode; label: string }>(
-  ({ icon, label, ...rest }, ref) => (
+const Chip = React.forwardRef<
+  HTMLButtonElement,
+  { icon: React.ReactNode; label: string } & React.ButtonHTMLAttributes<HTMLButtonElement>
+>(  ({ icon, label, ...rest }, ref) => (
     <button
       ref={ref}
       className="inline-flex h-[30px] items-center gap-1.5 rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 hover:bg-surface-2"
@@ -34,6 +38,16 @@ const Chip = React.forwardRef<HTMLButtonElement, { icon: React.ReactNode; label:
   ),
 );
 Chip.displayName = 'Chip';
+
+/* An image picked/pasted before the issue exists: uploaded to Blob at once,
+   registered on the issue only after create succeeds. */
+type PendingImage = {
+  key: string;
+  preview: string;
+  meta: AttachmentMeta | null;
+  uploading: boolean;
+  failed: boolean;
+};
 
 export function NewIssueModal({
   open,
@@ -61,6 +75,8 @@ export function NewIssueModal({
   const [projectId, setProjectId] = React.useState<string | null>(null);
   const [assignee, setAssignee] = React.useState<string | null>(null);
   const [labels, setLabels] = React.useState<string[]>([]);
+  const [pending, setPending] = React.useState<PendingImage[]>([]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     if (open) {
@@ -73,8 +89,39 @@ export function NewIssueModal({
       setProjectId(presetProject ?? null);
       setAssignee(null);
       setLabels([]);
+      setPending([]);
     }
   }, [open, preset, presetProject]);
+
+  // Upload each picked/pasted image immediately; keep the blob meta pending
+  // until the issue exists.
+  const addFiles = (files: Iterable<File>) => {
+    for (const file of files) {
+      const key = crypto.randomUUID();
+      setPending((p) => [...p, { key, preview: URL.createObjectURL(file), meta: null, uploading: true, failed: false }]);
+      uploadImage(file)
+        .then((meta) =>
+          setPending((p) => p.map((x) => (x.key === key ? { ...x, meta, uploading: false } : x))),
+        )
+        .catch(() =>
+          setPending((p) => p.map((x) => (x.key === key ? { ...x, uploading: false, failed: true } : x))),
+        );
+    }
+  };
+
+  const onPaste = (e: React.ClipboardEvent) => {
+    const files = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
+    if (files.length) {
+      e.preventDefault();
+      addFiles(files);
+    }
+  };
+
+  const removePending = (key: string) => {
+    // Dropping a pending item does not delete the already-uploaded blob
+    // (orphan cleanup is out of scope).
+    setPending((p) => p.filter((x) => x.key !== key));
+  };
 
   // Assignee pool = the chosen project's research resources (humans) + AI agents.
   const { data: assignments = [] } = useNodeAssignments('project', projectId);
@@ -101,6 +148,12 @@ export function NewIssueModal({
       assigneeId: assignee,
       labels: labels.length ? labels : undefined,
     });
+    // The issue exists now — register the pending uploads (issue.id is the
+    // display key, e.g. "BUG-7"). A failed registration surfaces like a failed
+    // create; the issue itself is already created either way.
+    for (const p of pending) {
+      if (p.meta) await api.registerAttachment(issue.id, p.meta);
+    }
     onOpenChange(false);
     onCreated(issue.id);
   };
@@ -126,10 +179,37 @@ export function NewIssueModal({
           <textarea
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
+            onPaste={onPaste}
             rows={3}
             placeholder={t('newIssue.descPlaceholder')}
             className="mt-2 w-full resize-none border-0 bg-transparent text-sm leading-relaxed text-fg-1 outline-none placeholder:text-fg-3"
           />
+          {pending.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {pending.map((p) => (
+                <div
+                  key={p.key}
+                  title={p.failed ? t('issue.uploadFailed') : p.meta?.filename}
+                  className="relative h-14 w-14 overflow-hidden rounded-lg border border-border"
+                >
+                  <img src={p.preview} alt="" className="h-full w-full object-cover" />
+                  {p.uploading && (
+                    <div className="absolute inset-0 grid place-items-center bg-black/40">
+                      <Loader2 size={16} className="animate-spin text-white" />
+                    </div>
+                  )}
+                  {p.failed && <div className="absolute inset-0 bg-danger/30" />}
+                  <button
+                    onClick={() => removePending(p.key)}
+                    aria-label="remove"
+                    className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/55 text-white hover:bg-black/75"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2 px-[18px] pb-4 pt-1.5">
           <ProjectMenu
@@ -205,6 +285,22 @@ export function NewIssueModal({
               />
             }
           />
+          <Chip
+            icon={<Paperclip size={14} className="text-fg-3" />}
+            label={t('issue.attachImage')}
+            onClick={() => fileInputRef.current?.click()}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              if (e.target.files) addFiles(e.target.files);
+              e.target.value = '';
+            }}
+          />
         </div>
         <div className="flex items-center gap-2 border-t border-border px-[18px] py-3">
           <div className="flex-1" />
@@ -215,7 +311,7 @@ export function NewIssueModal({
             variant="primary"
             size="md"
             onClick={submit}
-            disabled={!title.trim() || !projectId || create.isPending}
+            disabled={!title.trim() || !projectId || create.isPending || pending.some((p) => p.uploading)}
           >
             {t('newIssue.create')}
           </Button>
