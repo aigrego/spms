@@ -160,7 +160,7 @@ export function NewIssueModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent aria-describedby={undefined}>
+      <DialogContent aria-describedby={undefined} onPaste={onPaste}>
         <DialogPrimitive.Title className="sr-only">{t('newIssue.title')}</DialogPrimitive.Title>
         <div className="flex items-center gap-2 px-[18px] pt-3.5">
           <span className="text-[12.5px] font-medium text-fg-2">{t('newIssue.title')}</span>
@@ -179,7 +179,6 @@ export function NewIssueModal({
           <textarea
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
-            onPaste={onPaste}
             rows={3}
             placeholder={t('newIssue.descPlaceholder')}
             className="mt-2 w-full resize-none border-0 bg-transparent text-sm leading-relaxed text-fg-1 outline-none placeholder:text-fg-3"
