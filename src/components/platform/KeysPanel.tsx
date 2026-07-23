@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, BookOpen, Copy, Check, UserCog, Ban, Trash2 } from 'lucide-react';
+import { Plus, BookOpen, Copy, Check, UserCog, Ban, Trash2, FolderKanban } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TabBtn } from '@/components/ui/segmented';
@@ -12,6 +12,8 @@ import { PopoverConfirm, fmtDate, tdCls, thCls, fieldLabel, inputCls } from '@/c
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { ApiError } from '@/lib/api';
+import { ProjectIcon } from '@/components/glyphs/misc';
+import { cn } from '@/lib/utils';
 import { useAppData } from '@/store/AppData';
 import { useT } from '@/lib/i18n';
 import { relativeTime } from '@/lib/time';
@@ -66,11 +68,12 @@ export function KeysPanel() {
   const { data: keys, isLoading, isError } = useMcpKeys();
   const revoke = useRevokeMcpKey();
   const remove = useDeleteMcpKey();
-  const { session, isPlatformAdmin, projectById } = useAppData();
+  const { session, isPlatformAdmin, projectById, projects, currentCompany } = useAppData();
   const [tab, setTab] = React.useState<'mine' | 'all'>('mine');
   const [modalOpen, setModalOpen] = React.useState(false);
   const [issued, setIssued] = React.useState<{ id: string; key: string; prefix: string } | null>(null);
   const [editing, setEditing] = React.useState<McpKey | null>(null);
+  const [editingProjects, setEditingProjects] = React.useState<McpKey | null>(null);
 
   const myId = session?.user.id ?? null;
   const mine = (keys ?? []).filter((k) => k.createdBy === myId);
@@ -130,8 +133,7 @@ export function KeysPanel() {
           <table className="w-full border-collapse">
             <thead className="sticky top-0 bg-bg">
               <tr className="border-b border-border">
-                {/* 名称列吃掉剩余宽度,其余列按内容收紧,宽屏下不再被均摊拉散 */}
-                <th className={`${thCls} w-full`}>名称</th>
+                <th className={thCls}>名称</th>
                 <th className={`${thCls} whitespace-nowrap`}>所属人</th>
                 <th className={`${thCls} whitespace-nowrap`}>能力</th>
                 <th className={`${thCls} whitespace-nowrap`}>范围</th>
@@ -199,6 +201,17 @@ export function KeysPanel() {
                     </td>
                     <td className={`${tdCls} whitespace-nowrap text-right`}>
                       <span className="inline-flex items-center gap-1">
+                        {/* 项目白名单只能在 key 归属当前公司时编辑（项目列表来自当前公司 bootstrap） */}
+                        {k.companyId === currentCompany?.id && projects.length > 0 && (
+                          <button
+                            title="编辑项目白名单"
+                            aria-label="编辑项目白名单"
+                            className="grid h-7 w-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-2 hover:text-fg-1"
+                            onClick={() => setEditingProjects(k)}
+                          >
+                            <FolderKanban size={14} />
+                          </button>
+                        )}
                         <button
                           title="改所属人"
                           aria-label="改所属人"
@@ -282,7 +295,87 @@ export function KeysPanel() {
       <CreateKeyModal open={modalOpen} onOpenChange={setModalOpen} onIssued={setIssued} platformAdmin={isPlatformAdmin} />
       <KeyRevealDialog issued={issued} onClose={() => setIssued(null)} />
       {editing && <EditOwnerModal k={editing} platformAdmin={isPlatformAdmin} onClose={() => setEditing(null)} />}
+      {editingProjects && <EditProjectsModal k={editingProjects} onClose={() => setEditingProjects(null)} />}
     </div>
+  );
+}
+
+/* 编辑令牌的项目白名单：全部选中保存为 null（不限制，与存量令牌一致），
+   至少选一个。项目列表来自当前公司 bootstrap。 */
+function EditProjectsModal({ k, onClose }: { k: McpKey; onClose: () => void }) {
+  const { projects } = useAppData();
+  const update = useUpdateMcpKey();
+  const [sel, setSel] = React.useState<string[]>(
+    // 已删除的项目 id 不出现在列表里，过滤掉避免带着幽灵 id 提交
+    k.projectIds?.filter((id) => projects.some((p) => p.id === id)) ?? projects.map((p) => p.id),
+  );
+  const [error, setError] = React.useState<string | null>(null);
+
+  const toggle = (id: string) =>
+    setSel((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+
+  const submit = async () => {
+    setError(null);
+    try {
+      await update.mutateAsync({
+        id: k.id,
+        projectIds: sel.length === projects.length ? null : sel,
+      });
+      onClose();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '保存失败,请重试');
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent aria-describedby={undefined} className="w-[min(420px,92vw)]">
+        <DialogPrimitive.Title className="px-[18px] pb-1 pt-4 text-[15px] font-semibold text-fg-1">
+          项目白名单「{k.name}」
+        </DialogPrimitive.Title>
+        <div className="flex flex-col gap-3 px-[18px] py-3">
+          <div className="text-[12px] text-fg-3">Agent 只能访问选中项目内的实体(全部选中 = 不限制)</div>
+          <div className="max-h-64 overflow-y-auto overflow-hidden rounded-lg border border-border">
+            {projects.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => toggle(p.id)}
+                className="flex w-full items-center gap-2.5 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-2/60"
+              >
+                <span
+                  className={cn(
+                    'grid h-4 w-4 flex-none place-items-center rounded-full border',
+                    sel.includes(p.id)
+                      ? 'border-brand-blue bg-brand-blue text-white'
+                      : 'border-border-strong bg-surface',
+                  )}
+                >
+                  {sel.includes(p.id) && <Check size={11} strokeWidth={3} />}
+                </span>
+                <span
+                  className="grid h-4 w-4 flex-none place-items-center rounded"
+                  style={{ background: p.color }}
+                >
+                  <ProjectIcon name={p.icon} size={11} />
+                </span>
+                <span className="min-w-0 truncate text-[13.5px] font-medium text-fg-1">{p.name}</span>
+              </button>
+            ))}
+          </div>
+          {error && <div className="rounded-lg bg-danger-50 px-3 py-2 text-[12.5px] text-danger">{error}</div>}
+        </div>
+        <div className="flex items-center gap-2 border-t border-border px-[18px] py-3">
+          <div className="flex-1" />
+          <Button variant="ghost" size="md" onClick={onClose}>
+            取消
+          </Button>
+          <Button variant="primary" size="md" onClick={submit} disabled={sel.length === 0 || update.isPending}>
+            保存
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

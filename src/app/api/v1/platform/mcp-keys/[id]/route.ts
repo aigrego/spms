@@ -4,13 +4,13 @@ import { jsonBody, requireActor, route } from '@/server/http';
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/* PATCH /api/v1/platform/mcp-keys/:id { ownerId } — 修改令牌所属人（MCP 调用的
-   第一人称身份）。Admins may touch any key; members only their own (service
-   enforces). */
+/* PATCH /api/v1/platform/mcp-keys/:id { ownerId?, projectIds? } — 修改令牌所属人
+   （MCP 调用的第一人称身份）和/或项目白名单（null = 全部项目）。Admins may touch
+   any key; members only their own (service enforces). */
 export const PATCH = route(async (req, ctx: Ctx) => {
   const actor = await requireActor();
   const id = (await ctx.params).id;
-  return ok(await updateMcpKey(actor, id, await jsonBody<{ ownerId?: string }>(req)));
+  return ok(await updateMcpKey(actor, id, await jsonBody<{ ownerId?: string; projectIds?: string[] | null }>(req)));
 });
 
 /* DELETE /api/v1/platform/mcp-keys/:id — revoke (revokedAt marks it dead; the

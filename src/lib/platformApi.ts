@@ -195,7 +195,7 @@ export const platformApi = {
   mcpKeys: () => request<McpKey[]>('/mcp-keys'),
   createMcpKey: (input: CreateMcpKeyInput) =>
     request<{ id: string; key: string; prefix: string }>('/mcp-keys', json('POST', input)),
-  updateMcpKey: (id: string, input: { ownerId: string }) =>
+  updateMcpKey: (id: string, input: { ownerId?: string; projectIds?: string[] | null }) =>
     request<{ id: string }>(`/mcp-keys/${id}`, json('PATCH', input)),
   revokeMcpKey: (id: string) => request<{ id: string }>(`/mcp-keys/${id}`, { method: 'DELETE' }),
   // 硬删除（不留审计行），区别于上面的吊销。

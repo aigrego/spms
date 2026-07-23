@@ -529,13 +529,27 @@ async function requireKeyOwner(actor: Actor, id: string) {
   return k;
 }
 
-/* ---- change a key's 所属人 (the first-person identity for MCP calls) ---- */
-export async function updateMcpKey(actor: Actor, id: string, input: { ownerId?: string }) {
+/* ---- update a key: 所属人 (first-person identity) and/or 项目白名单 ---- */
+export async function updateMcpKey(
+  actor: Actor,
+  id: string,
+  input: { ownerId?: string; projectIds?: string[] | null },
+) {
   const k = await requireKeyOwner(actor, id);
-  const ownerId = input.ownerId?.trim();
-  if (!ownerId) throw new ApiException('VALIDATION_FAILED', '所属人不能为空');
-  await validateKeyOwner(k.companyId, ownerId);
-  await db.update(mcpApiKeys).set({ ownerId }).where(eq(mcpApiKeys.id, id));
+  const patch: Partial<{ ownerId: string; projectIds: string[] | null }> = {};
+  if (input.ownerId !== undefined) {
+    const ownerId = input.ownerId.trim();
+    if (!ownerId) throw new ApiException('VALIDATION_FAILED', '所属人不能为空');
+    await validateKeyOwner(k.companyId, ownerId);
+    patch.ownerId = ownerId;
+  }
+  // projectIds: undefined = 不动；null = 不限制（全部项目）；数组 = 白名单。
+  if (input.projectIds !== undefined) {
+    if (input.projectIds) await validateProjectIds(k.companyId, input.projectIds);
+    patch.projectIds = input.projectIds;
+  }
+  if (!Object.keys(patch).length) throw new ApiException('VALIDATION_FAILED', '没有需要修改的字段');
+  await db.update(mcpApiKeys).set(patch).where(eq(mcpApiKeys.id, id));
   return { id };
 }
 

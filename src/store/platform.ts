@@ -149,7 +149,8 @@ export function useCreateMcpKey() {
 export function useUpdateMcpKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ownerId }: { id: string; ownerId: string }) => platformApi.updateMcpKey(id, { ownerId }),
+    mutationFn: ({ id, ...input }: { id: string; ownerId?: string; projectIds?: string[] | null }) =>
+      platformApi.updateMcpKey(id, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: platformKeys.mcpKeys() }),
   });
 }
