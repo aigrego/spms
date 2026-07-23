@@ -9,7 +9,7 @@ import { PriorityIcon } from '@/components/glyphs/PriorityIcon';
 import { ImportanceIcon } from '@/components/glyphs/ImportanceIcon';
 import { TypeIcon } from '@/components/glyphs/TypeIcon';
 import { Avatar } from '@/components/glyphs/Avatar';
-import { AISlaBadge } from '@/components/glyphs/misc';
+import { AISlaBadge, ProjectIcon } from '@/components/glyphs/misc';
 import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, AssigneeMenu } from '@/components/menus';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
 import { SegBtn } from '@/components/ui/segmented';
@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils';
 import type { Issue, IssueStatus, IssuePriority, Importance, IssueType, Label } from '@/lib/types';
 import type { CreateIssueInput, UpdateIssueInput } from '@/lib/api';
 
-type GroupBy = 'status' | 'priority' | 'importance' | 'assignee';
+type GroupBy = 'status' | 'priority' | 'importance' | 'assignee' | 'project';
 // Top-level type filter (segmented), in the order the user reads it: 全部 缺陷 工单 备忘.
 type TypeFilter = IssueType | 'all';
 const TYPE_FILTERS: TypeFilter[] = ['all', 'bug', 'ticket', 'backlog'];
@@ -228,10 +228,21 @@ function IssueCard({
 }
 
 function GroupHeaderGlyph({ groupBy, k }: { groupBy: GroupBy; k: string }) {
-  const { memberById } = useAppData();
+  const { memberById, projectById } = useAppData();
   if (groupBy === 'status') return <StatusIcon status={k as IssueStatus} size={15} />;
   if (groupBy === 'priority') return <PriorityIcon priority={k as IssuePriority} size={15} />;
   if (groupBy === 'importance') return <ImportanceIcon importance={k as Importance} size={15} />;
+  if (groupBy === 'project') {
+    const p = k === '_none' ? null : projectById(k);
+    return (
+      <span
+        className="grid h-4 w-4 flex-none place-items-center rounded bg-surface-2"
+        style={p ? { background: p.color } : undefined}
+      >
+        {p && <ProjectIcon name={p.icon} size={11} />}
+      </span>
+    );
+  }
   return <Avatar person={k === '_none' ? null : memberById(k)} size={18} />;
 }
 
@@ -251,15 +262,17 @@ export function IssuesView({
   onNewIssue: (preset?: { status?: IssueStatus }) => void;
 }) {
   const t = useT();
-  const { humans, agents, labelById, memberById, can } = useAppData();
+  const { humans, agents, projects, projectById, labelById, memberById, can } = useAppData();
   const canWrite = can('issues', 'write');
   const create = useCreateIssue();
   const [viewMode, setViewMode] = React.useState<ViewMode>('list');
   const [groupBy, setGroupBy] = React.useState<GroupBy>('status');
   const [typeFilter, setTypeFilter] = React.useState<TypeFilter>('all');
+  const [projectFilter, setProjectFilter] = React.useState<string | 'all'>('all');
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
   const [dragOver, setDragOver] = React.useState<string | null>(null);
   const [grpOpen, setGrpOpen] = React.useState(false);
+  const [fltOpen, setFltOpen] = React.useState(false);
 
   const labelsFor = React.useCallback(
     (ids: string[]) => ids.map((id) => labelById(id)).filter(Boolean) as Label[],
@@ -285,15 +298,25 @@ export function IssuesView({
         get: (i: Issue) => i.importance as string,
         label: (k: string) => t(`importance.${k}`),
       };
+    if (groupBy === 'project')
+      return {
+        keys: [...projects.map((p) => p.id), '_none'],
+        get: (i: Issue) => i.projectId ?? '_none',
+        label: (k: string) => (k === '_none' ? t('common.noProject') : projectById(k)?.name ?? k),
+      };
     return {
       keys: [...humans.map((m) => m.id), ...agents.map((m) => m.id), '_none'],
       get: (i: Issue) => i.assigneeId ?? '_none',
       label: (k: string) => (k === '_none' ? t('common.unassigned') : memberById(k)?.name ?? k),
     };
-  }, [groupBy, humans, agents, memberById, t]);
+  }, [groupBy, humans, agents, projects, projectById, memberById, t]);
 
-  // Top-level type filter is applied first; grouping/board then operate on the result.
-  const shownIssues = typeFilter === 'all' ? issues : issues.filter((i) => i.type === typeFilter);
+  // Top-level filters (type, project) are applied first; grouping/board operate on the result.
+  const shownIssues = issues.filter(
+    (i) =>
+      (typeFilter === 'all' || i.type === typeFilter) &&
+      (projectFilter === 'all' || i.projectId === projectFilter),
+  );
 
   const groups = cfg.keys
     .map((k) => ({ key: k, items: shownIssues.filter((i) => cfg.get(i) === k) }))
@@ -303,13 +326,16 @@ export function IssuesView({
   // the active type filter (so a quick-add under a type filter lands as that type).
   const presetForGroup = (key: string): Partial<CreateIssueInput> => ({
     ...(typeFilter !== 'all' ? { type: typeFilter } : {}),
+    ...(projectFilter !== 'all' ? { projectId: projectFilter } : {}),
     ...(groupBy === 'status'
       ? { status: key as IssueStatus }
       : groupBy === 'priority'
         ? { priority: key as IssuePriority }
         : groupBy === 'importance'
           ? { importance: key as Importance }
-          : { assigneeId: key === '_none' ? null : key }),
+          : groupBy === 'project'
+            ? { projectId: key === '_none' ? null : key }
+            : { assigneeId: key === '_none' ? null : key }),
   });
   const quickCreate = (key: string, title: string) => {
     create.mutate({ title, ...presetForGroup(key) });
@@ -330,7 +356,9 @@ export function IssuesView({
             ? { priority: key as IssuePriority }
             : groupBy === 'importance'
               ? { importance: key as Importance }
-              : { assigneeId: key === '_none' ? null : key };
+              : groupBy === 'project'
+                ? { projectId: key === '_none' ? null : key }
+                : { assigneeId: key === '_none' ? null : key };
       onUpdate(dragId, patch);
     }
     setDragOver(null);
@@ -357,9 +385,43 @@ export function IssuesView({
           )}
         </div>
         <div className="flex items-center gap-2 px-5 pb-3">
-          <Button variant="ghost" size="sm">
-            <Filter size={14} /> {t('issues.filter')}
-          </Button>
+          <Popover open={fltOpen} onOpenChange={setFltOpen}>
+            <PopoverTrigger asChild>
+              <button className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-[13px] text-fg-2 hover:bg-surface-2">
+                <Filter size={14} /> {t('issues.filter')}
+                {projectFilter !== 'all' && (projectById(projectFilter)?.name ?? projectFilter)}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent style={{ width: 200 }} align="start">
+              <MenuItem
+                label={t('common.all')}
+                selected={projectFilter === 'all'}
+                onClick={() => {
+                  setProjectFilter('all');
+                  setFltOpen(false);
+                }}
+              />
+              {projects.map((p) => (
+                <MenuItem
+                  key={p.id}
+                  glyph={
+                    <span
+                      className="grid h-4 w-4 flex-none place-items-center rounded"
+                      style={{ background: p.color }}
+                    >
+                      <ProjectIcon name={p.icon} size={11} />
+                    </span>
+                  }
+                  label={p.name}
+                  selected={projectFilter === p.id}
+                  onClick={() => {
+                    setProjectFilter(p.id);
+                    setFltOpen(false);
+                  }}
+                />
+              ))}
+            </PopoverContent>
+          </Popover>
           <Popover open={grpOpen} onOpenChange={setGrpOpen}>
             <PopoverTrigger asChild>
               <button className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-[13px] text-fg-2 hover:bg-surface-2">
@@ -374,6 +436,7 @@ export function IssuesView({
                   ['priority', t('group.priority')],
                   ['importance', t('group.importance')],
                   ['assignee', t('group.assignee')],
+                  ['project', t('group.project')],
                 ] as [GroupBy, string][]
               ).map(([k, l]) => (
                 <MenuItem

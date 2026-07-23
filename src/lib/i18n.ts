@@ -150,9 +150,11 @@ const zhCN: Dict = {
   'group.status': '状态',
   'group.priority': '优先级',
   'group.assignee': '负责人',
+  'group.project': '项目',
   'mode.list': '列表视图',
   'mode.board': '看板视图',
   'common.unassigned': '未指派',
+  'common.noProject': '无项目',
 
   // status / priority / project / phase / sprint enums
   'status.backlog': '待办池',
@@ -699,9 +701,11 @@ const en: Dict = {
   'group.status': 'Status',
   'group.priority': 'Priority',
   'group.assignee': 'Assignee',
+  'group.project': 'Project',
   'mode.list': 'List view',
   'mode.board': 'Board view',
   'common.unassigned': 'Unassigned',
+  'common.noProject': 'No project',
 
   'status.backlog': 'Backlog',
   'status.todo': 'Todo',
@@ -1219,9 +1223,11 @@ const zhTW: Dict = {
   'group.status': '狀態',
   'group.priority': '優先級',
   'group.assignee': '負責人',
+  'group.project': '專案',
   'mode.list': '清單檢視',
   'mode.board': '看板檢視',
   'common.unassigned': '未指派',
+  'common.noProject': '無專案',
 
   'status.backlog': '待辦池',
   'status.todo': '待處理',
