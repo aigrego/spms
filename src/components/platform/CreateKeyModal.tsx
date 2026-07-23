@@ -7,6 +7,7 @@ import { Copy, Check, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api';
 import type { McpCapability } from '@/lib/platformApi';
+import { ProjectIcon } from '@/components/glyphs/misc';
 import { useCompanies, useCompanyMembers, useCreateMcpKey, usePlatformUsers } from '@/store/platform';
 import { useAppData } from '@/store/AppData';
 import { fieldLabel, inputCls } from './common';
@@ -96,16 +97,22 @@ export function CreateKeyModal({
   platformAdmin: boolean;
 }) {
   const { data: companies = [] } = useCompanies(platformAdmin);
+  const { projects, currentCompany } = useAppData();
   const create = useCreateMcpKey();
 
   const [name, setName] = React.useState('');
   const [caps, setCaps] = React.useState<McpCapability[]>(['read', 'write']);
   const [companyId, setCompanyId] = React.useState<string>(''); // '' = 全平台
   const [ownerId, setOwnerId] = React.useState<string>(''); // '' = 我自己(创建人)
+  const [projectSel, setProjectSel] = React.useState<string[]>([]);
   const [expiresInDays, setExpiresInDays] = React.useState<number | null>(30);
   const [error, setError] = React.useState<string | null>(null);
 
   const ownerOptions = useOwnerCandidates(platformAdmin, platformAdmin ? companyId || null : null);
+
+  /* 项目白名单只在「key 归属公司 = 当前 bootstrap 公司」时可选（平台管理员为
+     其他公司/全平台建 key 时拿不到那边项目列表，退化为不限制）。 */
+  const showWhitelist = projects.length > 0 && (!platformAdmin || companyId === currentCompany?.id);
 
   React.useEffect(() => {
     if (!open) return;
@@ -113,9 +120,10 @@ export function CreateKeyModal({
     setCaps(['read', 'write']);
     setCompanyId('');
     setOwnerId('');
+    setProjectSel(projects.map((p) => p.id));
     setExpiresInDays(30);
     setError(null);
-  }, [open]);
+  }, [open, projects]);
 
   // 切换范围时已选所属人可能不在新公司候选里,随范围一起重置回"我自己"。
   const changeCompany = (v: string) => {
@@ -125,6 +133,9 @@ export function CreateKeyModal({
 
   const toggleCap = (c: McpCapability) =>
     setCaps((cur) => (cur.includes(c) ? cur.filter((x) => x !== c) : [...cur, c]));
+
+  const toggleProject = (id: string) =>
+    setProjectSel((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
 
   const submit = async () => {
     setError(null);
@@ -136,6 +147,8 @@ export function CreateKeyModal({
         ownerId: ownerId || undefined,
         capabilities: caps,
         expiresInDays,
+        // 全选 = 不限制（与存量令牌一致，存 NULL）
+        projectIds: showWhitelist && projectSel.length < projects.length ? projectSel : null,
       });
       onOpenChange(false);
       onIssued(issued);
@@ -175,6 +188,42 @@ export function CreateKeyModal({
               ))}
             </div>
           </div>
+          {showWhitelist && (
+            <div>
+              <span className={fieldLabel}>项目白名单</span>
+              <div className="mb-1.5 text-[12px] text-fg-3">
+                Agent 只能访问选中项目内的实体(全部选中 = 不限制)
+              </div>
+              <div className="max-h-40 overflow-y-auto overflow-hidden rounded-lg border border-border">
+                {projects.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => toggleProject(p.id)}
+                    className="flex w-full items-center gap-2.5 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-2/60"
+                  >
+                    <span
+                      className={cn(
+                        'grid h-4 w-4 flex-none place-items-center rounded-full border',
+                        projectSel.includes(p.id)
+                          ? 'border-brand-blue bg-brand-blue text-white'
+                          : 'border-border-strong bg-surface',
+                      )}
+                    >
+                      {projectSel.includes(p.id) && <Check size={11} strokeWidth={3} />}
+                    </span>
+                    <span
+                      className="grid h-4 w-4 flex-none place-items-center rounded"
+                      style={{ background: p.color }}
+                    >
+                      <ProjectIcon name={p.icon} size={11} />
+                    </span>
+                    <span className="min-w-0 truncate text-[13.5px] font-medium text-fg-1">{p.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {platformAdmin && (
             <div>
               <span className={fieldLabel}>范围</span>
@@ -224,7 +273,12 @@ export function CreateKeyModal({
             variant="primary"
             size="md"
             onClick={submit}
-            disabled={!name.trim() || caps.length === 0 || create.isPending}
+            disabled={
+              !name.trim() ||
+              caps.length === 0 ||
+              (showWhitelist && projectSel.length === 0) ||
+              create.isPending
+            }
           >
             创建令牌
           </Button>

@@ -66,7 +66,7 @@ export function KeysPanel() {
   const { data: keys, isLoading, isError } = useMcpKeys();
   const revoke = useRevokeMcpKey();
   const remove = useDeleteMcpKey();
-  const { session, isPlatformAdmin } = useAppData();
+  const { session, isPlatformAdmin, projectById } = useAppData();
   const [tab, setTab] = React.useState<'mine' | 'all'>('mine');
   const [modalOpen, setModalOpen] = React.useState(false);
   const [issued, setIssued] = React.useState<{ id: string; key: string; prefix: string } | null>(null);
@@ -135,6 +135,7 @@ export function KeysPanel() {
                 <th className={`${thCls} whitespace-nowrap`}>所属人</th>
                 <th className={`${thCls} whitespace-nowrap`}>能力</th>
                 <th className={`${thCls} whitespace-nowrap`}>范围</th>
+                <th className={`${thCls} whitespace-nowrap`}>项目</th>
                 <th className={`${thCls} whitespace-nowrap`}>有效期至</th>
                 <th className={`${thCls} whitespace-nowrap`}>最近使用</th>
                 <th className={`${thCls} whitespace-nowrap`}>状态</th>
@@ -144,7 +145,7 @@ export function KeysPanel() {
             <tbody>
               {!shown.length && (
                 <tr className="border-b border-border">
-                  <td colSpan={8} className="px-4 py-10 text-center text-[13px] text-fg-3">
+                  <td colSpan={9} className="px-4 py-10 text-center text-[13px] text-fg-3">
                     {tab === 'mine' ? '你还没有令牌' : '还没有任何令牌'}
                   </td>
                 </tr>
@@ -173,6 +174,18 @@ export function KeysPanel() {
                       </span>
                     </td>
                     <td className={`${tdCls} whitespace-nowrap`}>{k.companyId ? (k.companyName ?? '—') : '全平台'}</td>
+                    <td className={`${tdCls} whitespace-nowrap`}>
+                      {k.projectIds ? (
+                        <span
+                          className="text-fg-2"
+                          title={k.projectIds.map((id) => projectById(id)?.name ?? id).join('、')}
+                        >
+                          {k.projectIds.length} 个项目
+                        </span>
+                      ) : (
+                        <span className="text-fg-2">全部项目</span>
+                      )}
+                    </td>
                     <td className={`${tdCls} whitespace-nowrap`}>
                       <span className="text-fg-2">{k.expiresAt ? fmtDate(k.expiresAt) : '永久'}</span>
                     </td>

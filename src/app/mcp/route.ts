@@ -48,6 +48,7 @@ async function authenticate(req: Request): Promise<McpKeyContext | null> {
           companyId: mcpApiKeys.companyId,
           ownerId: mcpApiKeys.ownerId,
           capabilities: mcpApiKeys.capabilities,
+          projectIds: mcpApiKeys.projectIds,
           expiresAt: mcpApiKeys.expiresAt,
           lastUsedAt: mcpApiKeys.lastUsedAt,
         })
@@ -65,6 +66,7 @@ async function authenticate(req: Request): Promise<McpKeyContext | null> {
           ownerId: row.ownerId,
           source: 'db',
           capabilities: row.capabilities.split(',').map((c) => c.trim()).filter(Boolean),
+          projectIds: row.projectIds ?? null,
         };
       }
       if (envMcpApiKeys().includes(key)) {

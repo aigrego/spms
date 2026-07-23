@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { issues, issueLabels, subIssues, activities, members, projects, requirements, sprints } from '@/db/schema';
 import { serializeIssueList, serializeIssueDetail } from '@/lib/serialize';
@@ -106,6 +106,8 @@ export async function listIssues(actor: Actor, filter?: { team?: string; assigne
   if (filter?.team) conds.push(eq(issues.teamId, filter.team));
   if (filter?.assignee) conds.push(eq(issues.assigneeId, filter.assignee));
   if (filter?.project) conds.push(eq(issues.projectId, filter.project));
+  // 令牌项目白名单：只看得到白名单内的项目（无项目的 Issue 也不可见）。
+  if (actor.allowedProjectIds) conds.push(inArray(issues.projectId, actor.allowedProjectIds));
   const rows = await db.query.issues.findMany({
     where: and(...conds),
     with: withRelations,
@@ -114,12 +116,23 @@ export async function listIssues(actor: Actor, filter?: { team?: string; assigne
   return rows.map(serializeIssueList);
 }
 
+/* 令牌项目白名单：issue 不在白名单项目内时按「不存在」处理（读），
+   写路径（create/update 换项目）则显式 403。 */
+function issueVisible(actor: Actor, projectId: string | null): boolean {
+  return !actor.allowedProjectIds || (!!projectId && actor.allowedProjectIds.includes(projectId));
+}
+function assertProjectWritable(actor: Actor, projectId: string | null) {
+  if (!issueVisible(actor, projectId)) {
+    throw new ApiException('FORBIDDEN', '该令牌的项目白名单不包含此项目', 403);
+  }
+}
+
 /* ---- single issue with sub-issues + activity feed ----
    Missing data is NOT an error; the service returns null (route → data: null). */
 export async function getIssue(actor: Actor, key: string) {
   await requirePerm(actor, 'issues', 'read');
   const row = await findByKey(actor.companyId, key);
-  if (!row) return null;
+  if (!row || !issueVisible(actor, row.projectId)) return null;
   const detail = await fetchDetail(row.id);
   return detail ? serializeIssueDetail(detail) : null;
 }
@@ -160,6 +173,8 @@ export async function createIssue(actor: Actor, input: CreateIssueInput) {
   if (input.sprintId) {
     resolvedProjectId = await resolveSprintProject(companyId, input.sprintId, resolvedProjectId);
   }
+  // 令牌项目白名单：只能在白名单项目内创建。
+  assertProjectWritable(actor, resolvedProjectId);
 
   // Legacy team inherited from the project (team is retired from the UI).
   const teamId = await teamForProject(companyId, resolvedProjectId);
@@ -234,6 +249,10 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
   const companyId = actor.companyId;
   const existing = await findByKey(companyId, key);
   if (!existing) throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
+  // 令牌项目白名单：白名单外的 Issue 按不存在处理，且不能改入白名单外项目。
+  if (!issueVisible(actor, existing.projectId)) {
+    throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
+  }
 
   let newAgent: { id: string; agentKey: string | null; name: string } | null = null;
   let newHumanName: string | null = null;
@@ -259,6 +278,7 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
     const effProject = input.projectId !== undefined ? input.projectId : existing.projectId;
     patch.projectId = await resolveSprintProject(companyId, nextSprintId, effProject ?? null);
   }
+  if (patch.projectId !== undefined) assertProjectWritable(actor, patch.projectId ?? null);
   // Keep the legacy teamId aligned with the issue's (possibly changed) project.
   if (patch.projectId !== undefined) {
     patch.teamId = await teamForProject(companyId, patch.projectId ?? null);

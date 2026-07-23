@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { and, asc, count, eq } from 'drizzle-orm';
+import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db';
-import { companies, companyMemberships, mcpApiKeys, rolePermissions, users } from '@/db/schema';
+import { companies, companyMemberships, mcpApiKeys, projects, rolePermissions, users } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import { ensureCurrentMember, revokeMemberProjection } from '@/lib/identity';
 import { hashPassword } from '@/lib/password';
@@ -395,6 +395,7 @@ export async function listMcpKeys(actor: Actor) {
       ownerId: mcpApiKeys.ownerId,
       ownerName: owners.name,
       capabilities: mcpApiKeys.capabilities,
+      projectIds: mcpApiKeys.projectIds,
       expiresAt: mcpApiKeys.expiresAt,
       lastUsedAt: mcpApiKeys.lastUsedAt,
       revokedAt: mcpApiKeys.revokedAt,
@@ -424,6 +425,27 @@ export interface CreateMcpKeyInput {
   ownerId?: string;
   capabilities?: McpCapability[]; // default ['read','write']
   expiresInDays?: number | null; // null/omitted → 永不过期
+  /* 项目白名单：null/省略 = 全部项目（不限制）；否则只能访问列出的项目
+     （至少一个，公司级 key 要求项目属于该公司）。 */
+  projectIds?: string[] | null;
+}
+
+/* ---- validate the project whitelist: non-empty, all existing, and (for
+   company-level keys) inside the key's company ---- */
+async function validateProjectIds(companyId: string | null, projectIds: string[]): Promise<void> {
+  if (projectIds.length === 0) {
+    throw new ApiException('VALIDATION_FAILED', '项目白名单至少选择一个项目，或传 null 表示全部项目');
+  }
+  const rows = await db
+    .select({ id: projects.id, companyId: projects.companyId })
+    .from(projects)
+    .where(inArray(projects.id, projectIds));
+  if (rows.length !== new Set(projectIds).size) {
+    throw new ApiException('VALIDATION_FAILED', '项目白名单包含不存在的项目');
+  }
+  if (companyId && rows.some((p) => p.companyId !== companyId)) {
+    throw new ApiException('VALIDATION_FAILED', '项目白名单只能包含该公司下的项目');
+  }
 }
 
 /* ---- owner validation shared by create/update ---- */
@@ -471,6 +493,9 @@ export async function createMcpKey(actor: Actor, input: CreateMcpKeyInput) {
   }
   const expiresAt = expiresInDays != null ? new Date(Date.now() + expiresInDays * 86_400_000) : null;
 
+  const projectIds = input.projectIds ?? null;
+  if (projectIds) await validateProjectIds(companyId, projectIds);
+
   const key = `spms_${randomBytes(16).toString('hex')}`; // spms_ + 32 hex chars
   const keyHash = createHash('sha256').update(key).digest('hex');
   const prefix = key.slice(0, 8);
@@ -485,6 +510,7 @@ export async function createMcpKey(actor: Actor, input: CreateMcpKeyInput) {
     ownerId,
     capabilities: capabilities.join(','),
     expiresAt,
+    projectIds,
   });
   return { id, key, prefix };
 }

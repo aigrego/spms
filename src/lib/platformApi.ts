@@ -76,6 +76,7 @@ export interface McpKey {
   ownerId: string | null; // 所属人：MCP 调用的第一人称身份
   ownerName: string | null;
   capabilities: string; // 逗号分隔：read,write,delete
+  projectIds: string[] | null; // 项目白名单；null = 全部项目
   expiresAt: string | null; // null = 永不过期
   lastUsedAt: string | null;
   createdAt: string;
@@ -88,6 +89,7 @@ export interface CreateMcpKeyInput {
   ownerId?: string; // 所属人，省略 = 创建人本人
   capabilities: McpCapability[];
   expiresInDays: number | null; // null = 永不过期
+  projectIds?: string[] | null; // 项目白名单；null/省略 = 全部项目
 }
 
 export interface CreateCompanyInput {

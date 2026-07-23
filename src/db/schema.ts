@@ -197,6 +197,8 @@ export const mcpApiKeys = pgTable('mcp_api_keys', {
   // 能力上限：逗号分隔的 read/write/delete。MCP 层强制：读工具要 read、写工具要
   // write（delete 预留，当前无删除类工具）。
   capabilities: text('capabilities').notNull().default('read,write'),
+  // 项目白名单：NULL = 全部项目（存量令牌默认不限制）；否则只能访问列出的项目。
+  projectIds: text('project_ids').array(),
   // null = 永不过期；到期即 401（无需吊销）。
   expiresAt: timestamp('expires_at', { withTimezone: true }),
   // 最近一次通过 MCP 鉴权的时间（60s 节流写入）。

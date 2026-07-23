@@ -42,6 +42,8 @@ export interface McpKeyContext {
   sessionActor?: Actor; // source === 'session': the already-resolved actor
   // DB key 的能力上限（read/write/delete）；env 兜底 key 与浏览器会话为全量。
   capabilities: string[];
+  /* DB key 的项目白名单（null = 全部项目）；env 兜底 key 与浏览器会话不设限制。 */
+  projectIds?: string[] | null;
 }
 
 /* The first company (createdAt asc) — default target of a platform-level key
@@ -128,6 +130,9 @@ async function loadBootstrap(actor: Actor) {
   // Project/release progress is derived from issue completion, not the stored column.
   const { projectProgress, releaseProgress } = await computeRollups(companyId);
   const [currentCompany] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
+  // 令牌项目白名单：bootstrap 里的 projects 同样收窄，避免泄露白名单外项目。
+  const allowed = actor.allowedProjectIds;
+  const visibleProjects = allowed ? projectRows.filter((p) => allowed.includes(p.id)) : projectRows;
   return {
     me: actor.memberId,
     role: actor.role,
@@ -136,7 +141,7 @@ async function loadBootstrap(actor: Actor) {
     members: memberRows,
     teams: teamRows,
     labels: labelRows,
-    projects: projectRows.map((p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 })),
+    projects: visibleProjects.map((p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 })),
     sprints: sprintRows,
     productLines: productLineRows,
     products: productRows,
@@ -260,7 +265,10 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }
     }
     if (!companyId) throw new ApiException('NOT_FOUND', '不存在任何公司');
-    return buildMcpActor(companyId, keyContext.ownerId);
+    const actor = await buildMcpActor(companyId, keyContext.ownerId);
+    // DB key 的项目白名单随 actor 下发，service 层据此过滤。
+    if (keyContext.projectIds?.length) actor.allowedProjectIds = keyContext.projectIds;
+    return actor;
   }
 
   /* ================= 读 ================= */

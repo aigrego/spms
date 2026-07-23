@@ -12,4 +12,7 @@ export interface Actor {
   companyId: string; // companies.id — the current company sandbox
   companyRole: string; // company_memberships.role ('company_admin' | 'product_manager' | 'developer' | 'tester' | 'viewer')
   isPlatformAdmin: boolean; // users.role === 'admin' → bypasses the module matrix
+  /* MCP 令牌的项目白名单（mcp_api_keys.project_ids）：null/undefined = 不限制；
+     设置后只能访问列出的项目。仅 DB key 携带，浏览器 session / env key 不设。 */
+  allowedProjectIds?: string[] | null;
 }
