@@ -645,6 +645,58 @@ export const resourceAssignments = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Notion integration (阶段 1: 连接 + 预览)                              */
+/* One connection per company. accessToken stays server-side only —     */
+/* it must never be serialized out through any API response.            */
+/* ------------------------------------------------------------------ */
+export const notionConnections = pgTable(
+  'notion_connections',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    workspaceId: text('workspace_id'),
+    workspaceName: text('workspace_name'),
+    botId: text('bot_id'),
+    // 敏感:永不通过 API 序列化输出。
+    accessToken: text('access_token').notNull(),
+    databaseId: text('database_id'),
+    databaseName: text('database_name'),
+    // 同步目标项目;项目被删时仅解除引用,不删连接。
+    projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    createdById: text('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('notion_connections_company_uidx').on(t.companyId)],
+);
+
+/* Notion page ↔ issue mapping (同步映射/幂等):一页面对应一个 issue。 */
+export const notionIssueLinks = pgTable(
+  'notion_issue_links',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    connectionId: text('connection_id')
+      .references(() => notionConnections.id, { onDelete: 'cascade' })
+      .notNull(),
+    notionPageId: text('notion_page_id').notNull(),
+    issueId: text('issue_id')
+      .references(() => issues.id, { onDelete: 'cascade' })
+      .notNull(),
+    notionLastEditedAt: timestamp('notion_last_edited_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('notion_issue_links_conn_page_uidx').on(t.connectionId, t.notionPageId),
+    uniqueIndex('notion_issue_links_issue_uidx').on(t.issueId),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
 /* Relations                                                           */
 /* ------------------------------------------------------------------ */
 export const issuesRelations = relations(issues, ({ one, many }) => ({

@@ -57,6 +57,13 @@
       "when": 1784777436684,
       "tag": "0007_wealthy_quicksilver",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784884379447,
+      "tag": "0008_easy_banshee",
+      "breakpoints": true
     }
   ]
 }

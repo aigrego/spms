@@ -27,6 +27,11 @@ export const env = {
   larkAppId: process.env.LARK_APP_ID,
   larkAppSecret: process.env.LARK_APP_SECRET,
   larkRedirectUri: process.env.LARK_REDIRECT_URI,
+  // Notion integration (public OAuth) — optional; the settings-page connect
+  // button is disabled with a hint when unset.
+  notionClientId: process.env.NOTION_CLIENT_ID,
+  notionClientSecret: process.env.NOTION_CLIENT_SECRET,
+  notionRedirectUri: process.env.NOTION_REDIRECT_URI,
   // Seed-only: overrides the default admin password ('admin123').
   seedAdminPassword: process.env.SEED_ADMIN_PASSWORD,
 } as const;

@@ -132,6 +132,18 @@
 | PATCH | `/test-cases/:key` | 部分更新 |
 | DELETE | `/test-cases/:key` | 硬删 |
 
+## Integrations 集成（Notion，均需 issues=write）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/integrations/notion/authorize` | 发起 OAuth：写 nonce cookie（CSRF）→ 302 Notion 授权页；env 未配置 → 404 |
+| GET | `/integrations/notion/callback` | 校验 nonce、Basic auth 换 token、按公司 upsert `notion_connections`（token 仅服务端保存，从不下发）→ 302 `/integrations?notion=connected\|failed` |
+| GET | `/integrations/notion` | 连接状态（不含 token）；`?databases=1` 附 Notion search 拉到的数据库列表（失败降级为 `databases:null` + `databasesError`） |
+| PATCH | `/integrations/notion` | `{ databaseId?, databaseName?, projectId? }` 保存同步数据库/目标项目（projectId 校验属于本公司） |
+| DELETE | `/integrations/notion` | 断开：删连接行，issue 映射随 cascade 删除（重连后全量重同步） |
+| GET | `/integrations/notion/preview` | 拉所选数据库最近编辑的一条记录，返回原始 Notion page JSON（字段映射调试用） |
+| POST | `/integrations/notion/sync` | 手动同步 Notion → Issues（按 `lastSyncedAt` 水位增量，幂等靠 `notion_issue_links`），返回 `{ created, updated, skipped, errors }` |
+
 ## Platform 平台管理（`/api/v1/platform`，仅平台管理员，否则 403；`/mcp-keys` 除外，见下）
 
 | 方法 | 路径 | 说明 |

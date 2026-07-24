@@ -169,3 +169,12 @@ issue 指派给 agent 时：挂 `AI 生成` 标签 + 把预编剧本步骤**同�
 - MCP 调用的 Actor = 目标公司的内置 `scribe` agent member，companyRole=company_admin。
 
 详见 [MCP.md](./MCP.md)。
+
+## Notion 集成
+
+公共 OAuth 集成 + REST API（`Notion-Version: 2022-06-28`），单向 Notion → Issues，手动触发（独立页 /integrations 的「Notion 集成」卡片，无定时任务）。env `NOTION_CLIENT_ID/SECRET` 未配置时功能关闭（连接按钮禁用）。
+
+- **连接**：`/integrations/notion/authorize`（nonce cookie CSRF，同 Lark 绑定流）→ Notion 授权 → `/callback` 用 Basic auth 换 token，按公司 upsert `notion_connections`（**每公司一条**；accessToken 仅服务端保存，任何 API 都不序列化它）。token 不过期，无 refresh。断开 = 删连接行，`notion_issue_links` 随 cascade 清除。
+- **同步**（`src/server/services/notionSync.ts`，以点击用户的 Actor 调现有 `createIssue`/`updateIssue`/`registerAttachment`，RBAC 与活动日志复用）：数据库按 `last_edited_time` 倒序翻页、越过 `lastSyncedAt` 水位即停；逐条处理，单条失败记 `errors` 继续，结束后推进水位。幂等靠 `notion_issue_links`（(connectionId, notionPageId) ↔ issueId + 页面编辑时间）。
+- **字段映射**（v1 按客户「CRM Requests」库结构硬编码属性名）：标题←`Name`；描述←`Request Description` 纯文本 + 每次更新重生成的头行（`Notion: CRM-N · 状态 · url`）；状态←`Status`（Not started→todo / In progress、More info needed→in_progress / Ready for testing→in_review / Done→done / No progress→canceled；归档优先→canceled；未知名创建按 todo、更新不动）；类型←`Tags`（BUGS→bug，Feature/Updated/Change→ticket，默认 bug）；指派人←`Assigned To` 第一人 email 匹配 `members.email`（无 email 能力时更新不动）。
+- **附件**（仅新建时同步，v1 不做 diff）：`Files & media` 里的图片（按扩展名判断）+ 页面 image blocks → 下载（预签名 URL，>10MB 跳过）→ 服务端 `put` 到 Vercel Blob → `registerAttachment`。

@@ -182,6 +182,42 @@ export interface ProjectInput {
   nonGoals?: string | null;
 }
 
+/* Notion 集成状态(accessToken 永不下发)。 */
+export interface NotionConnectionInfo {
+  workspaceId: string | null;
+  workspaceName: string | null;
+  databaseId: string | null;
+  databaseName: string | null;
+  projectId: string | null;
+  lastSyncedAt: string | null;
+  createdAt: string;
+}
+
+export interface NotionDatabaseOption {
+  id: string;
+  name: string;
+}
+
+export interface NotionIntegrationStatus {
+  configured: boolean;
+  connection: NotionConnectionInfo | null;
+  databases?: NotionDatabaseOption[] | null;
+  databasesError?: string | null;
+}
+
+export interface NotionIntegrationPatch {
+  databaseId?: string | null;
+  databaseName?: string | null;
+  projectId?: string | null;
+}
+
+export interface NotionSyncResult {
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}
+
 const PREFIX = '/api/v1/pms';
 
 type Envelope<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
@@ -375,6 +411,15 @@ export const api = {
     request<{ removed: boolean }>(`/assignments?nodeType=${nodeType}&nodeId=${nodeId}&memberId=${memberId}`, {
       method: 'DELETE',
     }),
+
+  /* ---- Notion 集成 ---- */
+  notionIntegration: (opts?: { databases?: boolean }) =>
+    request<NotionIntegrationStatus>(`/integrations/notion${opts?.databases ? '?databases=1' : ''}`),
+  updateNotionIntegration: (input: NotionIntegrationPatch) =>
+    request<NotionIntegrationStatus>('/integrations/notion', json('PATCH', input)),
+  disconnectNotion: () => request<{ disconnected: boolean }>('/integrations/notion', { method: 'DELETE' }),
+  notionPreview: () => request<{ page: unknown }>('/integrations/notion/preview'),
+  syncNotion: () => request<NotionSyncResult>('/integrations/notion/sync', { method: 'POST' }),
 };
 
 export type Api = typeof api;

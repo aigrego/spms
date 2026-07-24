@@ -13,6 +13,7 @@ const APP_PREFIXES = [
   '/roadmap',
   '/backlog',
   '/sprints',
+  '/integrations',
 ];
 
 export function middleware(req: NextRequest) {
@@ -45,5 +46,6 @@ export const config = {
     '/roadmap/:path*',
     '/backlog/:path*',
     '/sprints/:path*',
+    '/integrations/:path*',
   ],
 };

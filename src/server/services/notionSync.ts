@@ -1,0 +1,342 @@
+import { put } from '@vercel/blob';
+import { and, eq } from 'drizzle-orm';
+import { db } from '@/db';
+import { issues, members, notionConnections, notionIssueLinks } from '@/db/schema';
+import { ApiException } from '@/lib/envelope';
+import { requirePerm } from '@/lib/permissions';
+import {
+  downloadFile,
+  getPageBlocks,
+  queryDatabase,
+  type NotionPageObject,
+} from '@/server/notion';
+import { registerAttachment } from './attachments';
+import { createIssue, updateIssue, type IssueStatus, type IssueType } from './issues';
+import type { Actor } from './types';
+
+/* Notion → SPMS 单向同步引擎(阶段 2)。以点击「同步」用户的 Actor 调
+   createIssue/updateIssue/registerAttachment,RBAC 与活动日志自然复用。
+
+   幂等:notion_issue_links 记录 (connectionId, notionPageId) ↔ issue 映射与
+   页面 last_edited_time;逐条比对水位跳过未变更页,连接级 lastSyncedAt 作为
+   查询水位(越过即停止翻页)。
+
+   v1 字段映射与客户「CRM Requests」库的真实记录结构对齐(属性名硬编码):
+   Name(title)/Request Description(rich_text)/Status(status)/Assigned To
+   (people)/Files & media(files)/Tags(multi_select)/Id(unique_id)。
+   v1 明示限制:附件只在新建时同步,后续新增的图片不补。 */
+
+const PROP = {
+  title: 'Name',
+  description: 'Request Description',
+  status: 'Status',
+  assignee: 'Assigned To',
+  files: 'Files & media',
+  tags: 'Tags',
+  uniqueId: 'Id',
+} as const;
+
+export interface NotionSyncResult {
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}
+
+type ConnectionRow = typeof notionConnections.$inferSelect;
+type Outcome = 'created' | 'updated' | 'skipped';
+
+/* ---- Notion 属性收窄(按名字取值,宽松结构) ---- */
+
+function titleText(page: NotionPageObject): string {
+  const p = page.properties?.[PROP.title] as { title?: { plain_text?: string }[] } | undefined;
+  return (p?.title ?? []).map((t) => t.plain_text ?? '').join('').trim();
+}
+
+function richText(page: NotionPageObject, name: string): string {
+  const p = page.properties?.[name] as { rich_text?: { plain_text?: string }[] } | undefined;
+  return (p?.rich_text ?? []).map((t) => t.plain_text ?? '').join('').trim();
+}
+
+function statusName(page: NotionPageObject): string | null {
+  const p = page.properties?.[PROP.status] as { status?: { name?: string } | null } | undefined;
+  return p?.status?.name ?? null;
+}
+
+function tagNames(page: NotionPageObject): string[] {
+  const p = page.properties?.[PROP.tags] as { multi_select?: { name?: string }[] } | undefined;
+  return (p?.multi_select ?? []).map((t) => t.name ?? '').filter(Boolean);
+}
+
+/* 描述头行里的记录标识:unique_id 的 prefix-number("CRM-746"),缺省退回页面 id。 */
+function pageLabel(page: NotionPageObject): string {
+  const p = page.properties?.[PROP.uniqueId] as
+    | { unique_id?: { prefix?: string | null; number?: number } | null }
+    | undefined;
+  const uid = p?.unique_id;
+  if (uid?.number != null) return uid.prefix ? `${uid.prefix}-${uid.number}` : String(uid.number);
+  return page.id;
+}
+
+/* undefined = 未开通 email 能力(people 拿不到 email)→ 创建置 null、更新不动;
+   null = 未指派/无匹配 → 创建与更新都置 null(Notion 为真源)。 */
+function assigneeEmail(page: NotionPageObject): string | null | undefined {
+  const p = page.properties?.[PROP.assignee] as
+    | { people?: { person?: { email?: string | null } | null }[] }
+    | undefined;
+  const first = p?.people?.[0];
+  if (!first) return null;
+  const email = first.person?.email?.trim();
+  return email ? email : undefined;
+}
+
+interface FileRef {
+  name?: string;
+  type?: string;
+  file?: { url?: string };
+  external?: { url?: string };
+}
+
+function fileRefs(page: NotionPageObject): FileRef[] {
+  const p = page.properties?.[PROP.files] as { files?: FileRef[] } | undefined;
+  return p?.files ?? [];
+}
+
+/* ---- 映射规则 ---- */
+
+/* Notion Status.name → SPMS status(大小写不敏感);归档/回收站优先 → canceled。
+   未知名 → undefined(创建按 todo,更新不动)。 */
+const STATUS_MAP: Record<string, IssueStatus> = {
+  'not started': 'todo',
+  'in progress': 'in_progress',
+  'more info needed': 'in_progress',
+  'ready for testing': 'in_review',
+  done: 'done',
+  'no progress': 'canceled',
+};
+
+function mapStatus(page: NotionPageObject): IssueStatus | undefined {
+  if (page.archived || page.in_trash) return 'canceled';
+  const name = statusName(page);
+  return name ? STATUS_MAP[name.trim().toLowerCase()] : undefined;
+}
+
+/* Tags → type:含 "BUGS" → bug;否则含 Feature/Updated/Change → ticket;否则 bug。 */
+function mapType(page: NotionPageObject): IssueType {
+  const tags = tagNames(page).map((t) => t.trim().toLowerCase());
+  if (tags.includes('bugs')) return 'bug';
+  if (tags.some((t) => t === 'feature' || t === 'updated' || t === 'change')) return 'ticket';
+  return 'bug';
+}
+
+/* 描述 = 头行(每次更新都重新生成,兼作 More info needed 等状态的备注位)
+   + 空行 + Request Description 纯文本。 */
+function buildDescription(page: NotionPageObject): string {
+  const header = `Notion: ${pageLabel(page)} · ${statusName(page) ?? '—'} · ${page.url ?? ''}`;
+  const body = richText(page, PROP.description);
+  return body ? `${header}\n\n${body}` : header;
+}
+
+async function resolveAssignee(companyId: string, email: string): Promise<string | null> {
+  const [m] = await db
+    .select({ id: members.id })
+    .from(members)
+    .where(and(eq(members.companyId, companyId), eq(members.email, email)))
+    .limit(1);
+  return m?.id ?? null;
+}
+
+/* ---- 附件(仅新建时) ---- */
+
+const IMAGE_MIME: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+};
+
+function imageMimeFromName(name: string): string | null {
+  const ext = name.split('?')[0].toLowerCase().split('.').pop() ?? '';
+  return IMAGE_MIME[ext] ?? null;
+}
+
+/* 从(预签名)URL 推导文件名;取不到图片扩展名时返回 null。 */
+function filenameFromUrl(url: string): string | null {
+  try {
+    const seg = decodeURIComponent(new URL(url).pathname.split('/').pop() ?? '');
+    return seg && imageMimeFromName(seg) ? seg : null;
+  } catch {
+    return null;
+  }
+}
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+async function syncAttachments(
+  actor: Actor,
+  conn: ConnectionRow,
+  page: NotionPageObject,
+  issueKey: string,
+  errors: string[],
+): Promise<void> {
+  const candidates: { name: string; url: string }[] = [];
+  // Files & media 属性:按扩展名判图片,非图片直接跳过。
+  for (const f of fileRefs(page)) {
+    const url = f.type === 'external' ? f.external?.url : f.file?.url;
+    if (url && imageMimeFromName(f.name ?? '')) candidates.push({ name: f.name ?? 'image', url });
+  }
+  // 页面内容里的 image blocks。
+  try {
+    const blocks = await getPageBlocks(conn.accessToken, page.id);
+    for (const b of blocks) {
+      if (b.type !== 'image') continue;
+      const img = b.image as FileRef | undefined;
+      const url = img?.type === 'external' ? img?.external?.url : img?.file?.url;
+      if (url) candidates.push({ name: filenameFromUrl(url) ?? `${b.id}.png`, url });
+    }
+  } catch (e) {
+    errors.push(`${pageLabel(page)}: 读取内容块失败 (${errMsg(e)})`);
+  }
+
+  for (const c of candidates) {
+    try {
+      const dl = await downloadFile(c.url); // >10MB → null(跳过)
+      if (!dl) continue;
+      const contentType =
+        imageMimeFromName(c.name) ??
+        (dl.contentType?.startsWith('image/') ? dl.contentType.split(';')[0] : null);
+      if (!contentType) continue; // 无法确认是图片 → 跳过
+      const safeName = c.name.split(/[\\/]/).pop() || 'image';
+      const blob = await put(`issues/${actor.companyId}/${crypto.randomUUID()}-${safeName}`, dl.buffer, {
+        access: 'public',
+        contentType,
+        addRandomSuffix: true,
+      });
+      await registerAttachment(actor, issueKey, {
+        url: blob.url,
+        pathname: blob.pathname,
+        filename: safeName,
+        contentType,
+        size: dl.buffer.length,
+      });
+    } catch (e) {
+      errors.push(`${pageLabel(page)}: 附件 ${c.name} (${errMsg(e)})`);
+    }
+  }
+}
+
+/* ---- 单条记录 ---- */
+
+async function syncPage(
+  actor: Actor,
+  conn: ConnectionRow,
+  page: NotionPageObject,
+  errors: string[],
+): Promise<Outcome> {
+  const [link] = await db
+    .select()
+    .from(notionIssueLinks)
+    .where(and(eq(notionIssueLinks.connectionId, conn.id), eq(notionIssueLinks.notionPageId, page.id)))
+    .limit(1);
+  const edited = new Date(page.last_edited_time);
+  if (link?.notionLastEditedAt && link.notionLastEditedAt >= edited) return 'skipped';
+
+  const title = titleText(page) || pageLabel(page);
+  const description = buildDescription(page);
+  const type = mapType(page);
+  const status = mapStatus(page);
+  const email = assigneeEmail(page);
+  const assigneeId =
+    email === undefined ? undefined : email === null ? null : await resolveAssignee(actor.companyId, email);
+
+  if (!link) {
+    const created = await createIssue(actor, {
+      title,
+      description,
+      type,
+      status: status ?? 'todo',
+      assigneeId: assigneeId ?? null,
+      projectId: conn.projectId,
+    });
+    // created.id 是展示 key(BUG-N);link 行存内部 issues.id。
+    const [row] = await db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(and(eq(issues.companyId, actor.companyId), eq(issues.key, created.id)))
+      .limit(1);
+    if (!row) throw new Error('新建 Issue 回读失败');
+    await syncAttachments(actor, conn, page, created.id, errors);
+    await db.insert(notionIssueLinks).values({
+      id: crypto.randomUUID(),
+      companyId: actor.companyId,
+      connectionId: conn.id,
+      notionPageId: page.id,
+      issueId: row.id,
+      notionLastEditedAt: edited,
+    });
+    return 'created';
+  }
+
+  // issue 删除会 cascade 掉 link 行,所以 link 在而 issue 不在只可能是数据不一致。
+  const [issueRow] = await db.select({ key: issues.key }).from(issues).where(eq(issues.id, link.issueId)).limit(1);
+  if (!issueRow) throw new ApiException('ISSUE_NOT_FOUND', `映射的 Issue ${link.issueId} 不存在`);
+  await updateIssue(actor, issueRow.key, {
+    title,
+    description,
+    type,
+    ...(status !== undefined ? { status } : {}),
+    ...(assigneeId !== undefined ? { assigneeId } : {}),
+  });
+  await db
+    .update(notionIssueLinks)
+    .set({ notionLastEditedAt: edited })
+    .where(eq(notionIssueLinks.id, link.id));
+  return 'updated';
+}
+
+/* ---- 入口 ---- */
+
+/* 手动触发一次同步:拉取水位以来的变更页,逐条创建/更新/跳过,单条失败记
+   errors 继续;结束后推进 lastSyncedAt 水位(本轮见过的最新 last_edited_time,
+   没有变更则置为 now)。 */
+export async function syncNotion(actor: Actor): Promise<NotionSyncResult> {
+  await requirePerm(actor, 'issues', 'write');
+  const [conn] = await db
+    .select()
+    .from(notionConnections)
+    .where(eq(notionConnections.companyId, actor.companyId))
+    .limit(1);
+  if (!conn) throw new ApiException('NOT_FOUND', '尚未连接 Notion');
+  if (!conn.databaseId) throw new ApiException('VALIDATION_FAILED', '请先在设置页选择要同步的数据库');
+  if (!conn.projectId) throw new ApiException('VALIDATION_FAILED', '请先在设置页选择目标项目');
+
+  let pages: NotionPageObject[];
+  try {
+    pages = await queryDatabase(conn.accessToken, conn.databaseId, conn.lastSyncedAt);
+  } catch (e) {
+    throw new ApiException('INTERNAL', errMsg(e));
+  }
+
+  const result: NotionSyncResult = { created: 0, updated: 0, skipped: 0, errors: [] };
+  let maxEdited: Date | null = null;
+  for (const page of pages) {
+    const edited = new Date(page.last_edited_time);
+    if (!maxEdited || edited > maxEdited) maxEdited = edited;
+    try {
+      const outcome = await syncPage(actor, conn, page, result.errors);
+      result[outcome] += 1;
+    } catch (e) {
+      result.errors.push(`${pageLabel(page)}: ${errMsg(e)}`);
+    }
+  }
+
+  await db
+    .update(notionConnections)
+    .set({ lastSyncedAt: maxEdited ?? new Date(), updatedAt: new Date() })
+    .where(eq(notionConnections.id, conn.id));
+  return result;
+}

@@ -17,6 +17,7 @@ import {
   Settings,
   CircleUserRound,
   KeyRound,
+  Plug,
 } from 'lucide-react';
 import { useAppData } from '@/store/AppData';
 import { useT } from '@/lib/i18n';
@@ -221,6 +222,12 @@ export function Sidebar({ myCount }: { myCount: number }) {
             label={t('nav.agentAccess')}
             active={pathname.startsWith('/agent-access')}
             href="/agent-access"
+          />
+          <NavItem
+            icon={<Plug size={16} />}
+            label={t('nav.notionIntegration')}
+            active={pathname.startsWith('/integrations')}
+            href="/integrations"
           />
           <NavItem
             icon={<Settings size={16} />}
