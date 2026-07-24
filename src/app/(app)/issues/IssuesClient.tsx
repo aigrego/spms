@@ -1,17 +1,18 @@
 'use client';
 
-import * as React from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { IssuesView } from '@/components/IssuesView';
-import { IssueDetail } from '@/components/IssueDetail';
 import { useShell } from '@/components/AppShell';
+import { IssueDetail } from '@/components/IssueDetail';
+import { IssuesView } from '@/components/IssuesView';
+import type { UpdateIssueInput } from '@/lib/api';
+import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useIssues, useUpdateIssue } from '@/store/issues';
-import { useT } from '@/lib/i18n';
-import type { UpdateIssueInput } from '@/lib/api';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import * as React from 'react';
 
 /* Issues 视图 — /issues（全部）与 /issues?assignee=me（我的）。
-   详情抽屉由 URL 驱动：?selected=<KEY>。 */
+   详情抽屉由 URL 驱动：?selected=<KEY>。 
+*/
 export default function IssuesClient() {
   const t = useT();
   const router = useRouter();
