@@ -205,6 +205,15 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
     }
   };
 
+  // Paste an image anywhere in the panel to attach it (same as 添加图片).
+  const onPaste = (e: React.ClipboardEvent) => {
+    const files = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
+    if (files.length) {
+      e.preventDefault();
+      addFiles(files);
+    }
+  };
+
   const removeAttachment = (attachmentId: string) => {
     if (window.confirm(t('issue.confirmDeleteAttachment'))) {
       deleteAttachment.mutate({ id, attachmentId });
@@ -238,7 +247,10 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
         onClick={onClose}
         className="fixed inset-0 z-[800] animate-fadeIn bg-[rgba(11,18,32,0.35)]"
       />
-      <div className="fixed inset-y-0 right-0 z-[810] flex w-[min(760px,92vw)] animate-slideIn flex-col border-l border-border bg-surface shadow-4">
+      <div
+        onPaste={onPaste}
+        className="fixed inset-y-0 right-0 z-[810] flex w-[min(760px,92vw)] animate-slideIn flex-col border-l border-border bg-surface shadow-4"
+      >
         {/* Header */}
         <div className="flex items-center gap-2.5 border-b border-border px-[18px] py-3">
           <span className="flex-none whitespace-nowrap font-mono text-[12.5px] text-fg-3">
