@@ -4,6 +4,7 @@ import { db } from '@/db';
 import { issues, members, notionConnections, notionIssueLinks } from '@/db/schema';
 import { findUserByEmail } from '@/lib/emails';
 import { ApiException } from '@/lib/envelope';
+import { rulesRecord, type NotionStatusRule } from '@/lib/notionStatusMap';
 import { requirePerm } from '@/lib/permissions';
 import {
   downloadFile,
@@ -25,6 +26,8 @@ import type { Actor } from './types';
    v1 字段映射与客户「CRM Requests」库的真实记录结构对齐(属性名硬编码):
    Name(title)/Request Description(rich_text)/Status(status)/Assigned To
    (people)/Files & media(files)/Tags(multi_select)/Id(unique_id)。
+   Status → SPMS status 的映射与「是否同步」由连接的 statusMap 配置驱动
+   (设置页可改;未配置回退 lib/notionStatusMap 的内置默认)。
    展示 key 采用 Id(unique_id)的 "CRM-518"(缺失才按类型自动分配);
    创建时间回写 Notion created_time,done 的完成时间同值回写(真实完成
    时刻不可考的最佳近似);老数据随页面变更逐条收敛;
@@ -116,21 +119,12 @@ function fileRefs(page: NotionPageObject): FileRef[] {
 /* ---- 映射规则 ---- */
 
 /* Notion Status.name → SPMS status(大小写不敏感);归档/回收站优先 → canceled。
-   未知名 → undefined(创建按 todo,更新不动)。 */
-const STATUS_MAP: Record<string, IssueStatus> = {
-  'not started': 'todo',
-  'in progress': 'in_progress',
-  'more info needed': 'in_progress',
-  'ready for testing': 'in_review',
-  done: 'done',
-  closed: 'done',
-  'no progress': 'canceled',
-};
-
-function mapStatus(page: NotionPageObject): IssueStatus | undefined {
+   规则来自连接的 statusMap(lib/notionStatusMap;未配置回退内置默认映射);
+   未知名或映射为 null → undefined(创建按 todo,更新不动)。 */
+function mapStatus(page: NotionPageObject, rules: Record<string, NotionStatusRule>): IssueStatus | undefined {
   if (page.archived || page.in_trash) return 'canceled';
   const name = statusName(page);
-  return name ? STATUS_MAP[name.trim().toLowerCase()] : undefined;
+  return name ? (rules[name.trim().toLowerCase()]?.status ?? undefined) : undefined;
 }
 
 /* Tags → type:含 "BUGS" → bug;否则含 Feature/Updated/Change → ticket;否则 bug。 */
@@ -275,6 +269,10 @@ async function syncPage(
     .where(and(eq(notionIssueLinks.connectionId, conn.id), eq(notionIssueLinks.notionPageId, page.id)))
     .limit(1);
   const edited = new Date(page.last_edited_time);
+  // 过滤规则:该 Notion 状态被配置为不同步 → 整页跳过(不动 issue、不推进链接水位)。
+  const rules = rulesRecord(conn.statusMap);
+  const sName = statusName(page)?.trim().toLowerCase();
+  if (sName && rules[sName] && !rules[sName].sync) return 'skipped';
   // Notion created_time 是 issue 的真实创建时间(createIssue 落的是同步时刻),
   // 创建与更新两条路径都回写,老数据随页面变更逐条收敛。
   const notionCreatedAt = page.created_time ? new Date(page.created_time) : null;
@@ -306,7 +304,7 @@ async function syncPage(
     }
     // 水位跳过之外的追平:映射状态与现值不一致(如 Closed→done 是后加的映射,
     // 老数据当时按 todo 落了库)时照常走完整更新,收敛后才真正 skipped。
-    const mappedStatus = mapStatus(page);
+    const mappedStatus = mapStatus(page, rules);
     const statusStale = mappedStatus !== undefined && mappedStatus !== issueRow.status;
     if (!statusStale && link.notionLastEditedAt && link.notionLastEditedAt >= edited) return 'skipped';
 
@@ -335,7 +333,7 @@ async function syncPage(
   }
 
   const title = titleText(page) || pageLabel(page);
-  const status = mapStatus(page);
+  const status = mapStatus(page, rules);
   const assigneeId = await resolveAssigneeInput(actor.companyId, page);
   const created = await createIssue(actor, {
     title,

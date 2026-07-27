@@ -2,9 +2,10 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { notionConnections, projects } from '@/db/schema';
 import { ApiException, ok } from '@/lib/envelope';
+import { mergeStatusRules, SPMS_STATUSES, type NotionStatusRule } from '@/lib/notionStatusMap';
 import { requirePerm } from '@/lib/permissions';
 import { jsonBody, requireActor, route } from '@/server/http';
-import { notionConfigured, searchDatabases } from '@/server/notion';
+import { getDatabaseStatusOptions, notionConfigured, searchDatabases } from '@/server/notion';
 import type { Actor } from '@/server/services/types';
 
 type ConnectionRow = typeof notionConnections.$inferSelect;
@@ -17,6 +18,7 @@ function toPublic(c: ConnectionRow) {
     databaseId: c.databaseId,
     databaseName: c.databaseName,
     projectId: c.projectId,
+    statusMap: c.statusMap,
     lastSyncedAt: c.lastSyncedAt,
     createdAt: c.createdAt,
   };
@@ -35,7 +37,8 @@ async function connectionFor(actor: Actor): Promise<ConnectionRow | null> {
    company (no token). ?databases=1 additionally lists the databases the
    integration can access (Notion search API); a failing search (e.g. revoked
    token) degrades to databases:null + databasesError instead of failing the
-   whole status payload. */
+   whole status payload. ?statuses=1 returns the effective status sync/mapping
+   rules (数据库状态选项 ∪ 已存规则,未配置的按默认映射猜测、默认同步)。 */
 export const GET = route(async (req) => {
   const actor = await requireActor();
   await requirePerm(actor, 'issues', 'write');
@@ -52,6 +55,20 @@ export const GET = route(async (req) => {
       out.databasesError = e instanceof Error ? e.message : String(e);
     }
   }
+  if (req.nextUrl.searchParams.get('statuses') === '1' && conn) {
+    if (!conn.databaseId) {
+      out.statuses = null;
+      out.statusesError = 'no-database';
+    } else {
+      try {
+        const names = await getDatabaseStatusOptions(conn.accessToken, conn.databaseId);
+        out.statuses = mergeStatusRules(names, conn.statusMap);
+      } catch (e) {
+        out.statuses = null;
+        out.statusesError = e instanceof Error ? e.message : String(e);
+      }
+    }
+  }
   return ok(out);
 });
 
@@ -59,6 +76,23 @@ interface PatchBody {
   databaseId?: string | null;
   databaseName?: string | null;
   projectId?: string | null;
+  statusMap?: NotionStatusRule[] | null;
+}
+
+/* 校验状态映射:每条 { name 非空, status ∈ issue 状态枚举 | null, sync 布尔 }。 */
+function validateStatusMap(input: unknown): NotionStatusRule[] | null {
+  if (input === null) return null;
+  if (!Array.isArray(input)) throw new ApiException('VALIDATION_FAILED', 'statusMap 必须是数组');
+  return input.map((r) => {
+    const rule = r as Partial<NotionStatusRule>;
+    if (typeof rule?.name !== 'string' || !rule.name.trim()) {
+      throw new ApiException('VALIDATION_FAILED', 'statusMap 条目缺少 name');
+    }
+    if (rule.status !== null && !(SPMS_STATUSES as string[]).includes(rule.status ?? '')) {
+      throw new ApiException('VALIDATION_FAILED', `statusMap 状态非法: ${rule.status}`);
+    }
+    return { name: rule.name.trim(), status: rule.status ?? null, sync: rule.sync !== false };
+  });
 }
 
 /* PATCH /api/v1/pms/integrations/notion — save the sync database and/or the
@@ -86,6 +120,10 @@ export const PATCH = route(async (req) => {
       if (!p) throw new ApiException('PROJECT_NOT_FOUND');
     }
     set.projectId = projectId;
+    touched = true;
+  }
+  if (body.statusMap !== undefined) {
+    set.statusMap = validateStatusMap(body.statusMap);
     touched = true;
   }
   if (!touched) throw new ApiException('VALIDATION_FAILED', '没有需要保存的字段');

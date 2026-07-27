@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, type NotionConnectionInfo, type NotionSyncResult } from '@/lib/api';
+import { SPMS_STATUSES, type NotionStatusRule } from '@/lib/notionStatusMap';
 import { useAppData } from '@/store/AppData';
 import { useT } from '@/lib/i18n';
 
@@ -118,6 +119,19 @@ function NotionConnectionForm({ conn }: { conn: NotionConnectionInfo }) {
     queryFn: () => api.notionIntegration({ databases: true }),
   });
 
+  // 状态映射/过滤规则:随已保存的数据库加载,与数据库/项目一起点「保存」提交。
+  const { data: statusData } = useQuery({
+    queryKey: ['notion-statuses', conn.databaseId],
+    queryFn: () => api.notionIntegration({ statuses: true }),
+    enabled: !!conn.databaseId,
+  });
+  // 用户编辑以查询结果为基底保存在本地;查询刷新(新数组标识)后自动回退为最新拉取值。
+  const [edits, setEdits] = React.useState<{ base: NotionStatusRule[]; rules: NotionStatusRule[] } | null>(null);
+  const rules = edits && edits.base === statusData?.statuses ? edits.rules : (statusData?.statuses ?? null);
+  const setRules = (next: NotionStatusRule[]) => {
+    if (statusData?.statuses) setEdits({ base: statusData.statuses, rules: next });
+  };
+
   const [databaseId, setDatabaseId] = React.useState(conn.databaseId ?? '');
   const [projectId, setProjectId] = React.useState(conn.projectId ?? '');
   const [busy, setBusy] = React.useState(false);
@@ -148,9 +162,11 @@ function NotionConnectionForm({ conn }: { conn: NotionConnectionInfo }) {
         databaseId: databaseId || null,
         databaseName: databaseId ? (dbOpt?.name ?? conn.databaseName ?? null) : null,
         projectId: projectId || null,
+        ...(rules ? { statusMap: rules } : {}),
       });
       setSaved(true);
       await qc.invalidateQueries({ queryKey: ['notion-integration'] });
+      await qc.invalidateQueries({ queryKey: ['notion-statuses'] });
     });
 
   const doPreview = () =>
@@ -251,6 +267,57 @@ function NotionConnectionForm({ conn }: { conn: NotionConnectionInfo }) {
           </select>
         }
       />
+      {conn.databaseId && (
+        <div className="border-b border-border py-3">
+          <div className="mb-2">
+            <div className="text-[13.5px] font-medium text-fg-1">{t('settingsPage.notionStatusMap')}</div>
+            <div className="mt-0.5 text-[12px] text-fg-3">{t('settingsPage.notionStatusMapDesc')}</div>
+          </div>
+          {statusData?.statusesError ? (
+            <div className="text-[12.5px] text-fg-3">{t('settingsPage.notionStatusesFailed')}</div>
+          ) : !rules ? (
+            <div className="text-[12.5px] text-fg-3">{t('settingsPage.notionPreviewing')}</div>
+          ) : (
+            <div className="space-y-1.5">
+              {rules.map((r, i) => (
+                <div key={r.name} className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    className="size-3.5 accent-brand-blue"
+                    checked={r.sync}
+                    disabled={busy}
+                    onChange={(e) =>
+                      setRules(rules.map((x, j) => (j === i ? { ...x, sync: e.target.checked } : x)))
+                    }
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-fg-1" title={r.name}>
+                    {r.name}
+                  </span>
+                  <select
+                    className={selectCls}
+                    value={r.status ?? ''}
+                    disabled={busy || !r.sync}
+                    onChange={(e) =>
+                      setRules(
+                        rules.map((x, j) =>
+                          j === i ? { ...x, status: (e.target.value || null) as NotionStatusRule['status'] } : x,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="">{t('settingsPage.notionStatusNone')}</option>
+                    {SPMS_STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {t(`status.${s}`)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <Row
         label={t('settingsPage.notionSave')}
         control={

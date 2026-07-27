@@ -1,0 +1,1 @@
+ALTER TABLE "notion_connections" ADD COLUMN "status_map" jsonb;

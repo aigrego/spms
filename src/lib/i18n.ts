@@ -156,6 +156,10 @@ const zhCN: Dict = {
   'settingsPage.notionSyncResult': '新增 {created} · 更新 {updated} · 跳过 {skipped} · 失败 {failed}',
   'settingsPage.notionSyncErrors': '错误详情',
   'settingsPage.notionLastSynced': '上次同步：{time}',
+  'settingsPage.notionStatusMap': '状态映射与同步过滤',
+  'settingsPage.notionStatusMapDesc': '勾选的状态才会同步；为每个 Notion 状态选择对应的 SPMS 状态，不映射则创建为「待处理」',
+  'settingsPage.notionStatusesFailed': '状态列表加载失败',
+  'settingsPage.notionStatusNone': '不映射',
 
   // sidebar / nav
   'nav.inbox': '收件箱',
@@ -749,6 +753,10 @@ const en: Dict = {
   'settingsPage.notionSyncResult': 'Created {created} · Updated {updated} · Skipped {skipped} · Failed {failed}',
   'settingsPage.notionSyncErrors': 'Error details',
   'settingsPage.notionLastSynced': 'Last synced: {time}',
+  'settingsPage.notionStatusMap': 'Status mapping & sync filter',
+  'settingsPage.notionStatusMapDesc': 'Only checked statuses are synced; map each Notion status to an SPMS status — unmapped ones are created as Todo',
+  'settingsPage.notionStatusesFailed': 'Failed to load statuses',
+  'settingsPage.notionStatusNone': 'No mapping',
 
   'nav.inbox': 'Inbox',
   'nav.myIssues': 'My Issues',
@@ -1310,6 +1318,10 @@ const zhTW: Dict = {
   'settingsPage.notionSyncResult': '新增 {created} · 更新 {updated} · 略過 {skipped} · 失敗 {failed}',
   'settingsPage.notionSyncErrors': '錯誤詳情',
   'settingsPage.notionLastSynced': '上次同步：{time}',
+  'settingsPage.notionStatusMap': '狀態映射與同步過濾',
+  'settingsPage.notionStatusMapDesc': '勾選的狀態才會同步；為每個 Notion 狀態選擇對應的 SPMS 狀態，不映射則建立為「待處理」',
+  'settingsPage.notionStatusesFailed': '狀態列表載入失敗',
+  'settingsPage.notionStatusNone': '不映射',
 
   'nav.inbox': '收件匣',
   'nav.myIssues': '我的 Issues',

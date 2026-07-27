@@ -35,6 +35,7 @@ import type {
   TestCaseStatus,
   TestResult,
 } from './types';
+import type { NotionStatusRule } from './notionStatusMap';
 import type { PermissionsMatrix } from './platformApi';
 
 // Standalone Next.js rewrite: every business call hits the app's own API routes
@@ -189,6 +190,7 @@ export interface NotionConnectionInfo {
   databaseId: string | null;
   databaseName: string | null;
   projectId: string | null;
+  statusMap: NotionStatusRule[] | null;
   lastSyncedAt: string | null;
   createdAt: string;
 }
@@ -203,12 +205,15 @@ export interface NotionIntegrationStatus {
   connection: NotionConnectionInfo | null;
   databases?: NotionDatabaseOption[] | null;
   databasesError?: string | null;
+  statuses?: NotionStatusRule[] | null;
+  statusesError?: string | null;
 }
 
 export interface NotionIntegrationPatch {
   databaseId?: string | null;
   databaseName?: string | null;
   projectId?: string | null;
+  statusMap?: NotionStatusRule[] | null;
 }
 
 export interface NotionSyncResult {
@@ -422,8 +427,13 @@ export const api = {
     }),
 
   /* ---- Notion 集成 ---- */
-  notionIntegration: (opts?: { databases?: boolean }) =>
-    request<NotionIntegrationStatus>(`/integrations/notion${opts?.databases ? '?databases=1' : ''}`),
+  notionIntegration: (opts?: { databases?: boolean; statuses?: boolean }) => {
+    const q = new URLSearchParams();
+    if (opts?.databases) q.set('databases', '1');
+    if (opts?.statuses) q.set('statuses', '1');
+    const qs = q.toString();
+    return request<NotionIntegrationStatus>(`/integrations/notion${qs ? `?${qs}` : ''}`);
+  },
   updateNotionIntegration: (input: NotionIntegrationPatch) =>
     request<NotionIntegrationStatus>('/integrations/notion', json('PATCH', input)),
   disconnectNotion: () => request<{ disconnected: boolean }>('/integrations/notion', { method: 'DELETE' }),

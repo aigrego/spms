@@ -9,7 +9,9 @@ import {
   pgEnum,
   uniqueIndex,
   index,
+  jsonb,
 } from 'drizzle-orm/pg-core';
+import type { NotionStatusRule } from '@/lib/notionStatusMap';
 import { relations, sql } from 'drizzle-orm';
 
 /* ------------------------------------------------------------------ */
@@ -700,6 +702,9 @@ export const notionConnections = pgTable(
     accessToken: text('access_token').notNull(),
     databaseId: text('database_id'),
     databaseName: text('database_name'),
+    // 状态映射/过滤规则:每个 Notion 状态 → { SPMS status, 是否同步 };
+    // NULL = 内置默认映射(见 lib/notionStatusMap)。
+    statusMap: jsonb('status_map').$type<NotionStatusRule[]>(),
     // 同步目标项目;项目被删时仅解除引用,不删连接。
     projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),

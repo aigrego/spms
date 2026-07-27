@@ -145,8 +145,8 @@
 |---|---|---|
 | GET | `/integrations/notion/authorize` | 发起 OAuth：写 nonce cookie（CSRF）→ 302 Notion 授权页；env 未配置 → 404 |
 | GET | `/integrations/notion/callback` | 校验 nonce、Basic auth 换 token、按公司 upsert `notion_connections`（token 仅服务端保存，从不下发）→ 302 `/integrations?notion=connected\|failed` |
-| GET | `/integrations/notion` | 连接状态（不含 token）；`?databases=1` 附 Notion search 拉到的数据库列表（失败降级为 `databases:null` + `databasesError`） |
-| PATCH | `/integrations/notion` | `{ databaseId?, databaseName?, projectId? }` 保存同步数据库/目标项目（projectId 校验属于本公司） |
+| GET | `/integrations/notion` | 连接状态（不含 token）；`?databases=1` 附 Notion search 拉到的数据库列表（失败降级为 `databases:null` + `databasesError`）；`?statuses=1` 返回状态映射/过滤规则（数据库状态选项 ∪ 已存 `statusMap`，未配置的按默认映射猜测、默认同步） |
+| PATCH | `/integrations/notion` | `{ databaseId?, databaseName?, projectId?, statusMap? }` 保存同步数据库/目标项目（projectId 校验属于本公司）；`statusMap` 为每个 Notion 状态的 `{ name, status, sync }` 规则（status=null 不映射、sync=false 不同步；置 null 恢复内置默认） |
 | DELETE | `/integrations/notion` | 断开：删连接行，issue 映射随 cascade 删除（重连后全量重同步） |
 | GET | `/integrations/notion/preview` | 拉所选数据库最近编辑的一条记录，返回原始 Notion page JSON（字段映射调试用） |
 | POST | `/integrations/notion/sync` | 手动同步 Notion → Issues（按 `lastSyncedAt` 水位增量，幂等靠 `notion_issue_links`），返回 `{ created, updated, skipped, errors }` |

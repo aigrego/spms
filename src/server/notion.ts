@@ -201,6 +201,28 @@ export async function getPageBlocks(token: string, pageId: string): Promise<Noti
   }
 }
 
+/* The status option names of a database's Status property (status/select type) —
+   drives the sync status-mapping config UI. */
+export async function getDatabaseStatusOptions(token: string, databaseId: string): Promise<string[]> {
+  const res = await fetch(`${API_BASE}/databases/${databaseId}`, {
+    headers: notionHeaders(token),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    properties?: Record<
+      string,
+      { type?: string; status?: { options?: { name?: string }[] }; select?: { options?: { name?: string }[] } }
+    >;
+  };
+  if (!res.ok) throw new Error(`database fetch failed (HTTP ${res.status})`);
+  const entries = Object.entries(data.properties ?? {});
+  const isStatusProp = (p: (typeof entries)[number][1]) => p.type === 'status' || p.type === 'select';
+  // 优先同步引擎使用的 "Status" 属性,否则第一个 status/select 类型属性。
+  const prop = entries.find(([name, p]) => name === 'Status' && isStatusProp(p))?.[1] ?? entries.find(([, p]) => isStatusProp(p))?.[1];
+  const options = prop?.type === 'status' ? prop.status?.options : prop?.select?.options;
+  return (options ?? []).map((o) => o.name ?? '').filter(Boolean);
+}
+
 export const MAX_NOTION_FILE_BYTES = 10 * 1024 * 1024; // 10MB, matches attachment limit
 
 /* Download a Notion-hosted (presigned, no auth needed) or external file.
