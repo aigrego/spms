@@ -29,6 +29,7 @@ export interface PlatformUser {
   userId: string;
   username: string;
   name: string;
+  email: string | null; // 主邮箱(user_emails),可空
   platformRole: 'admin' | 'member';
   avatarUrl?: string | null;
   createdAt: string;
@@ -104,6 +105,7 @@ export interface AddMemberInput {
   role: CompanyRole;
   name?: string;
   password?: string;
+  email?: string;
 }
 
 /* 角色 / 模块中文映射（权限矩阵 + 成员页共用）。 */
@@ -172,7 +174,7 @@ export const platformApi = {
   /* ---- members ---- */
   // 平台成员目录：全部系统用户 + 公司席位；新建系统账号
   users: () => request<PlatformUser[]>('/users'),
-  createUser: (input: { username: string; name?: string; password: string }) =>
+  createUser: (input: { username: string; name?: string; password: string; email?: string }) =>
     request<{ id: string; username: string; name: string }>('/users', json('POST', input)),
   // 服务端返回扁平行 { id, userId, username, name, role, createdAt }，在此映射为 PlatformMember
   members: async (companyId: string) =>

@@ -15,15 +15,19 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/auth/login` | `{ username, password }` → 写 session cookie（payload 含 `cid` 当前公司） |
+| POST | `/api/auth/login` | `{ username, password }` → 写 session cookie（payload 含 `cid` 当前公司）；`username` 也接受任一邮箱（user_emails 主/备） |
 | POST | `/api/auth/logout` | 清 cookie |
-| GET | `/api/auth/session` | 未登录 → `ok(null)`；已登录 → `{ user, companies, currentCompany, companyRole, isPlatformAdmin, permissions }`（companies=可进入的公司，平台管理员见全部；permissions=各模块有效级别） |
+| GET | `/api/auth/session` | 未登录 → `ok(null)`；已登录 → `{ user, companies, currentCompany, companyRole, isPlatformAdmin, permissions }`（user 含 `email` 主邮箱、`hasPassword`；companies=可进入的公司，平台管理员见全部；permissions=各模块有效级别） |
 | POST | `/api/auth/switch-company` | `{ companyId }` → 重签 cookie 切换当前公司；要求目标公司成员或平台管理员 |
-| POST | `/api/auth/change-password` | `{ oldPassword, newPassword }`（新密码 ≥6 位）；旧密码错误 → 403；飞书扫码账号无密码不可改 |
+| POST | `/api/auth/change-password` | `{ oldPassword?, newPassword }`（新密码 ≥6 位）；旧密码错误 → 403；纯 OAuth 账号（无密码）免旧密码直接设置，设置后开通密码登录 |
 | PATCH | `/api/auth/profile` | `{ name }` → 更新当前用户姓名，并同步各公司 member 行的 name/initials |
+| GET | `/api/auth/emails` | 当前用户邮箱列表 `[{ email, isPrimary, verified }]`（主邮箱在前） |
+| POST | `/api/auth/emails` | `{ email }` 添加备用邮箱（自填 verified=false；全表查重 → CONFLICT；备用 ≤5 个） |
+| PATCH | `/api/auth/emails` | `{ email }` 把该邮箱设为主邮箱 |
+| DELETE | `/api/auth/emails` | `{ email }` 删除备用邮箱（主邮箱不可删） |
 | GET | `/api/auth/oauth/config` | `{ feishu: { configured, url? }, lark: { configured, url? } }`（各第三方登录是否已配置） |
 | GET | `/api/auth/feishu/login` | 302 跳转飞书授权页（未配置 → 404） |
-| GET | `/api/auth/feishu/callback` | 飞书 OAuth 回调：union_id 命中→直接登录；否则建 users 账号并按邮箱认领「邀请外部资源」（回填 userId、转 internal、每邀请公司补 viewer 席位）→ 跳 `/issues`；失败跳 `/login?error=feishu` |
+| GET | `/api/auth/feishu/callback` | 飞书 OAuth 回调：union_id 命中→直接登录；否则建 users 账号；IdP 邮箱登记进 user_emails（verified）并按其认领「邀请外部资源」（回填 userId、转 internal、每邀请公司补 viewer 席位）→ 跳 `/issues`；失败跳 `/login?error=feishu` |
 | GET | `/api/auth/lark/login` | 302 跳转 Lark（国际版）授权页（未配置 → 404） |
 | GET | `/api/auth/lark/callback` | Lark OAuth 回调，逻辑同飞书 callback；失败跳 `/login?error=lark` |
 | GET | `/api/auth/<provider>/bind` | 已登录用户发起绑定：写 nonce cookie 后 302 跳授权页（`state=bind.<nonce>`） |
@@ -153,11 +157,11 @@
 | PATCH | `/companies/:id` | 改展示字段（name/color/description；key 不可改） |
 | POST | `/companies/:id/enter` | 重签 cookie 进入该公司（同 switch-company；成员或平台管理员） |
 | GET | `/companies/:id/members` | 公司成员列表（membership + user 信息） |
-| POST | `/companies/:id/members` | `{ username, role, name?, password? }` 加成员（=分配席位）；用户名不存在时现场建账号（需 password）；分配时同步投影进资源池 |
+| POST | `/companies/:id/members` | `{ username, role, name?, password?, email? }` 加成员（=分配席位）；用户名不存在时现场建账号（需 password）；email 写入主邮箱（user_emails）；分配时同步投影进资源池 |
 | PATCH | `/companies/:id/members/:membershipId` | `{ role }` 改公司内角色 |
 | DELETE | `/companies/:id/members/:membershipId` | 移出成员（=回收席位；user 账号保留；同步撤销资源池投影） |
-| GET | `/users` | 平台成员目录：全部系统用户 + 各自公司席位 |
-| POST | `/users` | `{ username, name?, password }` 新建系统账号（role=member，不含席位） |
+| GET | `/users` | 平台成员目录：全部系统用户 + 各自公司席位（含主邮箱 `email`） |
+| POST | `/users` | `{ username, name?, password, email? }` 新建系统账号（role=member，不含席位）；email 写入主邮箱（user_emails） |
 | GET | `/permissions-matrix` | 全量 4 角色 × 10 模块矩阵 |
 | PUT | `/permissions-matrix` | `{ matrix }` 整表替换（逐格校验后 upsert + 缓存失效） |
 | GET | `/mcp-keys` | MCP key 列表（不返回 keyHash/明文；含 ownerId/ownerName）；管理员见全部，member 只见自己创建的 |

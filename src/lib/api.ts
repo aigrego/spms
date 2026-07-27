@@ -437,12 +437,23 @@ export interface SessionUser {
   larkBound?: boolean;
   // OAuth 头像（飞书/Lark）；空则展示首字母色块。
   avatarUrl?: string | null;
+  // 主邮箱(user_emails),可空。
+  email?: string | null;
+  // false = 纯 OAuth 账号(可在安全页直接设置密码开通密码登录)。
+  hasPassword?: boolean;
 }
 
 /* 第三方登录配置（登录页按钮展示）。configured 为 false 时该按钮隐藏。 */
 export interface OAuthProviderConfig {
   feishu?: { configured?: boolean; url?: string } | null;
   lark?: { configured?: boolean; url?: string } | null;
+}
+
+/* 用户邮箱条目(user_emails)。verified = Lark/飞书 OAuth 回写。 */
+export interface UserEmailEntry {
+  email: string;
+  isPrimary: boolean;
+  verified: boolean;
 }
 
 /* 登录页实际使用的条目：已配置则展示按钮（附授权 url），否则为 null。 */
@@ -522,8 +533,15 @@ export const authApi = {
   // (every query result is company-scoped).
   switchCompany: (companyId: string) =>
     authRequest<unknown>('/api/auth/switch-company', json('POST', { companyId })),
-  changePassword: (oldPassword: string, newPassword: string) =>
+  changePassword: (oldPassword: string | undefined, newPassword: string) =>
     authRequest<unknown>('/api/auth/change-password', json('POST', { oldPassword, newPassword })),
+  // 当前用户的邮箱管理(user_emails)。
+  listEmails: () => authRequest<UserEmailEntry[]>('/api/auth/emails'),
+  addEmail: (email: string) => authRequest<UserEmailEntry[]>('/api/auth/emails', json('POST', { email })),
+  setPrimaryEmail: (email: string) =>
+    authRequest<UserEmailEntry[]>('/api/auth/emails', json('PATCH', { email })),
+  removeEmail: (email: string) =>
+    authRequest<UserEmailEntry[]>('/api/auth/emails', json('DELETE', { email })),
   // Update the signed-in user's display name (profile page).
   updateProfile: (name: string) =>
     authRequest<{ user: SessionUser }>('/api/auth/profile', json('PATCH', { name })),

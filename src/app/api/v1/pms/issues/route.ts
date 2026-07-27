@@ -3,7 +3,7 @@ import { createIssue, listIssues, type CreateIssueInput } from '@/server/service
 import { jsonBody, requireActor, route } from '@/server/http';
 
 /* GET  /api/v1/pms/issues?team&assignee&project — list (updatedAt desc).
-   POST /api/v1/pms/issues — create (title required; key BUG-/TKT-/BLG- per type). */
+   POST /api/v1/pms/issues — create (title required; key BUG-/TKT-/BLG- per type, or caller-supplied `key`). */
 export const GET = route(async (req) => {
   const actor = await requireActor();
   const sp = req.nextUrl.searchParams;

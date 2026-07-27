@@ -1,6 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { companyMemberships, members, users } from '@/db/schema';
+import { findUserByEmail, primaryEmailsFor } from '@/lib/emails';
 import { ApiException } from '@/lib/envelope';
 import { initialsFor, colorFor, revokeMemberProjection } from '@/lib/identity';
 import { unassignMemberEverywhere } from '@/lib/assignments';
@@ -37,7 +38,8 @@ export function serializeMember(m: MemberRow) {
   };
 }
 
-/* ---- list the resource pool (internal / external / agent, with status) ---- */
+/* ---- list the resource pool (internal / external / agent, with status) ----
+   内部成员的展示邮箱取 user_emails 主邮箱(members.email 只存外部邀请邮箱)。 */
 export async function listMembers(actor: Actor) {
   await requirePerm(actor, 'resources', 'read');
   const rows = await db
@@ -45,7 +47,11 @@ export async function listMembers(actor: Actor) {
     .from(members)
     .where(eq(members.companyId, actor.companyId))
     .orderBy(asc(members.type), asc(members.name));
-  return rows.map(serializeMember);
+  const emailMap = await primaryEmailsFor(rows.map((r) => r.userId).filter((v): v is string => !!v));
+  return rows.map((m) => {
+    const email = m.email || (m.userId ? emailMap.get(m.userId) : null) || null;
+    return serializeMember({ ...m, email });
+  });
 }
 
 export interface InviteInput {
@@ -55,11 +61,14 @@ export interface InviteInput {
 }
 
 /* ---- invite an external resource (email, or a local user from outside the pool) ----
-   At least one of email / userId is required; the pool is de-duped on both. */
+   At least one of email / userId is required; the pool is de-duped on both.
+   邮箱已属于某个平台用户(user_emails 主/备)→ 直接落 userId、转
+   internal/active 并授 viewer 席位,与 Lark 认领(claimExternalInvites)的
+   结果一致;否则维持"外部邀请预埋"流程,等本人 Lark 登录认领。 */
 export async function invite(actor: Actor, input: InviteInput) {
   await requirePerm(actor, 'resources', 'write');
   const email = input.email?.trim() || null;
-  const userId = input.userId?.trim() || null;
+  let userId = input.userId?.trim() || null;
   if (!email && !userId) throw new ApiException('VALIDATION_FAILED', '请提供邮箱或用户 ID');
 
   // De-dup against the company pool (members.(companyId,email) / (companyId,userId)).
@@ -70,6 +79,12 @@ export async function invite(actor: Actor, input: InviteInput) {
       .where(and(eq(members.companyId, actor.companyId), eq(members.email, email)))
       .limit(1);
     if (dupe) throw new ApiException('INVITE_FAILED', '该邮箱已在资源池中');
+  }
+  // 邮箱 → 平台用户:外部邀请与内部成员在此统一。
+  let claimedUser = false;
+  if (!userId && email) {
+    userId = await findUserByEmail(email);
+    claimedUser = !!userId;
   }
   let invitedUserName: string | null = null;
   if (userId) {
@@ -96,10 +111,16 @@ export async function invite(actor: Actor, input: InviteInput) {
     role: null,
     userId,
     agentKey: null,
-    origin: 'external',
+    origin: claimedUser ? 'internal' : 'external',
     email,
-    status: 'invited',
+    status: claimedUser ? 'active' : 'invited',
   });
+  if (claimedUser && userId) {
+    await db
+      .insert(companyMemberships)
+      .values({ id: crypto.randomUUID(), userId, companyId: actor.companyId, role: 'viewer' })
+      .onConflictDoNothing();
+  }
 
   const [row] = await db.select().from(members).where(eq(members.id, id)).limit(1);
   return serializeMember(row!);

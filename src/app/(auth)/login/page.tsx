@@ -104,13 +104,13 @@ export default function LoginPage() {
 
           <form onSubmit={submit} className="flex flex-col gap-3">
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] font-medium text-fg-2">用户名</span>
+              <span className="text-[12px] font-medium text-fg-2">用户名或邮箱</span>
               <Input
                 autoFocus
                 autoComplete="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="username"
+                placeholder="username / name@example.com"
               />
             </label>
             <label className="flex flex-col gap-1.5">

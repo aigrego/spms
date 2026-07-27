@@ -3,6 +3,7 @@ import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db';
 import { companies, companyMemberships, mcpApiKeys, projects, rolePermissions, users } from '@/db/schema';
+import { addEmail, primaryEmailsFor } from '@/lib/emails';
 import { ApiException } from '@/lib/envelope';
 import { ensureCurrentMember, revokeMemberProjection } from '@/lib/identity';
 import { hashPassword } from '@/lib/password';
@@ -145,6 +146,7 @@ export async function listAllUsers(actor: Actor) {
       userId: string;
       username: string;
       name: string;
+      email: string | null;
       platformRole: string;
       avatarUrl: string | null;
       createdAt: Date;
@@ -158,6 +160,7 @@ export async function listAllUsers(actor: Actor) {
         userId: r.userId,
         username: r.username,
         name: r.name,
+        email: null,
         platformRole: r.platformRole,
         avatarUrl: r.avatarUrl,
         createdAt: r.userCreatedAt,
@@ -175,6 +178,9 @@ export async function listAllUsers(actor: Actor) {
       });
     }
   }
+  // 主邮箱(user_emails)批量回填。
+  const emailMap = await primaryEmailsFor([...byUser.keys()]);
+  for (const u of byUser.values()) u.email = emailMap.get(u.userId) ?? null;
   return [...byUser.values()];
 }
 
@@ -182,6 +188,7 @@ export interface CreateUserInput {
   username: string;
   name?: string;
   password: string;
+  email?: string; // 选填:写入主邮箱(user_emails,verified=false)
 }
 
 /* ---- create a bare system account (no seat; seats are assigned per company) ---- */
@@ -201,6 +208,7 @@ export async function createUser(actor: Actor, input: CreateUserInput) {
   const id = crypto.randomUUID();
   const name = input.name?.trim() || username;
   await db.insert(users).values({ id, username, passwordHash: await hashPassword(input.password), name, role: 'member' });
+  if (input.email?.trim()) await addEmail(id, input.email, { isPrimary: true });
   return { id, username, name };
 }
 
@@ -227,6 +235,7 @@ export interface AddMemberInput {
   role: CompanyRole;
   name?: string;
   password?: string; // initial password — required when the username is new
+  email?: string; // 选填:写入主邮箱(user_emails)
 }
 
 /* ---- add a user to a company ----
@@ -254,6 +263,8 @@ export async function addMember(actor: Actor, companyId: string, input: AddMembe
     });
     [u] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   }
+  // 选填邮箱:写入主邮箱(已有主邮箱则降级为备用;被他人占用 → CONFLICT)。
+  if (input.email?.trim()) await addEmail(u.id, input.email);
 
   const [dupe] = await db
     .select({ id: companyMemberships.id })

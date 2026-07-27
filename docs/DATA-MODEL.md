@@ -38,7 +38,10 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 > 表中 `key`/`email`/`userId`/`agentKey` 等原全局唯一约束一律改为 **(companyId, …) 复合唯一**（如 members `(companyId, email)`、issues `(companyId, key)`），下表不再逐一标注 companyId。
 
 ### users（登录账号）
-`id` PK · `username` unique NN · `passwordHash` NN · `name` NN · `role` NN 默认 `member`（admin=平台管理员 | member=普通用户，**平台级角色**）· `larkUnionId` unique · `createdAt` NN
+`id` PK · `username` unique NN · `passwordHash` NN（`'!oauth'`=纯 OAuth 账号，可在 /profile 补设密码）· `name` NN · `role` NN 默认 `member`（admin=平台管理员 | member=普通用户，**平台级角色**）· `larkUnionId` unique · `createdAt` NN
+
+### user_emails（新增，用户邮箱：主邮箱 + 备用邮箱）
+`id` PK · `userId` NN → users cascade · `email` NN · `isPrimary` bool NN 默认 false · `verified` bool NN 默认 false（仅 Lark/飞书 OAuth 回写 true）· `createdAt` NN · `email` 全表唯一 · `(userId) WHERE isPrimary` 部分唯一（每人一个主邮箱）。平台级表，不随公司隔离；verified 邮箱才可认领外部邀请/授席位，自填邮箱仅作登录标识与 Notion 指派人匹配。
 
 ### companies（新增，公司沙箱）
 `id` PK · `key` unique NN（如 `DEFAULT`/`SAMPLE`）· `name` NN · `color` · `description` · `createdAt` NN

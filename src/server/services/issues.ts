@@ -139,6 +139,9 @@ export async function getIssue(actor: Actor, key: string) {
 
 export interface CreateIssueInput {
   title: string;
+  /* 自定义展示 key(如 Notion 同步过来的 "CRM-518");缺省按类型自动分配
+     BUG-/TKT-/BLG-。公司内已存在 → CONFLICT。 */
+  key?: string;
   description?: string | null;
   type?: IssueType;
   status?: IssueStatus;
@@ -179,10 +182,17 @@ export async function createIssue(actor: Actor, input: CreateIssueInput) {
   // Legacy team inherited from the project (team is retired from the UI).
   const teamId = await teamForProject(companyId, resolvedProjectId);
 
-  // Allocate the next per-type display key (BUG-/TKT-/BLG-) + insert.
+  // Allocate the display key: caller-supplied (must be free within the company)
+  // or the next per-type key (BUG-/TKT-/BLG-).
   const issueType = input.type ?? 'ticket';
   const id = crypto.randomUUID();
-  const key = await nextKey(companyId, TYPE_PREFIX[issueType]);
+  const customKey = input.key?.trim();
+  if (customKey) {
+    if (customKey.length > 64) throw new ApiException('VALIDATION_FAILED', 'key 过长(≤64)');
+    const clash = await findByKey(companyId, customKey);
+    if (clash) throw new ApiException('CONFLICT', `key ${customKey} 已存在`);
+  }
+  const key = customKey || (await nextKey(companyId, TYPE_PREFIX[issueType]));
   await db.insert(issues).values({
     id,
     companyId,

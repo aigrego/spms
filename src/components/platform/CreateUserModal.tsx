@@ -22,6 +22,7 @@ export function CreateUserModal({
   const [username, setUsername] = React.useState('');
   const [name, setName] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [email, setEmail] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -29,6 +30,7 @@ export function CreateUserModal({
     setUsername('');
     setName('');
     setPassword('');
+    setEmail('');
     setError(null);
   }, [open]);
 
@@ -39,6 +41,7 @@ export function CreateUserModal({
         username: username.trim(),
         name: name.trim() || undefined,
         password,
+        email: email.trim() || undefined,
       });
       onOpenChange(false);
     } catch (e) {
@@ -82,6 +85,15 @@ export function CreateUserModal({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
+            />
+          </div>
+          <div>
+            <span className={fieldLabel}>邮箱(可选)</span>
+            <input
+              className={inputCls}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com,可用于登录与指派人匹配"
             />
           </div>
           <p className="text-[12px] leading-relaxed text-fg-3">

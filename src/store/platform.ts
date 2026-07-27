@@ -57,7 +57,8 @@ export function usePlatformUsers(enabled = true) {
 export function useCreateUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { username: string; name?: string; password: string }) => platformApi.createUser(input),
+    mutationFn: (input: { username: string; name?: string; password: string; email?: string }) =>
+      platformApi.createUser(input),
     onSuccess: () => qc.invalidateQueries({ queryKey: platformKeys.users() }),
   });
 }

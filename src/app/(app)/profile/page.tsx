@@ -7,6 +7,7 @@ import { KeyRound, Shield, Smartphone } from 'lucide-react';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { FeishuMark, LarkMark } from '@/components/LoginArtwork';
 import { ChangePasswordForm } from '@/components/profile/ChangePasswordForm';
+import { EmailsCard } from '@/components/profile/EmailsCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -113,8 +114,7 @@ function ProfileTab() {
         </div>
         <div>
           <span className={fieldLabel}>{t('profile.email')}</span>
-          <Input disabled placeholder={t('profile.comingSoon')} />
-          <div className="mt-1 text-[12px] text-fg-3">{t('profile.emailHint')}</div>
+          <EmailsCard />
         </div>
         <div className="flex items-center gap-2">
           {error && <span className="text-[12px] text-danger">{error}</span>}

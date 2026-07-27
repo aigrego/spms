@@ -2,12 +2,15 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { users } from '@/db/schema';
 import { ok, fail } from '@/lib/envelope';
+import { findUserByEmail } from '@/lib/emails';
 import { ensureCurrentMember } from '@/lib/identity';
 import { verifyPassword } from '@/lib/password';
 import { createSessionCookie } from '@/lib/session';
 import { defaultCompanyForUser, jsonBody, route } from '@/server/http';
 
 /* POST /api/auth/login { username, password } → session cookie + the user.
+   `username` 也接受任一邮箱（主/备，大小写不敏感）——邮箱经 user_emails
+   反查用户，与用户名登录共用同一密码。
    On success the session also lands on a default company (first membership;
    platform admins without memberships fall back to the first company) — the
    cookie carries it as `cid`. OAuth-only accounts carry '!oauth' as their
@@ -20,7 +23,11 @@ export const POST = route(async (req) => {
   if (!username || !password) {
     return fail('VALIDATION_FAILED', '用户名和密码必填');
   }
-  const [u] = await db.select().from(users).where(eq(users.username, username)).limit(1);
+  let [u] = await db.select().from(users).where(eq(users.username, username)).limit(1);
+  if (!u && username.includes('@')) {
+    const uid = await findUserByEmail(username);
+    if (uid) [u] = await db.select().from(users).where(eq(users.id, uid)).limit(1);
+  }
   if (!u || !(await verifyPassword(password, u.passwordHash))) {
     return fail('UNAUTHORIZED', '用户名或密码错误', 401);
   }

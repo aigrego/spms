@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { users } from '@/db/schema';
+import { upsertVerifiedEmail } from '@/lib/emails';
 import { claimExternalInvites, ensureCurrentMember, syncMemberProjection } from '@/lib/identity';
 import { createSessionCookie, getSession } from '@/lib/session';
 import { defaultCompanyForUser } from '@/server/http';
@@ -38,9 +39,11 @@ async function pickUsername(preferred: string | undefined, fallback: string): Pr
      no re-login) → 302 /profile?tab=security&oauth=bound|taken|failed.
    - otherwise (login mode):
      1) union_id 命中 users.larkUnionId → 老用户直接登录;
-     2) 否则创建 users 账号（'!oauth' 禁用密码登录），并用 OAuth 邮箱认领
-        「邀请外部资源」预埋的 members 行 —— 回填 userId、转 internal/active，
-        为每个邀请公司自动分配 viewer 席位（见 identity.claimExternalInvites）;
+     2) 否则创建 users 账号（'!oauth' 禁用密码登录，可在 /profile 安全页补设
+        密码开通密码登录），IdP 邮箱登记进 user_emails（verified），并用该
+        邮箱认领「邀请外部资源」预埋的 members 行 —— 回填 userId、转
+        internal/active，为每个邀请公司自动分配 viewer 席位（见
+        identity.claimExternalInvites）;
         邮箱无匹配则只是平台成员（无公司席位，等平台管理员分配）。
      → session cookie → 302 /issues。任何失败跳 /login?error=<provider>。 */
 export async function GET(
@@ -71,8 +74,12 @@ export async function GET(
         .limit(1);
       if (taken && taken.id !== session.uid) return bindResult(req, 'taken');
       await db.update(users).set({ larkUnionId: profile.unionId }).where(eq(users.id, session.uid));
-      // 绑定的身份同样按邮箱认领外部邀请（邀请 = 公司希望此人加入的意图）。
-      if (profile.email) await claimExternalInvites({ id: session.uid }, profile.email);
+      // IdP 邮箱登记为 verified 邮箱;绑定的身份同样按邮箱认领外部邀请
+      //(邀请 = 公司希望此人加入的意图)。
+      if (profile.email) {
+        await upsertVerifiedEmail(session.uid, profile.email);
+        await claimExternalInvites({ id: session.uid }, profile.email);
+      }
       return bindResult(req, 'bound');
     } catch (e) {
       console.error(`[auth/${p}] bind callback failed:`, e);
@@ -103,6 +110,7 @@ export async function GET(
       [u] = await db.select().from(users).where(eq(users.larkUnionId, profile.unionId)).limit(1);
       if (!u) throw new Error('user upsert failed');
       if (profile.email) {
+        await upsertVerifiedEmail(u.id, profile.email);
         const claimed = await claimExternalInvites(u, profile.email);
         if (claimed > 0) {
           console.info(`[auth/${p}] ${u.username} claimed ${claimed} external invite(s)`);
@@ -113,6 +121,7 @@ export async function GET(
     } else {
       // 老用户登录：name 只在首次建号时写入，之后不再覆盖（用户可自行修改）；
       // 仅头像跟随 OAuth 资料刷新并同步 member 投影。
+      if (profile.email) await upsertVerifiedEmail(u.id, profile.email);
       const avatarUrl = profile.avatarUrl ?? null;
       if (u.avatarUrl !== avatarUrl) {
         await db.update(users).set({ avatarUrl }).where(eq(users.id, u.id));

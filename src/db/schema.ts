@@ -10,7 +10,7 @@ import {
   uniqueIndex,
   index,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 
 /* ------------------------------------------------------------------ */
 /* Multi-company sandbox note                                          */
@@ -133,6 +133,31 @@ export const users = pgTable('users', {
   avatarUrl: text('avatar_url'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/* User emails — 一个用户可拥有多个邮箱（主邮箱 is_primary 唯一 + 备用邮箱）。
+   平台级（随 users），邮箱全表唯一即"一个邮箱只属于一个用户"。
+   verified = 经 Lark/飞书 OAuth 回写的邮箱（唯一验证来源，无 SMTP）——只有
+   verified 邮箱可用于认领外部邀请/授予席位；自填邮箱仅作展示、登录标识与
+   Notion 指派人匹配。 */
+export const userEmails = pgTable(
+  'user_emails',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    email: text('email').notNull(),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    verified: boolean('verified').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('user_emails_email_uidx').on(t.email),
+    // 每人至多一个主邮箱（部分唯一索引）。
+    uniqueIndex('user_emails_primary_uidx').on(t.userId).where(sql`${t.isPrimary}`),
+    index('user_emails_user_idx').on(t.userId),
+  ],
+);
 
 /* ------------------------------------------------------------------ */
 /* Companies (安全沙箱) + per-company access control                     */

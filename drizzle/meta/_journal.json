@@ -64,6 +64,13 @@
       "when": 1784884379447,
       "tag": "0008_easy_banshee",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785121965963,
+      "tag": "0009_short_micromacro",
+      "breakpoints": true
     }
   ]
 }

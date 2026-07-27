@@ -1,7 +1,8 @@
 import { put } from '@vercel/blob';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { issues, members, notionConnections, notionIssueLinks } from '@/db/schema';
+import { findUserByEmail } from '@/lib/emails';
 import { ApiException } from '@/lib/envelope';
 import { requirePerm } from '@/lib/permissions';
 import {
@@ -24,6 +25,9 @@ import type { Actor } from './types';
    v1 字段映射与客户「CRM Requests」库的真实记录结构对齐(属性名硬编码):
    Name(title)/Request Description(rich_text)/Status(status)/Assigned To
    (people)/Files & media(files)/Tags(multi_select)/Id(unique_id)。
+   展示 key 采用 Id(unique_id)的 "CRM-518"(缺失才按类型自动分配);
+   老数据追平(页面未变更也执行):key 追平为 unique_id;映射状态与现值
+   不一致时照常走完整更新。
    v1 明示限制:附件只在新建时同步,后续新增的图片不补。 */
 
 const PROP = {
@@ -68,14 +72,19 @@ function tagNames(page: NotionPageObject): string[] {
   return (p?.multi_select ?? []).map((t) => t.name ?? '').filter(Boolean);
 }
 
-/* 描述头行里的记录标识:unique_id 的 prefix-number("CRM-746"),缺省退回页面 id。 */
-function pageLabel(page: NotionPageObject): string {
+/* Notion unique_id 的 prefix-number("CRM-518"),缺失 → undefined。 */
+function notionUniqueId(page: NotionPageObject): string | undefined {
   const p = page.properties?.[PROP.uniqueId] as
     | { unique_id?: { prefix?: string | null; number?: number } | null }
     | undefined;
   const uid = p?.unique_id;
-  if (uid?.number != null) return uid.prefix ? `${uid.prefix}-${uid.number}` : String(uid.number);
-  return page.id;
+  if (uid?.number == null) return undefined;
+  return uid.prefix ? `${uid.prefix}-${uid.number}` : String(uid.number);
+}
+
+/* 描述头行里的记录标识:unique_id("CRM-518"),缺省退回页面 id。 */
+function pageLabel(page: NotionPageObject): string {
+  return notionUniqueId(page) ?? page.id;
 }
 
 /* undefined = 未开通 email 能力(people 拿不到 email)→ 创建置 null、更新不动;
@@ -112,6 +121,7 @@ const STATUS_MAP: Record<string, IssueStatus> = {
   'more info needed': 'in_progress',
   'ready for testing': 'in_review',
   done: 'done',
+  closed: 'done',
   'no progress': 'canceled',
 };
 
@@ -137,13 +147,33 @@ function buildDescription(page: NotionPageObject): string {
   return body ? `${header}\n\n${body}` : header;
 }
 
+/* 邮箱 → 本公司指派人,两级匹配:
+   1. user_emails(主/备,大小写不敏感)命中平台用户 → 其在本公司的 member
+      投影(内部成员的 members.email 为 NULL,必须经用户邮箱表才能匹配到);
+   2. 回退 members.email(外部邀请/存量行)。 */
 async function resolveAssignee(companyId: string, email: string): Promise<string | null> {
+  const userId = await findUserByEmail(email);
+  if (userId) {
+    const [m] = await db
+      .select({ id: members.id })
+      .from(members)
+      .where(and(eq(members.companyId, companyId), eq(members.userId, userId)))
+      .limit(1);
+    if (m) return m.id;
+  }
   const [m] = await db
     .select({ id: members.id })
     .from(members)
-    .where(and(eq(members.companyId, companyId), eq(members.email, email)))
+    .where(and(eq(members.companyId, companyId), sql`lower(${members.email}) = ${email.trim().toLowerCase()}`))
     .limit(1);
   return m?.id ?? null;
+}
+
+/* 页面 → assigneeId 入参:undefined = 更新不动(无 email 能力);
+   null/成员 id = 创建与更新都生效(Notion 为真源)。 */
+async function resolveAssigneeInput(companyId: string, page: NotionPageObject) {
+  const email = assigneeEmail(page);
+  return email === undefined ? undefined : email === null ? null : await resolveAssignee(companyId, email);
 }
 
 /* ---- 附件(仅新建时) ---- */
@@ -243,59 +273,83 @@ async function syncPage(
     .where(and(eq(notionIssueLinks.connectionId, conn.id), eq(notionIssueLinks.notionPageId, page.id)))
     .limit(1);
   const edited = new Date(page.last_edited_time);
-  if (link?.notionLastEditedAt && link.notionLastEditedAt >= edited) return 'skipped';
+  // SPMS 展示 key 直接采用 Notion unique_id("CRM-518");缺失则按类型自动分配。
+  const wantedKey = notionUniqueId(page);
 
-  const title = titleText(page) || pageLabel(page);
-  const description = buildDescription(page);
-  const type = mapType(page);
-  const status = mapStatus(page);
-  const email = assigneeEmail(page);
-  const assigneeId =
-    email === undefined ? undefined : email === null ? null : await resolveAssignee(actor.companyId, email);
-
-  if (!link) {
-    const created = await createIssue(actor, {
-      title,
-      description,
-      type,
-      status: status ?? 'todo',
-      assigneeId: assigneeId ?? null,
-      projectId: conn.projectId,
-    });
-    // created.id 是展示 key(BUG-N);link 行存内部 issues.id。
-    const [row] = await db
-      .select({ id: issues.id })
+  if (link) {
+    // issue 删除会 cascade 掉 link 行,所以 link 在而 issue 不在只可能是数据不一致。
+    const [issueRow] = await db
+      .select({ key: issues.key, status: issues.status })
       .from(issues)
-      .where(and(eq(issues.companyId, actor.companyId), eq(issues.key, created.id)))
+      .where(eq(issues.id, link.issueId))
       .limit(1);
-    if (!row) throw new Error('新建 Issue 回读失败');
-    await syncAttachments(actor, conn, page, created.id, errors);
-    await db.insert(notionIssueLinks).values({
-      id: crypto.randomUUID(),
-      companyId: actor.companyId,
-      connectionId: conn.id,
-      notionPageId: page.id,
-      issueId: row.id,
-      notionLastEditedAt: edited,
+    if (!issueRow) throw new ApiException('ISSUE_NOT_FOUND', `映射的 Issue ${link.issueId} 不存在`);
+    // 老数据(自动分配的 TKT-N 等)追平:把展示 key 改成 Notion unique_id。放在水位
+    // 判断之前,页面未变更的已同步记录也能改名;key 被占用时保留原 key 并记入 errors。
+    if (wantedKey && wantedKey !== issueRow.key) {
+      const [taken] = await db
+        .select({ id: issues.id })
+        .from(issues)
+        .where(and(eq(issues.companyId, actor.companyId), eq(issues.key, wantedKey)))
+        .limit(1);
+      if (taken) {
+        errors.push(`${pageLabel(page)}: key ${wantedKey} 已被占用,保留 ${issueRow.key}`);
+      } else {
+        await db.update(issues).set({ key: wantedKey }).where(eq(issues.id, link.issueId));
+        issueRow.key = wantedKey;
+      }
+    }
+    // 水位跳过之外的追平:映射状态与现值不一致(如 Closed→done 是后加的映射,
+    // 老数据当时按 todo 落了库)时照常走完整更新,收敛后才真正 skipped。
+    const mappedStatus = mapStatus(page);
+    const statusStale = mappedStatus !== undefined && mappedStatus !== issueRow.status;
+    if (!statusStale && link.notionLastEditedAt && link.notionLastEditedAt >= edited) return 'skipped';
+
+    const title = titleText(page) || pageLabel(page);
+    const assigneeId = await resolveAssigneeInput(actor.companyId, page);
+    await updateIssue(actor, issueRow.key, {
+      title,
+      description: buildDescription(page),
+      type: mapType(page),
+      ...(mappedStatus !== undefined ? { status: mappedStatus } : {}),
+      ...(assigneeId !== undefined ? { assigneeId } : {}),
     });
-    return 'created';
+    await db
+      .update(notionIssueLinks)
+      .set({ notionLastEditedAt: edited })
+      .where(eq(notionIssueLinks.id, link.id));
+    return 'updated';
   }
 
-  // issue 删除会 cascade 掉 link 行,所以 link 在而 issue 不在只可能是数据不一致。
-  const [issueRow] = await db.select({ key: issues.key }).from(issues).where(eq(issues.id, link.issueId)).limit(1);
-  if (!issueRow) throw new ApiException('ISSUE_NOT_FOUND', `映射的 Issue ${link.issueId} 不存在`);
-  await updateIssue(actor, issueRow.key, {
+  const title = titleText(page) || pageLabel(page);
+  const status = mapStatus(page);
+  const assigneeId = await resolveAssigneeInput(actor.companyId, page);
+  const created = await createIssue(actor, {
     title,
-    description,
-    type,
-    ...(status !== undefined ? { status } : {}),
-    ...(assigneeId !== undefined ? { assigneeId } : {}),
+    description: buildDescription(page),
+    type: mapType(page),
+    status: status ?? 'todo',
+    assigneeId: assigneeId ?? null,
+    projectId: conn.projectId,
+    ...(wantedKey ? { key: wantedKey } : {}),
   });
-  await db
-    .update(notionIssueLinks)
-    .set({ notionLastEditedAt: edited })
-    .where(eq(notionIssueLinks.id, link.id));
-  return 'updated';
+  // created.id 是展示 key;link 行存内部 issues.id。
+  const [row] = await db
+    .select({ id: issues.id })
+    .from(issues)
+    .where(and(eq(issues.companyId, actor.companyId), eq(issues.key, created.id)))
+    .limit(1);
+  if (!row) throw new Error('新建 Issue 回读失败');
+  await syncAttachments(actor, conn, page, created.id, errors);
+  await db.insert(notionIssueLinks).values({
+    id: crypto.randomUUID(),
+    companyId: actor.companyId,
+    connectionId: conn.id,
+    notionPageId: page.id,
+    issueId: row.id,
+    notionLastEditedAt: edited,
+  });
+  return 'created';
 }
 
 /* ---- 入口 ---- */

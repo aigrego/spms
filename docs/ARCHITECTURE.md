@@ -96,13 +96,19 @@ next-spms/
 ### 密码登录
 `POST /api/auth/login { username, password }` → bcrypt 校验 → jose HS256 签名 cookie
 `spms_session`（HttpOnly / SameSite=Lax / 7 天），payload `{ uid, username, role, cid }`。
+`username` 也接受**任一邮箱**（`user_emails` 主/备，大小写不敏感）——邮箱反查用户后共用同一密码。
 `cid` = 当前公司 id，登录时取第一个可见公司；`POST /api/auth/switch-company { companyId }` 重签 cookie 切换（要求目标公司成员或平台管理员）。
+纯 OAuth 账号（`passwordHash='!oauth'`）可在 /profile 安全页**免旧密码直接设置密码**，设置后密码登录开通——密码与飞书/Lark 登录由此统一到同一账号。
+
+### 用户邮箱（user_emails）
+一个用户可拥有多个邮箱：一个主邮箱（部分唯一索引保证）+ 至多 5 个备用；邮箱全表唯一（一个邮箱只属于一个用户）。无 SMTP，唯一验证来源是 Lark/飞书 OAuth 返回的邮箱（`verified`）——**只有 verified 邮箱可认领外部邀请/授予席位**；自填邮箱仅作登录标识、展示与 Notion 指派人匹配。管理端点 `GET/POST/PATCH/DELETE /api/auth/emails`（本人自助）；平台管理员建号/加成员时可写主邮箱；规则集中在 `src/lib/emails.ts`。
 
 ### 飞书扫码登录
 1. 登录页按钮跳转 `https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=...&redirect_uri=...`（飞书页面展示扫码）
 2. 回调 `/api/auth/lark/callback?code=...`：
    - `app_access_token`（tenant 凭证）→ 用 code 换 `user_access_token` → 拉 `user_info`
    - 按 `larkUnionId` 找 user；不存在则自动创建 user（同名 member 懒绑定）
+   - IdP 邮箱经 `upsertVerifiedEmail` 登记进 `user_emails`（verified，首个邮箱自动成为主邮箱），并按该邮箱认领「邀请外部资源」预埋的 members 行
    - 写 session cookie，跳 `/issues`
 3. env 未配置 `LARK_APP_ID/LARK_APP_SECRET` 时，登录页隐藏飞书入口（前端通过 `/api/auth/lark/config` 探测）
 
@@ -118,6 +124,7 @@ next-spms/
 - 平台管理员在 设置 → 成员管理 看**全部系统用户**（目录 + 新建用户）；在 公司管理 的公司卡片 → **席位**抽屉里把用户分配进/回收出某公司（默认角色 viewer）。
 - 公司管理员在 **研发资源 → 内部成员** 给本公司席位成员调整公司角色 / 移除席位（`/api/v1/pms/seats`）。
 - 席位分配时把用户幂等投影进本公司资源池（`members` 表，供指派）；席位移除时同步撤销该投影（移出所有节点指派、状态置 revoked，重新分配席位时自动重激活）。仅持席位的用户才会被懒投影——无席位的平台管理员进入公司沙箱不再产生 `members` 行（其 `Actor.memberId` 为 null）。
+- **邀请外部资源（按邮箱）**：邮箱已属于平台用户（`user_emails` 主/备）→ 直接落 `userId`、转 internal/active 并授 viewer 席位（与 Lark 认领同结果）；否则预埋 external/invited 行，等本人 Lark 登录按 verified 邮箱认领。
 
 **角色×模块矩阵**（`src/lib/permissions.ts`）：
 - 4 个可配置角色 × 10 个模块（issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents）× 3 档（`none < read < write`）
@@ -176,5 +183,5 @@ issue 指派给 agent 时：挂 `AI 生成` 标签 + 把预编剧本步骤**同�
 
 - **连接**：`/integrations/notion/authorize`（nonce cookie CSRF，同 Lark 绑定流）→ Notion 授权 → `/callback` 用 Basic auth 换 token，按公司 upsert `notion_connections`（**每公司一条**；accessToken 仅服务端保存，任何 API 都不序列化它）。token 不过期，无 refresh。断开 = 删连接行，`notion_issue_links` 随 cascade 清除。
 - **同步**（`src/server/services/notionSync.ts`，以点击用户的 Actor 调现有 `createIssue`/`updateIssue`/`registerAttachment`，RBAC 与活动日志复用）：数据库按 `last_edited_time` 倒序翻页、越过 `lastSyncedAt` 水位即停；逐条处理，单条失败记 `errors` 继续，结束后推进水位。幂等靠 `notion_issue_links`（(connectionId, notionPageId) ↔ issueId + 页面编辑时间）。
-- **字段映射**（v1 按客户「CRM Requests」库结构硬编码属性名）：标题←`Name`；描述←`Request Description` 纯文本 + 每次更新重生成的头行（`Notion: CRM-N · 状态 · url`）；状态←`Status`（Not started→todo / In progress、More info needed→in_progress / Ready for testing→in_review / Done→done / No progress→canceled；归档优先→canceled；未知名创建按 todo、更新不动）；类型←`Tags`（BUGS→bug，Feature/Updated/Change→ticket，默认 bug）；指派人←`Assigned To` 第一人 email 匹配 `members.email`（无 email 能力时更新不动）。
+- **字段映射**（v1 按客户「CRM Requests」库结构硬编码属性名）：展示 key←`Id`（unique_id，如 `CRM-518`；缺失才按类型自动分配）；标题←`Name`；描述←`Request Description` 纯文本 + 每次更新重生成的头行（`Notion: CRM-N · 状态 · url`）；状态←`Status`（Not started→todo / In progress、More info needed→in_progress / Ready for testing→in_review / Done、Closed→done / No progress→canceled；归档优先→canceled；未知名创建按 todo、更新不动）；类型←`Tags`（BUGS→bug，Feature/Updated/Change→ticket，默认 bug）；指派人←`Assigned To` 第一人 email 先经 `user_emails`（主/备，大小写不敏感）匹配平台用户的本公司 member 投影，回退 `members.email`（外部邀请/存量行；无 email 能力时更新不动）。老数据追平（页面未变更也执行）：key 追平为 unique_id（被占用则保留原 key 并记入 errors）；映射状态与现值不一致时照常走完整更新。
 - **附件**（仅新建时同步，v1 不做 diff）：`Files & media` 里的图片（按扩展名判断）+ 页面 image blocks → 下载（预签名 URL，>10MB 跳过）→ 服务端 `put` 到 Vercel Blob → `registerAttachment`。

@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { users } from '@/db/schema';
+import { primaryEmailOf } from '@/lib/emails';
 import { ok } from '@/lib/envelope';
 import { permsForActor } from '@/lib/permissions';
 import { getSession } from '@/lib/session';
@@ -27,12 +28,22 @@ export const GET = route(async () => {
       role: users.role,
       larkUnionId: users.larkUnionId,
       avatarUrl: users.avatarUrl,
+      passwordHash: users.passwordHash,
     })
     .from(users)
     .where(eq(users.id, session.uid))
     .limit(1);
   if (!u) return ok(null);
-  const user = { id: u.id, username: u.username, name: u.name, role: u.role, larkBound: !!u.larkUnionId, avatarUrl: u.avatarUrl };
+  const user = {
+    id: u.id,
+    username: u.username,
+    name: u.name,
+    role: u.role,
+    larkBound: !!u.larkUnionId,
+    avatarUrl: u.avatarUrl,
+    email: await primaryEmailOf(u.id),
+    hasPassword: u.passwordHash !== '!oauth',
+  };
 
   const isPlatformAdmin = u.role === 'admin';
   const companyList = await listCompaniesForUser(u);
