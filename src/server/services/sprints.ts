@@ -1,9 +1,11 @@
-import { and, asc, eq, isNull, ne, notInArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne, notInArray, or } from 'drizzle-orm';
 import { db } from '@/db';
 import { sprints, sprintSnapshots, issues, projects } from '@/db/schema';
 import { serializeIssueList } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { requirePerm } from '@/lib/permissions';
+import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
+import { archivedProjectIds } from './issues';
 import type { Actor } from './types';
 
 /* Sprint business service. Ported from apps/spms-server/src/routes/sprints.ts —
@@ -52,6 +54,9 @@ export async function listSprints(actor: Actor, filter?: { team?: string }) {
   await requirePerm(actor, 'sprints', 'read');
   const conds = [eq(sprints.companyId, actor.companyId)];
   if (filter?.team) conds.push(eq(sprints.teamId, filter.team));
+  // 指派可见性(visibility.ts);null = 管理员不限制。
+  const visible = await visibleSetsFor(actor);
+  if (visible) conds.push(inArray(sprints.id, visible.sprintIds));
   return db
     .select()
     .from(sprints)
@@ -59,11 +64,20 @@ export async function listSprints(actor: Actor, filter?: { team?: string }) {
     .orderBy(asc(sprints.startDate));
 }
 
-/* ---- product backlog: issues not committed to any sprint, backlogRank asc ---- */
+/* ---- product backlog: 未进入任何迭代 且状态为「待处理(todo)」的 issue,
+   backlogRank asc。产品待办 = 敏捷 product backlog 概念:只放待规划进下一次
+   迭代的待办工单,in_progress/in_review/done/canceled/backlog 状态一律不进。 */
 export async function getBacklog(actor: Actor, filter?: { team?: string }) {
   await requirePerm(actor, 'backlog', 'read');
-  const conds = [eq(issues.companyId, actor.companyId), isNull(issues.sprintId)];
+  const conds = [eq(issues.companyId, actor.companyId), isNull(issues.sprintId), eq(issues.status, 'todo')];
   if (filter?.team) conds.push(eq(issues.teamId, filter.team));
+  // 与 listIssues 同款:白名单 + 指派可见性(无项目 issue 公司级放行)。
+  if (actor.allowedProjectIds) conds.push(inArray(issues.projectId, actor.allowedProjectIds));
+  const visibleProjectIds = clampAllowed(actor, (await visibleSetsFor(actor))?.projectIds ?? null);
+  if (visibleProjectIds) conds.push(or(isNull(issues.projectId), inArray(issues.projectId, visibleProjectIds))!);
+  // 归档排除:已归档 issue 及已归档项目的 issue 不进规划面。
+  conds.push(isNull(issues.archivedAt));
+  conds.push(or(isNull(issues.projectId), notInArray(issues.projectId, await archivedProjectIds(actor.companyId)))!);
   const rows = await db.query.issues.findMany({
     where: and(...conds),
     with: withRelations,
@@ -77,6 +91,9 @@ export async function getVelocity(actor: Actor, filter?: { team?: string }) {
   await requirePerm(actor, 'sprints', 'read');
   const conds = [eq(sprints.companyId, actor.companyId)];
   if (filter?.team) conds.push(eq(sprints.teamId, filter.team));
+  // 指派可见性;null = 管理员不限制。
+  const visible = await visibleSetsFor(actor);
+  if (visible) conds.push(inArray(sprints.id, visible.sprintIds));
   const sprintRows = await db
     .select()
     .from(sprints)
@@ -105,13 +122,16 @@ export async function getVelocity(actor: Actor, filter?: { team?: string }) {
   return { series, avgVelocity };
 }
 
-/* ---- single sprint: meta + committed issues + computed stats. Missing → null ---- */
+/* ---- single sprint: meta + committed issues + computed stats.
+   Missing or outside the actor's visibility → null ---- */
 export async function getSprint(actor: Actor, id: string) {
   await requirePerm(actor, 'sprints', 'read');
   const sprint = await db.query.sprints.findFirst({
     where: and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)),
   });
   if (!sprint) return null;
+  const visible = await visibleSetsFor(actor);
+  if (visible && !visible.sprintIds.includes(id)) return null;
 
   const rows = await db.query.issues.findMany({
     where: and(eq(issues.companyId, actor.companyId), eq(issues.sprintId, id)),
@@ -135,13 +155,15 @@ export async function getSprint(actor: Actor, id: string) {
 }
 
 /* ---- burndown: ideal (linear) vs. actual remaining points per day.
-   Missing sprint → null. ---- */
+   Missing sprint or outside the actor's visibility → null. ---- */
 export async function getBurndown(actor: Actor, id: string) {
   await requirePerm(actor, 'sprints', 'read');
   const sprint = await db.query.sprints.findFirst({
     where: and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)),
   });
   if (!sprint) return null;
+  const visible = await visibleSetsFor(actor);
+  if (visible && !visible.sprintIds.includes(id)) return null;
 
   const committed = sumPoints(
     await db

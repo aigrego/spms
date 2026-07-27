@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2 } from 'lucide-react';
+import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2, Archive, ArchiveRestore } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverTrigger, PopoverContent, MenuItem } from '@/components/ui/popover';
@@ -15,7 +15,7 @@ import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, ScopedAssigneeMenu,
 import { useT, useLocale } from '@/lib/i18n';
 import { formatActivityTime } from '@/lib/time';
 import { useAppData } from '@/store/AppData';
-import { useIssue, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue, useRegisterAttachment, useDeleteAttachment } from '@/store/issues';
+import { useIssue, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue, useArchiveIssue, useRegisterAttachment, useDeleteAttachment } from '@/store/issues';
 import { useIssueCandidates } from '@/store/resources';
 import { useRequirements } from '@/store/requirements';
 import { uploadImage } from '@/lib/upload';
@@ -154,6 +154,7 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
   const addComment = useAddComment();
   const toggleSub = useToggleSub();
   const del = useDeleteIssue();
+  const archive = useArchiveIssue();
   const registerAttachment = useRegisterAttachment();
   const deleteAttachment = useDeleteAttachment();
   // In-flight uploads (blob uploaded, registration pending) — shown as dimmed tiles.
@@ -256,6 +257,11 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
           <span className="flex-none whitespace-nowrap font-mono text-[12.5px] text-fg-3">
             {issue.id}
           </span>
+          {issue.archivedAt && (
+            <span className="inline-flex flex-none items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-fg-3">
+              <Archive size={11} /> {t('issue.archived')}
+            </span>
+          )}
           <div className="flex-1" />
           <Button variant="ghost" size="icon" aria-label={t('detail.copyLink')} title={t('detail.copyLink')} onClick={copyLink}>
             {copied ? <Check size={16} className="text-success" /> : <Link2 size={16} />}
@@ -273,6 +279,20 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
                 onClick={() => {
                   copyId();
                   setMoreOpen(false);
+                }}
+              />
+              <MenuItem
+                glyph={
+                  issue.archivedAt ? (
+                    <ArchiveRestore size={15} className="text-fg-3" />
+                  ) : (
+                    <Archive size={15} className="text-fg-3" />
+                  )
+                }
+                label={issue.archivedAt ? t('issue.unarchive') : t('issue.archive')}
+                onClick={() => {
+                  setMoreOpen(false);
+                  archive.mutate({ id, archived: !issue.archivedAt });
                 }}
               />
               <MenuItem

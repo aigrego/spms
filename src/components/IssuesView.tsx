@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Filter, SlidersHorizontal, List, Columns3, GitBranch, MessageSquare, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Filter, SlidersHorizontal, List, Columns3, GitBranch, MessageSquare, ChevronDown, ChevronRight, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent, MenuItem } from '@/components/ui/popover';
 import { StatusIcon } from '@/components/glyphs/StatusIcon';
@@ -47,7 +47,10 @@ function IssueRow({ issue, onOpen, onUpdate, labelsFor }: RowProps) {
   return (
     <div
       onClick={() => onOpen(issue.id)}
-      className="issue-row flex h-[42px] cursor-pointer items-center gap-2.5 border-b border-border px-5 transition-colors hover:bg-surface-2"
+      className={cn(
+        'issue-row flex h-[42px] cursor-pointer items-center gap-2.5 border-b border-border px-5 transition-colors hover:bg-surface-2',
+        issue.archivedAt && 'opacity-50',
+      )}
     >
       <PriorityMenu
         current={issue.priority}
@@ -250,6 +253,8 @@ export function IssuesView({
   issues,
   title,
   subtitle,
+  showArchived,
+  onToggleArchived,
   onOpen,
   onUpdate,
   onNewIssue,
@@ -257,6 +262,8 @@ export function IssuesView({
   issues: Issue[];
   title: string;
   subtitle?: string;
+  showArchived?: boolean;
+  onToggleArchived?: (v: boolean) => void;
   onOpen: (id: string) => void;
   onUpdate: (id: string, patch: UpdateIssueInput) => void;
   onNewIssue: (preset?: { status?: IssueStatus }) => void;
@@ -463,6 +470,20 @@ export function IssuesView({
               ))}
             </div>
           </div>
+          {/* 显示已归档开关(默认隐藏已归档 issue 及已归档项目的 issue)。 */}
+          {onToggleArchived && (
+            <button
+              onClick={() => onToggleArchived(!showArchived)}
+              className={cn(
+                'inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[13px]',
+                showArchived
+                  ? 'border-brand-blue bg-brand-blue/10 text-brand-blue'
+                  : 'border-border bg-surface text-fg-2 hover:bg-surface-2',
+              )}
+            >
+              <Archive size={14} /> {t('issues.showArchived')}
+            </button>
+          )}
           <div className="flex-1" />
           <div className="inline-flex gap-0.5 rounded-lg bg-surface-2 p-0.5">
             {(

@@ -23,10 +23,12 @@ export default function IssuesClient() {
 
   const isMine = searchParams.get('assignee') === 'me';
   const selected = searchParams.get('selected');
+  // 「显示已归档」开关:默认隐藏已归档 issue 及已归档项目的 issue。
+  const [showArchived, setShowArchived] = React.useState(false);
 
   const params = React.useMemo(
-    () => (isMine ? (meId ? { assignee: meId } : {}) : {}),
-    [isMine, meId],
+    () => ({ ...(isMine ? (meId ? { assignee: meId } : {}) : {}), includeArchived: showArchived }),
+    [isMine, meId, showArchived],
   );
   const { data: issues = [] } = useIssues(params);
   const update = useUpdateIssue();
@@ -57,6 +59,8 @@ export default function IssuesClient() {
         issues={issues}
         title={meta.title}
         subtitle={meta.subtitle}
+        showArchived={showArchived}
+        onToggleArchived={setShowArchived}
         onOpen={(id) => setSelected(id)}
         onUpdate={onUpdate}
         onNewIssue={openNewIssue}

@@ -1,10 +1,11 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { requirements, projects } from '@/db/schema';
 import { serializeRequirement } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
 import { requirePerm } from '@/lib/permissions';
+import { visibleSetsFor } from '@/lib/visibility';
 import type { Actor } from './types';
 
 /* Requirements / PRD business service. Ported from
@@ -39,6 +40,9 @@ export async function listRequirements(actor: Actor, filter?: { project?: string
   const conds = [eq(requirements.companyId, actor.companyId)];
   if (filter?.project) conds.push(eq(requirements.projectId, filter.project));
   if (filter?.type) conds.push(eq(requirements.type, filter.type));
+  // 指派可见性:仅可见项目的需求;null = 管理员不限制。
+  const visible = await visibleSetsFor(actor);
+  if (visible) conds.push(inArray(requirements.projectId, visible.projectIds));
   const rows = await db.query.requirements.findMany({
     where: and(...conds),
     with: withIssues,
@@ -47,14 +51,18 @@ export async function listRequirements(actor: Actor, filter?: { project?: string
   return rows.map(serializeRequirement);
 }
 
-/* ---- single requirement (+ linked issue keys). Missing → null ---- */
+/* ---- single requirement (+ linked issue keys). Missing or outside the
+   actor's visibility → null ---- */
 export async function getRequirement(actor: Actor, key: string) {
   await requirePerm(actor, 'requirements', 'read');
   const row = await db.query.requirements.findFirst({
     where: and(eq(requirements.companyId, actor.companyId), eq(requirements.key, key)),
     with: withIssues,
   });
-  return row ? serializeRequirement(row) : null;
+  if (!row) return null;
+  const visible = await visibleSetsFor(actor);
+  if (visible && !visible.projectIds.includes(row.projectId)) return null;
+  return serializeRequirement(row);
 }
 
 export interface CreateRequirementInput {

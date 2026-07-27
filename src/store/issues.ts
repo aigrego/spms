@@ -4,15 +4,18 @@ import type { AttachmentMeta, CreateIssueInput, UpdateIssueInput, Api } from '@/
 
 /* Issue-list query. "My issues" passes the current user's member id (resolved
    from /bootstrap) as the assignee param. */
-export function useIssues(params?: { team?: string; assignee?: string; project?: string }) {
+export function useIssues(params?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean }) {
   return useQuery({
     queryKey: ['issues', params ?? {}],
     queryFn: () => api.issues(params),
   });
 }
 
-export function useAllIssues() {
-  return useQuery({ queryKey: ['issues', {}], queryFn: () => api.issues() });
+export function useAllIssues(includeArchived = false) {
+  return useQuery({
+    queryKey: ['issues', { includeArchived }],
+    queryFn: () => api.issues({ includeArchived }),
+  });
 }
 
 export function useIssue(id: string | null) {
@@ -55,6 +58,14 @@ export function useDeleteIssue() {
   return useMutation({
     mutationFn: (id: string) => api.deleteIssue(id),
     onSuccess: () => invalidate(),
+  });
+}
+
+export function useArchiveIssue() {
+  const invalidate = useInvalidateIssues();
+  return useMutation({
+    mutationFn: ({ id, archived }: { id: string; archived: boolean }) => api.archiveIssue(id, archived),
+    onSuccess: (_d, vars) => invalidate(vars.id),
   });
 }
 

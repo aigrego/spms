@@ -263,8 +263,10 @@ export const members = pgTable(
     initials: text('initials').notNull(),
     color: text('color'),
     role: text('role'),
-    // humans: the local users.id this member projects.
-    userId: text('user_id'),
+    // humans: the local users.id this member projects. FK set null：删用户时
+    // member 行保留(姓名快照 + 历史 issue/活动归属不丢),服务层 deleteUser
+    // 先 revoke(移出指派、置 revoked)再删 users 行。
+    userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
     // agents: stable key used to address the agent (assign / dispatch).
     agentKey: text('agent_key'),
     // resource pool (only meaningful for humans):
@@ -445,6 +447,9 @@ export const projects = pgTable('projects', {
   summary: text('summary'), // Executive Summary (概述)
   goal: text('goal'), // Goals (目标)
   nonGoals: text('non_goals'), // Non-Goals (非目标)
+  // 归档:非 NULL 时项目卡片默认隐藏,其全部 issue 从「全部 Issues」/产品待办
+  // 隐藏(等效批量归档);历史上下文(项目中心/迭代详情)仍可见。
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
 });
 
 /* Requirements / PRD (需求) — scoped to a project; decomposed into issues. */
@@ -516,6 +521,9 @@ export const issues = pgTable(
     backlogRank: integer('backlog_rank').notNull().default(0),
     aiAssigned: boolean('ai_assigned').notNull().default(false),
     commentsCount: integer('comments_count').notNull().default(0),
+    // 归档:非 NULL 时从「全部 Issues」/产品待办默认隐藏(可用 includeArchived
+    // 找回);迭代详情/项目中心等历史上下文仍显示。
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

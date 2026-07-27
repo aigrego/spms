@@ -1,10 +1,11 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { testCases, projects, requirements } from '@/db/schema';
 import { serializeTestCase } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
 import { requirePerm } from '@/lib/permissions';
+import { visibleSetsFor } from '@/lib/visibility';
 import type { Actor } from './types';
 
 /* Test cases (测试用例) business service — project-scoped, optionally validating
@@ -54,6 +55,9 @@ export async function listTestCases(
   if (filter?.project) conds.push(eq(testCases.projectId, filter.project));
   if (filter?.status) conds.push(eq(testCases.status, filter.status));
   if (filter?.result) conds.push(eq(testCases.result, filter.result));
+  // 指派可见性:仅可见项目的用例;null = 管理员不限制。
+  const visible = await visibleSetsFor(actor);
+  if (visible) conds.push(inArray(testCases.projectId, visible.projectIds));
   const rows = await db.query.testCases.findMany({
     where: and(...conds),
     with: withRequirement,
@@ -64,14 +68,17 @@ export async function listTestCases(
   return filtered.map(serializeTestCase);
 }
 
-/* ---- single test case. Missing → null ---- */
+/* ---- single test case. Missing or outside the actor's visibility → null ---- */
 export async function getTestCase(actor: Actor, key: string) {
   await requirePerm(actor, 'testcases', 'read');
   const row = await db.query.testCases.findFirst({
     where: and(eq(testCases.companyId, actor.companyId), eq(testCases.key, key)),
     with: withRequirement,
   });
-  return row ? serializeTestCase(row) : null;
+  if (!row) return null;
+  const visible = await visibleSetsFor(actor);
+  if (visible && !visible.projectIds.includes(row.projectId)) return null;
+  return serializeTestCase(row);
 }
 
 export interface CreateTestCaseInput {

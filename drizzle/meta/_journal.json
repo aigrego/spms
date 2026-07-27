@@ -71,6 +71,20 @@
       "when": 1785121965963,
       "tag": "0009_short_micromacro",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785131284012,
+      "tag": "0010_daily_cassandra_nova",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785134704491,
+      "tag": "0011_quiet_black_queen",
+      "breakpoints": true
     }
   ]
 }

@@ -10,6 +10,7 @@
 - `company_admin` 与平台管理员恒过；`viewer` 类只读角色调写接口同样 403。
 - **项目创建/删除**额外要求 `company_admin` 或平台管理员（矩阵 projects=write 不够）。
 - bootstrap 无模块门（登录即可），返回里的 `permissions` 供前端过滤 UI。
+- **指派可见性**（读收窄，见 ARCHITECTURE「指派可见性」）：bootstrap 及 issues/requirements/test-cases/sprints/products/releases 的列表与详情按研发资源指派（direct）收窄——只看到「自己或后代节点有 direct 指派」的节点及其祖先链；范围外详情按 `ok(null)` 处理。管理员（company_admin/平台）豁免；产品线不过滤；无项目 issue 视为公司级；MCP 再与令牌项目白名单取交集。
 
 ## 认证
 
@@ -44,10 +45,11 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/issues?team&assignee&project` | 列表，updatedAt desc；带 labels/subIssues/requirement.key；`sub:{done,total}` |
+| GET | `/issues?team&assignee&project&includeArchived` | 列表，updatedAt desc；带 labels/subIssues/requirement.key；`sub:{done,total}`；默认排除已归档 issue 及已归档项目的 issue（`includeArchived=1` 放行，项目中心等历史上下文用） |
 | GET | `/issues/:key` | 详情（含 activities）；不存在 → `ok(null)` |
 | POST | `/issues` | title 必填；requirementId 收展示 key；sprint-project 一致性（冲突 → LIFECYCLE_MISMATCH）；写 created activity；指派 agent 触发 AI 演示 |
 | PATCH | `/issues/:key` | 部分更新；labels 全量替换；assignee 变更写 assign activity |
+| POST | `/issues/:key/archive` | `{ archived: boolean }` 归档/取消归档（写 status activity；只影响可见性，不做只读约束） |
 | DELETE | `/issues/:key` | 硬删（级联 labels/subIssues/activities） |
 | POST | `/issues/:key/comments` | `{ body }`；commentsCount+1 |
 | PATCH | `/issues/:key/sub/:subId` | `{ status }` 切换子任务 |
@@ -68,6 +70,7 @@
 |---|---|---|
 | POST | `/projects` | **需 company_admin 或平台管理员**；lead 双写（leadId→assignments lead，aiLeadId→member） |
 | PATCH | `/projects/:id` | 部分更新 + lead 双写同步（projects=write） |
+| POST | `/projects/:id/archive` | `{ archived: boolean }` 归档/取消归档（**需 company_admin 或平台管理员**）；归档项目的全部 issue 从「全部 Issues」/产品待办隐藏（等效批量归档），项目卡片默认隐藏 |
 | DELETE | `/projects/:id` | **需 company_admin 或平台管理员**；先 clearSubtreeAssignments，issues set null，再删 |
 
 列表走 `/bootstrap`，无独立 GET。
@@ -80,7 +83,7 @@
 | POST | `/sprints` | **新增**（原系统无）：name/startDate/endDate/projectId 等 |
 | PATCH | `/sprints/:id` | **新增**：部分更新 |
 | DELETE | `/sprints/:id` | **新增**：issues.sprintId set null 后删 |
-| GET | `/sprints/backlog?team` | sprintId IS NULL 的 issues，backlogRank asc |
+| GET | `/sprints/backlog?team` | 产品待办：sprintId IS NULL 且 status=todo（待处理）的 issues，backlogRank asc；其他状态及已归档（含已归档项目的）一律不进 |
 | GET | `/sprints/velocity?team` | 每 sprint committed/completed/capacity + avgVelocity |
 | GET | `/sprints/:id` | 元数据 + committed issues + stats |
 | GET | `/sprints/:id/burndown` | ideal 线性 + snapshots actual |
@@ -162,6 +165,7 @@
 | DELETE | `/companies/:id/members/:membershipId` | 移出成员（=回收席位；user 账号保留；同步撤销资源池投影） |
 | GET | `/users` | 平台成员目录：全部系统用户 + 各自公司席位（含主邮箱 `email`） |
 | POST | `/users` | `{ username, name?, password, email? }` 新建系统账号（role=member，不含席位）；email 写入主邮箱（user_emails） |
+| DELETE | `/users/:userId` | 删除系统账号（不能删自己）：先 revoke 其在各家公司的 member 投影（移出指派、置 revoked，行保留姓名快照），再删 users 行（`members.user_id` FK set null 兜底；company_memberships/user_emails 随 cascade） |
 | GET | `/permissions-matrix` | 全量 4 角色 × 10 模块矩阵 |
 | PUT | `/permissions-matrix` | `{ matrix }` 整表替换（逐格校验后 upsert + 缓存失效） |
 | GET | `/mcp-keys` | MCP key 列表（不返回 keyHash/明文；含 ownerId/ownerName）；管理员见全部，member 只见自己创建的 |

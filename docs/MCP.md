@@ -45,6 +45,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 - 状态枚举：issue `backlog|todo|in_progress|in_review|done|canceled`；需求 `draft|reviewing|approved|in_dev|shipped|rejected`
 - 优先级 `urgent|high|medium|low|none`（紧急度）与重要度 `critical|high|medium|low|none` 正交
 - 成员分 `human` 与 `agent`（atlas/forge/sentry/scribe 四个内置 AI），issue 可指派给 agent
+- 列表默认排除**已归档** issue 及已归档项目的 issue（与 UI 一致；归档/取消归档暂只支持 UI/REST）
 
 ## Tools
 

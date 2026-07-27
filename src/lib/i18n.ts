@@ -181,6 +181,10 @@ const zhCN: Dict = {
   // issues view
   'issues.new': '新建 Issue',
   'issues.filter': '筛选',
+  'issues.showArchived': '显示已归档',
+  'issue.archive': '归档',
+  'issue.unarchive': '取消归档',
+  'issue.archived': '已归档',
   'issues.groupBy': '分组：',
   'issues.empty': '暂无 Issue',
   'group.status': '状态',
@@ -767,6 +771,10 @@ const en: Dict = {
 
   'issues.new': 'New Issue',
   'issues.filter': 'Filter',
+  'issues.showArchived': 'Show archived',
+  'issue.archive': 'Archive',
+  'issue.unarchive': 'Unarchive',
+  'issue.archived': 'Archived',
   'issues.groupBy': 'Group: ',
   'issues.empty': 'No issues yet',
   'group.status': 'Status',
@@ -1324,6 +1332,10 @@ const zhTW: Dict = {
 
   'issues.new': '新增 Issue',
   'issues.filter': '篩選',
+  'issues.showArchived': '顯示已歸檔',
+  'issue.archive': '歸檔',
+  'issue.unarchive': '取消歸檔',
+  'issue.archived': '已歸檔',
   'issues.groupBy': '分組：',
   'issues.empty': '尚無 Issue',
   'group.status': '狀態',

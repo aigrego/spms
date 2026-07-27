@@ -176,6 +176,8 @@ export const platformApi = {
   users: () => request<PlatformUser[]>('/users'),
   createUser: (input: { username: string; name?: string; password: string; email?: string }) =>
     request<{ id: string; username: string; name: string }>('/users', json('POST', input)),
+  deleteUser: (userId: string) =>
+    request<{ id: string; revokedProjections: number }>(`/users/${userId}`, { method: 'DELETE' }),
   // 服务端返回扁平行 { id, userId, username, name, role, createdAt }，在此映射为 PlatformMember
   members: async (companyId: string) =>
     (await request<RawMember[]>(`/companies/${companyId}/members`)).map(mapMember),

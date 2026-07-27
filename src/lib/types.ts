@@ -169,6 +169,7 @@ export interface Project {
   summary: string | null; // Executive Summary (概述)
   goal: string | null; // Goals (目标)
   nonGoals: string | null; // Non-Goals (非目标)
+  archivedAt?: string | null; // 归档时间;非空时项目卡片默认隐藏、其 issue 从全部 Issues 隐藏
 }
 
 export interface Requirement {
@@ -303,6 +304,7 @@ export interface Issue {
   commentsCount: number;
   labels: string[];
   sub: { done: number; total: number } | null;
+  archivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

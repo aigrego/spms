@@ -1,10 +1,11 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { productLines, products, releases } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
 import { assignMember, clearSubtreeAssignments } from '@/lib/assignments';
 import { requirePerm } from '@/lib/permissions';
+import { visibleSetsFor } from '@/lib/visibility';
 import type { Actor } from './types';
 
 /* Lifecycle catalog business service: 产品线 → 产品 → 版本/Release.
@@ -107,6 +108,9 @@ export async function listProducts(actor: Actor, filter?: { line?: string }) {
   await requirePerm(actor, 'products', 'read');
   const conds = [eq(products.companyId, actor.companyId)];
   if (filter?.line) conds.push(eq(products.productLineId, filter.line));
+  // 指派可见性(visibility.ts);null = 管理员不限制。
+  const visible = await visibleSetsFor(actor);
+  if (visible) conds.push(inArray(products.id, visible.productIds));
   return db
     .select()
     .from(products)
@@ -207,6 +211,9 @@ export async function listReleases(actor: Actor, filter?: { product?: string }) 
   await requirePerm(actor, 'products', 'read');
   const conds = [eq(releases.companyId, actor.companyId)];
   if (filter?.product) conds.push(eq(releases.productId, filter.product));
+  // 指派可见性(visibility.ts);null = 管理员不限制。
+  const visible = await visibleSetsFor(actor);
+  if (visible) conds.push(inArray(releases.id, visible.releaseIds));
   return db
     .select()
     .from(releases)

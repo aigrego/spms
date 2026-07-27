@@ -63,6 +63,14 @@ export function useCreateUser() {
   });
 }
 
+export function useDeleteUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => platformApi.deleteUser(userId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: platformKeys.users() }),
+  });
+}
+
 export function useCompanyMembers(companyId: string | null | undefined) {
   return useQuery({
     queryKey: platformKeys.members(companyId as string),

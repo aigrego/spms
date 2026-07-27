@@ -1,20 +1,41 @@
 'use client';
 
 import * as React from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton, StateBlock } from '@/components/StateBlock';
-import { usePlatformUsers } from '@/store/platform';
+import { ConfirmDestructive } from '@/components/ConfirmDestructive';
+import { useDeleteUser, usePlatformUsers } from '@/store/platform';
+import { useAppData } from '@/store/AppData';
+import { ApiError } from '@/lib/api';
 import { ROLE_LABELS } from '@/lib/platformApi';
+import type { PlatformUser } from '@/lib/platformApi';
 import { CreateUserModal } from '@/components/platform/CreateUserModal';
 import { LetterAvatar, PlatformHeader, fmtDate, tdCls, thCls } from '@/components/platform/common';
 
-/* 成员管理 = 平台成员目录:系统全部用户及其公司席位(只读)。
-   席位分配在「公司管理」的公司卡片 → 席位抽屉;公司角色在「研发资源」配置。 */
+/* 成员管理 = 平台成员目录:系统全部用户及其公司席位。
+   席位分配在「公司管理」的公司卡片 → 席位抽屉;公司角色在「研发资源」配置。
+   删除用户 = 销账号:先 revoke 其在各家公司的资源池投影(历史记录保留姓名
+   快照),再删 users 行;不能删除当前登录账号。 */
 export function MembersPanel() {
   const { data: users, isLoading, isError } = usePlatformUsers();
+  const { session } = useAppData();
+  const del = useDeleteUser();
   const [modalOpen, setModalOpen] = React.useState(false);
+  const [target, setTarget] = React.useState<PlatformUser | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const confirmDelete = async () => {
+    if (!target) return;
+    setError(null);
+    try {
+      await del.mutateAsync(target.userId);
+      setTarget(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  };
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
@@ -39,6 +60,7 @@ export function MembersPanel() {
                 <th className={thCls}>平台角色</th>
                 <th className={thCls}>公司席位</th>
                 <th className={thCls}>创建时间</th>
+                <th className={thCls} />
               </tr>
             </thead>
             <tbody>
@@ -80,13 +102,40 @@ export function MembersPanel() {
                   <td className={tdCls}>
                     <span className="text-fg-3">{fmtDate(u.createdAt)}</span>
                   </td>
+                  <td className={tdCls}>
+                    {u.userId !== session?.user.id && (
+                      <button
+                        className="text-fg-3 hover:text-danger disabled:opacity-40"
+                        title="删除用户"
+                        disabled={del.isPending}
+                        onClick={() => {
+                          setError(null);
+                          setTarget(u);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+      {error && <div className="border-t border-border px-4 py-2 text-[12.5px] text-danger">{error}</div>}
       <CreateUserModal open={modalOpen} onOpenChange={setModalOpen} />
+      <ConfirmDestructive
+        open={!!target}
+        onOpenChange={(o) => !o && setTarget(null)}
+        name={target?.username ?? ''}
+        chips={[
+          ...(target?.seats.length ? [`${target.seats.length} 个公司席位`] : []),
+          '各公司资源池投影(revoke,历史记录保留)',
+        ]}
+        busy={del.isPending}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

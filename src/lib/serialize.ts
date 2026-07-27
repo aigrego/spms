@@ -31,6 +31,7 @@ export function serializeIssueList(row: {
   backlogRank: number;
   aiAssigned: boolean;
   commentsCount: number;
+  archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   issueLabels: LabelRow[];
@@ -62,6 +63,7 @@ export function serializeIssueList(row: {
     commentsCount: row.commentsCount,
     labels: row.issueLabels.map((il) => il.label?.id).filter(Boolean) as string[],
     sub: total > 0 ? { done, total } : null,
+    archivedAt: row.archivedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

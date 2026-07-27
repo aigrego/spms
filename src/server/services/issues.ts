@@ -1,9 +1,10 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { issues, issueLabels, subIssues, activities, members, projects, requirements, sprints } from '@/db/schema';
 import { serializeIssueList, serializeIssueDetail } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
+import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
 import { onAgentAssigned } from '@/lib/agents';
 import { requirePerm } from '@/lib/permissions';
 import type { Actor } from './types';
@@ -100,7 +101,10 @@ async function resolveSprintProject(
 }
 
 /* ---- list (optionally filtered by team / assignee / project) ---- */
-export async function listIssues(actor: Actor, filter?: { team?: string; assignee?: string; project?: string }) {
+export async function listIssues(
+  actor: Actor,
+  filter?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean },
+) {
   await requirePerm(actor, 'issues', 'read');
   const conds = [eq(issues.companyId, actor.companyId)];
   if (filter?.team) conds.push(eq(issues.teamId, filter.team));
@@ -108,6 +112,18 @@ export async function listIssues(actor: Actor, filter?: { team?: string; assigne
   if (filter?.project) conds.push(eq(issues.projectId, filter.project));
   // 令牌项目白名单：只看得到白名单内的项目（无项目的 Issue 也不可见）。
   if (actor.allowedProjectIds) conds.push(inArray(issues.projectId, actor.allowedProjectIds));
+  // 指派可见性：仅可见项目的 Issue 可见;无项目(projectId NULL)的 Issue 视为
+  // 公司级,不过滤。与白名单条件并存(AND = 交集)。
+  const visibleProjectIds = clampAllowed(actor, (await visibleSetsFor(actor))?.projectIds ?? null);
+  if (visibleProjectIds) {
+    conds.push(or(isNull(issues.projectId), inArray(issues.projectId, visibleProjectIds))!);
+  }
+  // 归档:默认排除已归档 issue 及归属已归档项目的 issue(includeArchived 放行,
+  // 供「全部 Issues」的显示开关与项目中心的历史上下文)。
+  if (!filter?.includeArchived) {
+    conds.push(isNull(issues.archivedAt));
+    conds.push(or(isNull(issues.projectId), notInArray(issues.projectId, await archivedProjectIds(actor.companyId)))!);
+  }
   const rows = await db.query.issues.findMany({
     where: and(...conds),
     with: withRelations,
@@ -116,14 +132,28 @@ export async function listIssues(actor: Actor, filter?: { team?: string; assigne
   return rows.map(serializeIssueList);
 }
 
-/* 令牌项目白名单：issue 不在白名单项目内时按「不存在」处理（读），
-   写路径（create/update 换项目）则显式 403。 */
-function issueVisible(actor: Actor, projectId: string | null): boolean {
-  return !actor.allowedProjectIds || (!!projectId && actor.allowedProjectIds.includes(projectId));
+/* 本公司已归档项目的 id 集(归档项目 = 其 issue 的批量归档)。
+   供 listIssues / getBacklog 的归档排除共用。 */
+export async function archivedProjectIds(companyId: string): Promise<string[]> {
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.companyId, companyId), sql`${projects.archivedAt} is not null`));
+  return rows.map((r) => r.id);
 }
-function assertProjectWritable(actor: Actor, projectId: string | null) {
-  if (!issueVisible(actor, projectId)) {
-    throw new ApiException('FORBIDDEN', '该令牌的项目白名单不包含此项目', 403);
+
+/* 读单条按「不存在」处理（写路径 create/update 换项目则显式 403）:
+   1) 令牌项目白名单(无项目的 Issue 也不可见);
+   2) 指派可见性(visibility.ts;无项目的 Issue 公司级放行)。 */
+async function issueVisible(actor: Actor, projectId: string | null): Promise<boolean> {
+  if (actor.allowedProjectIds && (!projectId || !actor.allowedProjectIds.includes(projectId))) return false;
+  if (!projectId) return true;
+  const visible = await visibleSetsFor(actor);
+  return !visible || visible.projectIds.includes(projectId);
+}
+async function assertProjectWritable(actor: Actor, projectId: string | null) {
+  if (!(await issueVisible(actor, projectId))) {
+    throw new ApiException('FORBIDDEN', '该项目不在你的可见范围内', 403);
   }
 }
 
@@ -132,7 +162,7 @@ function assertProjectWritable(actor: Actor, projectId: string | null) {
 export async function getIssue(actor: Actor, key: string) {
   await requirePerm(actor, 'issues', 'read');
   const row = await findByKey(actor.companyId, key);
-  if (!row || !issueVisible(actor, row.projectId)) return null;
+  if (!row || !(await issueVisible(actor, row.projectId))) return null;
   const detail = await fetchDetail(row.id);
   return detail ? serializeIssueDetail(detail) : null;
 }
@@ -177,7 +207,7 @@ export async function createIssue(actor: Actor, input: CreateIssueInput) {
     resolvedProjectId = await resolveSprintProject(companyId, input.sprintId, resolvedProjectId);
   }
   // 令牌项目白名单：只能在白名单项目内创建。
-  assertProjectWritable(actor, resolvedProjectId);
+  await assertProjectWritable(actor, resolvedProjectId);
 
   // Legacy team inherited from the project (team is retired from the UI).
   const teamId = await teamForProject(companyId, resolvedProjectId);
@@ -259,8 +289,8 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
   const companyId = actor.companyId;
   const existing = await findByKey(companyId, key);
   if (!existing) throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
-  // 令牌项目白名单：白名单外的 Issue 按不存在处理，且不能改入白名单外项目。
-  if (!issueVisible(actor, existing.projectId)) {
+  // 令牌项目白名单 + 指派可见性：范围外的 Issue 按不存在处理，且不能改入范围外项目。
+  if (!(await issueVisible(actor, existing.projectId))) {
     throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
   }
 
@@ -288,7 +318,7 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
     const effProject = input.projectId !== undefined ? input.projectId : existing.projectId;
     patch.projectId = await resolveSprintProject(companyId, nextSprintId, effProject ?? null);
   }
-  if (patch.projectId !== undefined) assertProjectWritable(actor, patch.projectId ?? null);
+  if (patch.projectId !== undefined) await assertProjectWritable(actor, patch.projectId ?? null);
   // Keep the legacy teamId aligned with the issue's (possibly changed) project.
   if (patch.projectId !== undefined) {
     patch.teamId = await teamForProject(companyId, patch.projectId ?? null);
@@ -358,6 +388,30 @@ export async function deleteIssue(actor: Actor, key: string) {
   if (!existing) throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
   await db.delete(issues).where(eq(issues.id, existing.id));
   return { id: key };
+}
+
+/* ---- archive / unarchive ----
+   归档只影响可见性(全部 Issues/产品待办默认隐藏),不做只读约束;迭代详情、
+   项目中心等历史上下文仍可见。 */
+export async function archiveIssue(actor: Actor, key: string, archived: boolean) {
+  await requirePerm(actor, 'issues', 'write');
+  const existing = await findByKey(actor.companyId, key);
+  if (!existing || !(await issueVisible(actor, existing.projectId))) {
+    throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
+  }
+  await db
+    .update(issues)
+    .set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() })
+    .where(eq(issues.id, existing.id));
+  await db.insert(activities).values({
+    id: crypto.randomUUID(),
+    companyId: actor.companyId,
+    issueId: existing.id,
+    whoId: actor.memberId,
+    kind: 'status',
+    body: archived ? '归档了该 Issue' : '取消了归档',
+  });
+  return { id: key, archived };
 }
 
 /* ---- add a comment (creates an activity + bumps comment count) ---- */

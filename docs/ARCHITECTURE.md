@@ -124,6 +124,7 @@ next-spms/
 - 平台管理员在 设置 → 成员管理 看**全部系统用户**（目录 + 新建用户）；在 公司管理 的公司卡片 → **席位**抽屉里把用户分配进/回收出某公司（默认角色 viewer）。
 - 公司管理员在 **研发资源 → 内部成员** 给本公司席位成员调整公司角色 / 移除席位（`/api/v1/pms/seats`）。
 - 席位分配时把用户幂等投影进本公司资源池（`members` 表，供指派）；席位移除时同步撤销该投影（移出所有节点指派、状态置 revoked，重新分配席位时自动重激活）。仅持席位的用户才会被懒投影——无席位的平台管理员进入公司沙箱不再产生 `members` 行（其 `Actor.memberId` 为 null）。
+- **删除用户**（成员管理页，`DELETE /api/v1/platform/users/:userId`，不能删自己）：先把该用户在各家公司的投影逐一 revoke（同席位移除的善后），再删 `users` 行；`members.user_id` 外键 `ON DELETE SET NULL` 兜底——member 行永不随用户硬删，历史 issue/活动的归属与姓名快照保留。
 - **邀请外部资源（按邮箱）**：邮箱已属于平台用户（`user_emails` 主/备）→ 直接落 `userId`、转 internal/active 并授 viewer 席位（与 Lark 认领同结果）；否则预埋 external/invited 行，等本人 Lark 登录按 verified 邮箱认领。
 
 **角色×模块矩阵**（`src/lib/permissions.ts`）：
@@ -134,6 +135,8 @@ next-spms/
 
 **权限门**：services 每个入口 `requirePerm(actor, module, 'read'|'write')`，不足抛 `FORBIDDEN`（403）。
 前端经 `GET /api/auth/session`（或 bootstrap）拿到 `permissions`（当前用户各模块有效级别），按此过滤侧边栏与按钮。
+
+**指派可见性**（`src/lib/visibility.ts`，四期）：模块读权限之上再按「研发资源指派」收窄——节点 N 对成员可见 ⟺ 该成员在 N 的子树（含 N）或 N 的祖先链上有 `resource_assignments` **direct** 行（加入 sprint → 其 project/release/product 可见便于导航，兄弟节点不可见）。平台管理员/company_admin 豁免；无任何 direct 指派的普通成员看不到任何节点（严格模式）。应用点：bootstrap 与 issues/requirements/testcases/sprints/catalog 的 list + 详情（范围外按「不存在」处理），MCP 与令牌白名单 `allowedProjectIds` 取交集。产品线不过滤（导航壳，不在指派节点内）；`projectId` 为 NULL 的 issue 视为公司级不过滤；成员池/assignments 服务本身不过滤（管理入口需见全池）。只挡「看」，写操作权限不变。
 
 默认矩阵（seed 写入全局层，可在 /settings?tab=matrix 改）：
 

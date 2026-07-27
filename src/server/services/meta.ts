@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   members,
@@ -15,6 +15,7 @@ import {
 import { ensureAgents, ensureAiLabel } from '@/lib/identity';
 import { computeRollups } from '@/lib/rollup';
 import { permsForActor } from '@/lib/permissions';
+import { visibleSetsFor } from '@/lib/visibility';
 import type { Actor } from './types';
 
 /* Reference data for app start-up. Ported from
@@ -52,6 +53,14 @@ export async function bootstrap(actor: Actor) {
   // stored column. Override the returned `progress` so the UI shows the truth.
   const { projectProgress, releaseProgress } = await computeRollups(companyId);
 
+  // 可见性(visibility.ts):普通成员只看到「自己或后代有 direct 指派」的节点
+  // 及其祖先链;null = 管理员不限制;productLines 不过滤(导航壳)。
+  const visible = await visibleSetsFor(actor);
+  const visProjects = visible ? projectRows.filter((p) => visible.projectIds.includes(p.id)) : projectRows;
+  const visSprints = visible ? sprintRows.filter((s) => visible.sprintIds.includes(s.id)) : sprintRows;
+  const visProducts = visible ? productRows.filter((p) => visible.productIds.includes(p.id)) : productRows;
+  const visReleases = visible ? releaseRows.filter((r) => visible.releaseIds.includes(r.id)) : releaseRows;
+
   // Companies the actor can enter: every company for a platform admin, else the
   // companies they hold a membership in (oldest membership first).
   const companyRows = actor.isPlatformAdmin
@@ -82,10 +91,10 @@ export async function bootstrap(actor: Actor) {
     members: memberRows,
     teams: teamRows,
     labels: labelRows,
-    projects: projectRows.map((p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 })),
-    sprints: sprintRows,
+    projects: visProjects.map((p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 })),
+    sprints: visSprints,
     productLines: productLineRows,
-    products: productRows,
-    releases: releaseRows.map((r) => ({ ...r, progress: releaseProgress.get(r.id) ?? 0 })),
+    products: visProducts,
+    releases: visReleases.map((r) => ({ ...r, progress: releaseProgress.get(r.id) ?? 0 })),
   };
 }

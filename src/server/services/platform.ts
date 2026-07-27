@@ -2,8 +2,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db';
-import { companies, companyMemberships, mcpApiKeys, projects, rolePermissions, users } from '@/db/schema';
+import { companies, companyMemberships, members, mcpApiKeys, projects, rolePermissions, users } from '@/db/schema';
 import { addEmail, primaryEmailsFor } from '@/lib/emails';
+import { unassignMemberEverywhere } from '@/lib/assignments';
 import { ApiException } from '@/lib/envelope';
 import { ensureCurrentMember, revokeMemberProjection } from '@/lib/identity';
 import { hashPassword } from '@/lib/password';
@@ -210,6 +211,29 @@ export async function createUser(actor: Actor, input: CreateUserInput) {
   await db.insert(users).values({ id, username, passwordHash: await hashPassword(input.password), name, role: 'member' });
   if (input.email?.trim()) await addEmail(id, input.email, { isPrimary: true });
   return { id, username, name };
+}
+
+/* ---- delete a system account (platform admin; cannot delete yourself) ----
+   善后先于删除:把该用户在各家公司的 member 投影逐一 revoke(移出全部节点
+   指派、置 revoked,姓名快照保留给历史 issue/活动),再删 users 行 —— FK
+   兜底:members.userId set null(行保留)、company_memberships/user_emails
+   cascade、mcp_api_keys.createdBy/ownerId set null(该 key 调用将
+   UNAUTHORIZED,需重新指定所属人)。 */
+export async function deleteUser(actor: Actor, userId: string) {
+  requirePlatformAdmin(actor);
+  if (userId === actor.userId) throw new ApiException('VALIDATION_FAILED', '不能删除当前登录账号');
+  const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!u) throw new ApiException('MEMBER_NOT_FOUND', '用户不存在');
+  const projections = await db
+    .select({ id: members.id, companyId: members.companyId })
+    .from(members)
+    .where(eq(members.userId, userId));
+  for (const m of projections) {
+    await unassignMemberEverywhere(m.companyId, m.id);
+    await db.update(members).set({ status: 'revoked' }).where(eq(members.id, m.id));
+  }
+  await db.delete(users).where(eq(users.id, userId));
+  return { id: userId, revokedProjections: projections.length };
 }
 
 /* ---- a company's memberships joined with the users row ---- */

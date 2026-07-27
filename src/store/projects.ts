@@ -31,3 +31,11 @@ export function useDeleteProject() {
   const invalidate = useInvalidate();
   return useMutation({ mutationFn: (id: string) => api.deleteProject(id), onSuccess: invalidate });
 }
+
+export function useArchiveProject() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: ({ id, archived }: { id: string; archived: boolean }) => api.archiveProject(id, archived),
+    onSuccess: invalidate,
+  });
+}

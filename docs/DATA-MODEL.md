@@ -60,7 +60,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 复合 PK `(companyId, name)` · `companyId` NN → companies cascade · `name` NN · `value` int NN 默认 0 —— `INSERT ... ON CONFLICT DO UPDATE SET value = counters.value + 1 RETURNING value`；同一前缀（如 BUG）在不同公司各自从 1 起编。
 
 ### members（人 + AI agent 同表）
-`id` PK · `type` NN 默认 human · `name` NN · `initials` NN · `color` · `role` · `userId` unique（→ users.id）· `agentKey` unique（atlas|forge|sentry|scribe）· `origin` NN 默认 internal · `email` unique · `status` NN 默认 active
+`id` PK · `type` NN 默认 human · `name` NN · `initials` NN · `color` · `role` · `userId`（→ users.id **ON DELETE SET NULL**：删用户时行保留作"前成员"，姓名快照+历史归属不丢）· `agentKey` unique（atlas|forge|sentry|scribe）· `origin` NN 默认 internal · `email` unique · `status` NN 默认 active
 
 ### teams（遗留概念，UI 已隐藏）
 `id` PK · `key` unique NN · `name` NN · `color` NN
@@ -78,7 +78,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 `id` PK · `productId` NN → products cascade · `key` unique NN（RL-N）· `name` NN · `description` · `status` NN 默认 planned · `phase` NN 默认 concept · `targetDate` · `progress` real NN 默认 0（存储列被派生覆盖）· `position` NN 默认 0
 
 ### projects
-`id` PK · `name` NN · `teamId` → teams · `releaseId` → releases cascade（可空）· `status` NN 默认 backlog · `leadId` / `aiLeadId` → members · `icon` NN · `color` NN · `target`（如 "Q3"）· `progress` real NN 默认 0（派生覆盖）· `description` · `summary` / `goal` / `nonGoals`（PRD 三段）
+`id` PK · `name` NN · `teamId` → teams · `releaseId` → releases cascade（可空）· `status` NN 默认 backlog · `leadId` / `aiLeadId` → members · `icon` NN · `color` NN · `target`（如 "Q3"）· `progress` real NN 默认 0（派生覆盖）· `description` · `summary` / `goal` / `nonGoals`（PRD 三段）· `archivedAt`（归档；卡片默认隐藏，其 issue 等效批量归档）
 
 ### sprints（恰好属于一个 project）
 `id` PK · `teamId` → teams（兼容保留）· `projectId` → projects cascade · `name` NN · `goal` · `status` NN 默认 planned · `startDate` / `endDate` timestamptz NN · `capacity` int · `createdAt` NN
@@ -90,7 +90,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 `id` PK · `key` unique NN（FR-N / NFR-N，创建后固定）· `projectId` NN → projects cascade · `releaseId` → releases set null · `title` NN · `type` NN 默认 functional · `category`（仅 NFR）· `priority` NN 默认 none · `importance` NN 默认 none · `status` NN 默认 draft · `description`（PRD 正文）· `acceptanceCriteria` · `authorId` / `aiOwnerId` → members · `position` NN 默认 0 · `createdAt` / `updatedAt` NN
 
 ### issues（核心工作项；缺陷 = type='bug'）
-`id` PK（内部，不出网）· `key` unique NN（BLG/TKT/BUG-N）· `teamId` → teams · `title` NN · `description` · `type` NN 默认 ticket · `status` NN 默认 todo · `priority` / `importance` NN 默认 none · `assigneeId` → members · `projectId` → projects set null · `requirementId` → requirements set null · `sprintId` → sprints set null · `estimate` int · `storyPoints` int · `backlogRank` int NN 默认 0 · `aiAssigned` bool NN 默认 false · `commentsCount` int NN 默认 0 · `createdAt` / `updatedAt` NN
+`id` PK（内部，不出网）· `key` unique NN（BLG/TKT/BUG-N）· `teamId` → teams · `title` NN · `description` · `type` NN 默认 ticket · `status` NN 默认 todo · `priority` / `importance` NN 默认 none · `assigneeId` → members · `projectId` → projects set null · `requirementId` → requirements set null · `sprintId` → sprints set null · `estimate` int · `storyPoints` int · `backlogRank` int NN 默认 0 · `aiAssigned` bool NN 默认 false · `commentsCount` int NN 默认 0 · `archivedAt`（归档；全部 Issues/产品待办默认隐藏）· `createdAt` / `updatedAt` NN
 
 ### issue_labels（多对多）
 `issueId` / `labelId` 复合 PK，均 cascade

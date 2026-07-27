@@ -67,7 +67,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
   const canWriteIssues = can('issues', 'write');
   const canWriteRequirements = can('requirements', 'write');
   const canWriteTestcases = can('testcases', 'write');
-  const { data: allIssues = [] } = useAllIssues();
+  const { data: allIssues = [] } = useAllIssues(true); // 项目中心 = 历史上下文,含已归档
   const { data: requirements = [] } = useRequirements({ project: projectId });
   const { data: testCases = [] } = useTestCases({ project: projectId });
   const createReq = useCreateRequirement();

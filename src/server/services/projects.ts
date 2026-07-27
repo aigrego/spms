@@ -147,6 +147,25 @@ export async function updateProject(actor: Actor, id: string, input: UpdateProje
   return row;
 }
 
+/* ---- archive / unarchive (company_admin / 平台管理员,与删除同级) ----
+   归档项目的全部 issue 从「全部 Issues」/产品待办隐藏(等效批量归档);
+   项目卡片默认隐藏;项目中心/迭代详情等历史上下文仍可见。 */
+export async function archiveProject(actor: Actor, id: string, archived: boolean) {
+  await requirePerm(actor, 'projects', 'write');
+  requireProjectAdmin(actor);
+  const [existing] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.companyId, actor.companyId), eq(projects.id, id)))
+    .limit(1);
+  if (!existing) throw new ApiException('PROJECT_NOT_FOUND');
+  await db
+    .update(projects)
+    .set({ archivedAt: archived ? new Date() : null })
+    .where(eq(projects.id, id));
+  return { id, archived };
+}
+
 /* ---- delete ---- (detaches issues, cascades requirements/sprints) */
 export async function deleteProject(actor: Actor, id: string) {
   await requirePerm(actor, 'projects', 'write');

@@ -2,17 +2,17 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Hash, Target } from 'lucide-react';
+import { Plus, Hash, Target, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar } from '@/components/glyphs/Avatar';
 import { ProjectIcon } from '@/components/glyphs/misc';
 import { PROJECT_STATUS, PROJECT_PHASE, PROJECT_PHASE_ORDER } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useAllIssues } from '@/store/issues';
-import { useDeleteProject } from '@/store/projects';
+import { useArchiveProject, useDeleteProject } from '@/store/projects';
 import { ProjectModal } from '@/components/ProjectModal';
+import { ResourcePanel } from '@/components/ResourcePanel';
 import { RowActions } from '@/components/RowActions';
 import { ConfirmDestructive } from '@/components/ConfirmDestructive';
 import type { Project, ProjectPhase } from '@/lib/types';
@@ -98,9 +98,10 @@ function PhaseStepper({ phase }: { phase: ProjectPhase }) {
 export function ProjectsView() {
   const t = useT();
   const router = useRouter();
-  const { projects, memberById, releaseById, productById, can, companyRole, isPlatformAdmin } = useAppData();
+  const { projects, releaseById, productById, can, companyRole, isPlatformAdmin } = useAppData();
   const { data: issues = [] } = useAllIssues();
   const del = useDeleteProject();
+  const archive = useArchiveProject();
   // RBAC gate (P5): creating needs projects:write; editing/deleting a project
   // additionally requires company admin (or platform admin) — the old
   // role==='admin' gate's semantics carried over.
@@ -110,6 +111,9 @@ export function ProjectsView() {
   const [modalOpen, setModalOpen] = React.useState(false);
   const [editProject, setEditProject] = React.useState<Project | null>(null);
   const [delProject, setDelProject] = React.useState<Project | null>(null);
+  // 已归档项目卡片默认隐藏,可切换查看。
+  const [showArchived, setShowArchived] = React.useState(false);
+  const shownProjects = showArchived ? projects : projects.filter((p) => !p.archivedAt);
   const openNew = () => {
     setEditProject(null);
     setModalOpen(true);
@@ -121,7 +125,17 @@ export function ProjectsView() {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <ViewHeader title={t('projects.title')} count={projects.length}>
+      <ViewHeader title={t('projects.title')} count={shownProjects.length}>
+        <button
+          onClick={() => setShowArchived(!showArchived)}
+          className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[13px] ${
+            showArchived
+              ? 'border-brand-blue bg-brand-blue/10 text-brand-blue'
+              : 'border-border bg-surface text-fg-2 hover:bg-surface-2'
+          }`}
+        >
+          <Archive size={14} /> {t('issues.showArchived')}
+        </button>
         {canCreate && (
           <Button variant="primary" size="md" onClick={openNew}>
             <Plus size={14} /> {t('projects.new')}
@@ -130,9 +144,7 @@ export function ProjectsView() {
       </ViewHeader>
       <div className="flex-1 overflow-y-auto p-6">
         <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))' }}>
-          {projects.map((p) => {
-            const lead = memberById(p.leadId);
-            const aiLead = memberById(p.aiLeadId);
+          {shownProjects.map((p) => {
             const ps = PROJECT_STATUS[p.status];
             const cnt = issues.filter((i) => i.projectId === p.id).length;
             const release = releaseById(p.releaseId);
@@ -152,12 +164,26 @@ export function ProjectsView() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[15px] font-semibold text-fg-1">{p.name}</div>
-                    <Badge tone={ps.tone} dot>
-                      {t(`projectStatus.${p.status}`)}
-                    </Badge>
+                    <div className="flex items-center gap-1.5">
+                      <Badge tone={ps.tone} dot>
+                        {t(`projectStatus.${p.status}`)}
+                      </Badge>
+                      {p.archivedAt && (
+                        <Badge tone="neutral">
+                          <Archive size={11} /> {t('issue.archived')}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <div className="opacity-0 transition-opacity group-hover:opacity-100">
-                    {canManage && <RowActions onEdit={() => openEdit(p)} onDelete={() => setDelProject(p)} />}
+                    {canManage && (
+                      <RowActions
+                        onEdit={() => openEdit(p)}
+                        onArchive={() => archive.mutate({ id: p.id, archived: !p.archivedAt })}
+                        archived={!!p.archivedAt}
+                        onDelete={() => setDelProject(p)}
+                      />
+                    )}
                   </div>
                   <ProgressRing value={p.progress} color={p.color} />
                 </div>
@@ -173,12 +199,11 @@ export function ProjectsView() {
                 )}
                 {/* PMS-2: lifecycle phase comes from the project's release */}
                 {release && <PhaseStepper phase={release.phase} />}
+                {/* 研发团队(虚拟团队)直接上卡片,交互同迭代卡片:avatar 堆叠
+                    + Popover 指派;指派的 role=lead 即新 lead 展示(legacy
+                    leadId/aiLeadId 字段保留于编辑弹窗,卡片不再展示)。 */}
                 <div className="flex items-center gap-2.5 border-t border-border pt-3">
-                  <Avatar person={lead} size={22} />
-                  {aiLead && <Avatar person={aiLead} size={22} />}
-                  <span className="text-[12px] text-fg-3">
-                    {[lead?.name, aiLead ? aiLead.name.split(' · ')[0] : null].filter(Boolean).join(' · ') || null}
-                  </span>
+                  <ResourcePanel nodeType="project" nodeId={p.id} variant="compact" />
                   <div className="flex-1" />
                   <span className="inline-flex items-center gap-1 text-[12px] text-fg-3">
                     <Hash size={13} />

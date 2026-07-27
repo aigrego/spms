@@ -7,6 +7,7 @@ import { companies, companyMemberships, labels, members, productLines, products,
 import { ApiException, type ErrorCode } from '@/lib/envelope';
 import { ensureAgents, ensureCurrentMember } from '@/lib/identity';
 import { computeRollups } from '@/lib/rollup';
+import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
 import * as issueSvc from '@/server/services/issues';
 import * as attachmentSvc from '@/server/services/attachments';
 import * as projectSvc from '@/server/services/projects';
@@ -130,9 +131,15 @@ async function loadBootstrap(actor: Actor) {
   // Project/release progress is derived from issue completion, not the stored column.
   const { projectProgress, releaseProgress } = await computeRollups(companyId);
   const [currentCompany] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
-  // 令牌项目白名单：bootstrap 里的 projects 同样收窄，避免泄露白名单外项目。
-  const allowed = actor.allowedProjectIds;
-  const visibleProjects = allowed ? projectRows.filter((p) => allowed.includes(p.id)) : projectRows;
+  // 令牌项目白名单 ∩ 指派可见性(visibility.ts):projects/sprints/products/
+  // releases 同步收窄,避免泄露范围外节点;productLines 为导航壳不过滤。
+  const visible = await visibleSetsFor(actor);
+  const visibleProjectIds = clampAllowed(actor, visible?.projectIds ?? null);
+  const visibleSprintIds = visible ? new Set(visible.sprintIds) : null;
+  const visibleProductIds = visible ? new Set(visible.productIds) : null;
+  const visibleReleaseIds = visible ? new Set(visible.releaseIds) : null;
+  // sprint 归属项目还须在(白名单 ∩ 可见性)项目集内。
+  const sprintProjectAllowed = visibleProjectIds ? new Set(visibleProjectIds) : null;
   return {
     me: actor.memberId,
     role: actor.role,
@@ -141,11 +148,23 @@ async function loadBootstrap(actor: Actor) {
     members: memberRows,
     teams: teamRows,
     labels: labelRows,
-    projects: visibleProjects.map((p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 })),
-    sprints: sprintRows,
+    projects: (visibleProjectIds ? projectRows.filter((p) => visibleProjectIds.includes(p.id)) : projectRows).map(
+      (p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 }),
+    ),
+    sprints:
+      visibleSprintIds || sprintProjectAllowed
+        ? sprintRows.filter(
+            (s) =>
+              (!visibleSprintIds || visibleSprintIds.has(s.id)) &&
+              (!sprintProjectAllowed || (s.projectId != null && sprintProjectAllowed.has(s.projectId))),
+          )
+        : sprintRows,
     productLines: productLineRows,
-    products: productRows,
-    releases: releaseRows.map((r) => ({ ...r, progress: releaseProgress.get(r.id) ?? 0 })),
+    products: visibleProductIds ? productRows.filter((p) => visibleProductIds.has(p.id)) : productRows,
+    releases: (visibleReleaseIds ? releaseRows.filter((r) => visibleReleaseIds.has(r.id)) : releaseRows).map((r) => ({
+      ...r,
+      progress: releaseProgress.get(r.id) ?? 0,
+    })),
   };
 }
 

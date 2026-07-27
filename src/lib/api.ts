@@ -248,9 +248,10 @@ const json = (method: string, body?: unknown): RequestInit => ({
 export const api = {
   bootstrap: () => request<Bootstrap>('/bootstrap'),
 
-  issues: (params?: { team?: string; assignee?: string; project?: string }) => {
+  issues: (params?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean }) => {
     const q = new URLSearchParams(
-      Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
+      Object.entries({ ...params, includeArchived: params?.includeArchived ? '1' : undefined })
+        .filter(([, v]) => v) as [string, string][],
     ).toString();
     return request<Issue[]>(`/issues${q ? `?${q}` : ''}`);
   },
@@ -262,6 +263,9 @@ export const api = {
 
   updateIssue: (id: string, input: UpdateIssueInput) =>
     request<IssueDetail>(`/issues/${id}`, json('PATCH', input)),
+
+  archiveIssue: (id: string, archived: boolean) =>
+    request<{ id: string; archived: boolean }>(`/issues/${id}/archive`, json('POST', { archived })),
 
   deleteIssue: (id: string) => request<{ id: string }>(`/issues/${id}`, { method: 'DELETE' }),
 
@@ -349,6 +353,8 @@ export const api = {
   updateProject: (id: string, input: Partial<ProjectInput>) =>
     request<Project>(`/projects/${id}`, json('PATCH', input)),
   deleteProject: (id: string) => request<{ id: string }>(`/projects/${id}`, { method: 'DELETE' }),
+  archiveProject: (id: string, archived: boolean) =>
+    request<{ id: string; archived: boolean }>(`/projects/${id}/archive`, json('POST', { archived })),
 
   /* ---- Requirements / PRD ---- */
   requirements: (params?: { project?: string; type?: RequirementType }) => {
