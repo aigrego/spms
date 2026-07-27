@@ -26,6 +26,8 @@ import type { Actor } from './types';
    Name(title)/Request Description(rich_text)/Status(status)/Assigned To
    (people)/Files & media(files)/Tags(multi_select)/Id(unique_id)。
    展示 key 采用 Id(unique_id)的 "CRM-518"(缺失才按类型自动分配);
+   创建时间回写 Notion created_time,done 的完成时间同值回写(真实完成
+   时刻不可考的最佳近似);老数据随页面变更逐条收敛;
    老数据追平(页面未变更也执行):key 追平为 unique_id;映射状态与现值
    不一致时照常走完整更新。
    v1 明示限制:附件只在新建时同步,后续新增的图片不补。 */
@@ -273,6 +275,9 @@ async function syncPage(
     .where(and(eq(notionIssueLinks.connectionId, conn.id), eq(notionIssueLinks.notionPageId, page.id)))
     .limit(1);
   const edited = new Date(page.last_edited_time);
+  // Notion created_time 是 issue 的真实创建时间(createIssue 落的是同步时刻),
+  // 创建与更新两条路径都回写,老数据随页面变更逐条收敛。
+  const notionCreatedAt = page.created_time ? new Date(page.created_time) : null;
   // SPMS 展示 key 直接采用 Notion unique_id("CRM-518");缺失则按类型自动分配。
   const wantedKey = notionUniqueId(page);
 
@@ -314,6 +319,14 @@ async function syncPage(
       ...(mappedStatus !== undefined ? { status: mappedStatus } : {}),
       ...(assigneeId !== undefined ? { assigneeId } : {}),
     });
+    // done 的完成时间同样回写为 created_time(真实完成时刻不可考的最佳近似)。
+    const finalStatus = mappedStatus ?? issueRow.status;
+    if (notionCreatedAt) {
+      await db
+        .update(issues)
+        .set({ createdAt: notionCreatedAt, ...(finalStatus === 'done' ? { completedAt: notionCreatedAt } : {}) })
+        .where(eq(issues.id, link.issueId));
+    }
     await db
       .update(notionIssueLinks)
       .set({ notionLastEditedAt: edited })
@@ -340,6 +353,12 @@ async function syncPage(
     .where(and(eq(issues.companyId, actor.companyId), eq(issues.key, created.id)))
     .limit(1);
   if (!row) throw new Error('新建 Issue 回读失败');
+  if (notionCreatedAt) {
+    await db
+      .update(issues)
+      .set({ createdAt: notionCreatedAt, ...((status ?? 'todo') === 'done' ? { completedAt: notionCreatedAt } : {}) })
+      .where(eq(issues.id, row.id));
+  }
   await syncAttachments(actor, conn, page, created.id, errors);
   await db.insert(notionIssueLinks).values({
     id: crypto.randomUUID(),

@@ -524,6 +524,10 @@ export const issues = pgTable(
     // 归档:非 NULL 时从「全部 Issues」/产品待办默认隐藏(可用 includeArchived
     // 找回);迭代详情/项目中心等历史上下文仍显示。
     archivedAt: timestamp('archived_at', { withTimezone: true }),
+    // 完成时间:状态进入 done 时写入,离开 done 清空;「最近一周完成」过滤的
+    // 依据。Notion 同步的 done issue 回写为页面 created_time(真实完成时刻
+    // 不可考,创建时间是最佳近似)。
+    completedAt: timestamp('completed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

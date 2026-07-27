@@ -45,7 +45,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/issues?team&assignee&project&includeArchived&recentDone` | 列表，updatedAt desc；带 labels/subIssues/requirement.key；`sub:{done,total}`；默认排除已归档 issue 及已归档项目的 issue（`includeArchived=1` 放行，项目中心等历史上下文用）；`recentDone=1` 时已完成（done）只显示最近一周的记录（按 updatedAt，全部/我的 Issues 视图 opt-in，其余消费方全量） |
+| GET | `/issues?team&assignee&project&includeArchived&recentDone` | 列表，updatedAt desc；带 labels/subIssues/requirement.key；`sub:{done,total}`；默认排除已归档 issue 及已归档项目的 issue（`includeArchived=1` 放行，项目中心等历史上下文用）；`recentDone=1` 时已完成（done）只显示最近一周完成的记录（按 `completedAt`，全部/我的 Issues 视图 opt-in，其余消费方全量） |
 | GET | `/issues/:key` | 详情（含 activities）；不存在 → `ok(null)` |
 | POST | `/issues` | title 必填；requirementId 收展示 key；sprint-project 一致性（冲突 → LIFECYCLE_MISMATCH）；写 created activity；指派 agent 触发 AI 演示 |
 | PATCH | `/issues/:key` | 部分更新；labels 全量替换；assignee 变更写 assign activity |

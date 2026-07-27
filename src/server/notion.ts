@@ -126,6 +126,7 @@ export interface NotionPageObject {
   url?: string;
   archived?: boolean;
   in_trash?: boolean;
+  created_time?: string;
   last_edited_time: string;
   properties?: Record<string, unknown>;
 }

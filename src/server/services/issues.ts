@@ -124,11 +124,11 @@ export async function listIssues(
     conds.push(isNull(issues.archivedAt));
     conds.push(or(isNull(issues.projectId), notInArray(issues.projectId, await archivedProjectIds(actor.companyId)))!);
   }
-  // 已完成(done)只保留最近一周的记录(按 updatedAt):opt-in,仅全部/我的
-  // Issues 视图由路由层传 recentDone=1 开启;MCP 与其他消费方不传,拿全量。
+  // 已完成(done)只保留最近一周的记录(按 completedAt 完成时间):opt-in,仅全部/
+  // 我的 Issues 视图由路由层传 recentDone=1 开启;MCP 与其他消费方不传,拿全量。
   if (filter?.recentDoneOnly) {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    conds.push(or(ne(issues.status, 'done'), gte(issues.updatedAt, weekAgo))!);
+    conds.push(or(ne(issues.status, 'done'), gte(issues.completedAt, weekAgo))!);
   }
   const rows = await db.query.issues.findMany({
     where: and(...conds),
@@ -238,6 +238,7 @@ export async function createIssue(actor: Actor, input: CreateIssueInput) {
     description: input.description ?? null,
     type: issueType,
     status: input.status ?? 'todo',
+    completedAt: input.status === 'done' ? new Date() : null,
     priority: input.priority ?? 'none',
     importance: input.importance ?? 'none',
     assigneeId: input.assigneeId ?? null,
@@ -306,7 +307,12 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
   if (input.title !== undefined) patch.title = input.title;
   if (input.description !== undefined) patch.description = input.description;
   if (input.type !== undefined) patch.type = input.type;
-  if (input.status !== undefined) patch.status = input.status;
+  if (input.status !== undefined) {
+    patch.status = input.status;
+    // 完成时间:进入 done 写入,离开 done 清空(重开后再完成取最新时刻)。
+    if (input.status === 'done' && existing.status !== 'done') patch.completedAt = new Date();
+    else if (input.status !== 'done' && existing.status === 'done') patch.completedAt = null;
+  }
   if (input.priority !== undefined) patch.priority = input.priority;
   if (input.importance !== undefined) patch.importance = input.importance;
   if (input.projectId !== undefined) patch.projectId = input.projectId;

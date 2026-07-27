@@ -85,6 +85,13 @@
       "when": 1785134704491,
       "tag": "0011_quiet_black_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785143374910,
+      "tag": "0012_lean_shinobi_shaw",
+      "breakpoints": true
     }
   ]
 }

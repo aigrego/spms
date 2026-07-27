@@ -90,7 +90,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 `id` PK · `key` unique NN（FR-N / NFR-N，创建后固定）· `projectId` NN → projects cascade · `releaseId` → releases set null · `title` NN · `type` NN 默认 functional · `category`（仅 NFR）· `priority` NN 默认 none · `importance` NN 默认 none · `status` NN 默认 draft · `description`（PRD 正文）· `acceptanceCriteria` · `authorId` / `aiOwnerId` → members · `position` NN 默认 0 · `createdAt` / `updatedAt` NN
 
 ### issues（核心工作项；缺陷 = type='bug'）
-`id` PK（内部，不出网）· `key` unique NN（BLG/TKT/BUG-N）· `teamId` → teams · `title` NN · `description` · `type` NN 默认 ticket · `status` NN 默认 todo · `priority` / `importance` NN 默认 none · `assigneeId` → members · `projectId` → projects set null · `requirementId` → requirements set null · `sprintId` → sprints set null · `estimate` int · `storyPoints` int · `backlogRank` int NN 默认 0 · `aiAssigned` bool NN 默认 false · `commentsCount` int NN 默认 0 · `archivedAt`（归档；全部 Issues/产品待办默认隐藏）· `createdAt` / `updatedAt` NN
+`id` PK（内部，不出网）· `key` unique NN（BLG/TKT/BUG-N）· `teamId` → teams · `title` NN · `description` · `type` NN 默认 ticket · `status` NN 默认 todo · `priority` / `importance` NN 默认 none · `assigneeId` → members · `projectId` → projects set null · `requirementId` → requirements set null · `sprintId` → sprints set null · `estimate` int · `storyPoints` int · `backlogRank` int NN 默认 0 · `aiAssigned` bool NN 默认 false · `commentsCount` int NN 默认 0 · `archivedAt`（归档；全部 Issues/产品待办默认隐藏）· `completedAt`（进入 done 写入、离开清空；「最近一周完成」过滤依据；Notion 同步的 done 回写为页面 created_time）· `createdAt` / `updatedAt` NN
 
 ### issue_labels（多对多）
 `issueId` / `labelId` 复合 PK，均 cascade
