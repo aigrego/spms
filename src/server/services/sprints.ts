@@ -57,6 +57,8 @@ export async function listSprints(actor: Actor, filter?: { team?: string }) {
   // 指派可见性(visibility.ts);null = 管理员不限制。
   const visible = await visibleSetsFor(actor);
   if (visible) conds.push(inArray(sprints.id, visible.sprintIds));
+  // 令牌项目白名单:只看得到白名单内项目的迭代(与 MCP loadBootstrap 同款)。
+  if (actor.allowedProjectIds) conds.push(inArray(sprints.projectId, actor.allowedProjectIds));
   return db
     .select()
     .from(sprints)
@@ -94,6 +96,8 @@ export async function getVelocity(actor: Actor, filter?: { team?: string }) {
   // 指派可见性;null = 管理员不限制。
   const visible = await visibleSetsFor(actor);
   if (visible) conds.push(inArray(sprints.id, visible.sprintIds));
+  // 令牌项目白名单:只看得到白名单内项目的迭代。
+  if (actor.allowedProjectIds) conds.push(inArray(sprints.projectId, actor.allowedProjectIds));
   const sprintRows = await db
     .select()
     .from(sprints)
@@ -132,6 +136,8 @@ export async function getSprint(actor: Actor, id: string) {
   if (!sprint) return null;
   const visible = await visibleSetsFor(actor);
   if (visible && !visible.sprintIds.includes(id)) return null;
+  // 令牌项目白名单:白名单外项目的迭代详情不可读。
+  if (actor.allowedProjectIds && (!sprint.projectId || !actor.allowedProjectIds.includes(sprint.projectId))) return null;
 
   const rows = await db.query.issues.findMany({
     where: and(eq(issues.companyId, actor.companyId), eq(issues.sprintId, id)),
@@ -164,6 +170,8 @@ export async function getBurndown(actor: Actor, id: string) {
   if (!sprint) return null;
   const visible = await visibleSetsFor(actor);
   if (visible && !visible.sprintIds.includes(id)) return null;
+  // 令牌项目白名单:白名单外项目的迭代燃尽不可读。
+  if (actor.allowedProjectIds && (!sprint.projectId || !actor.allowedProjectIds.includes(sprint.projectId))) return null;
 
   const committed = sumPoints(
     await db

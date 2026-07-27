@@ -4,7 +4,7 @@ import type { AttachmentMeta, CreateIssueInput, UpdateIssueInput, Api } from '@/
 
 /* Issue-list query. "My issues" passes the current user's member id (resolved
    from /bootstrap) as the assignee param. */
-export function useIssues(params?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean }) {
+export function useIssues(params?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean }) {
   return useQuery({
     queryKey: ['issues', params ?? {}],
     queryFn: () => api.issues(params),

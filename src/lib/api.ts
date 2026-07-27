@@ -248,10 +248,13 @@ const json = (method: string, body?: unknown): RequestInit => ({
 export const api = {
   bootstrap: () => request<Bootstrap>('/bootstrap'),
 
-  issues: (params?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean }) => {
+  issues: (params?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean }) => {
     const q = new URLSearchParams(
-      Object.entries({ ...params, includeArchived: params?.includeArchived ? '1' : undefined })
-        .filter(([, v]) => v) as [string, string][],
+      Object.entries({
+        ...params,
+        includeArchived: params?.includeArchived ? '1' : undefined,
+        recentDone: params?.recentDone ? '1' : undefined,
+      }).filter(([, v]) => v) as [string, string][],
     ).toString();
     return request<Issue[]>(`/issues${q ? `?${q}` : ''}`);
   },

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { issues, issueLabels, subIssues, activities, members, projects, requirements, sprints } from '@/db/schema';
 import { serializeIssueList, serializeIssueDetail } from '@/lib/serialize';
@@ -103,7 +103,7 @@ async function resolveSprintProject(
 /* ---- list (optionally filtered by team / assignee / project) ---- */
 export async function listIssues(
   actor: Actor,
-  filter?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean },
+  filter?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean; recentDoneOnly?: boolean },
 ) {
   await requirePerm(actor, 'issues', 'read');
   const conds = [eq(issues.companyId, actor.companyId)];
@@ -123,6 +123,12 @@ export async function listIssues(
   if (!filter?.includeArchived) {
     conds.push(isNull(issues.archivedAt));
     conds.push(or(isNull(issues.projectId), notInArray(issues.projectId, await archivedProjectIds(actor.companyId)))!);
+  }
+  // 已完成(done)只保留最近一周的记录(按 updatedAt):opt-in,仅全部/我的
+  // Issues 视图由路由层传 recentDone=1 开启;MCP 与其他消费方不传,拿全量。
+  if (filter?.recentDoneOnly) {
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    conds.push(or(ne(issues.status, 'done'), gte(issues.updatedAt, weekAgo))!);
   }
   const rows = await db.query.issues.findMany({
     where: and(...conds),

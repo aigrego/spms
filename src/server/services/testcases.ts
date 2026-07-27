@@ -1,11 +1,12 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { testCases, projects, requirements } from '@/db/schema';
 import { serializeTestCase } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
 import { requirePerm } from '@/lib/permissions';
-import { visibleSetsFor } from '@/lib/visibility';
+import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
+import { archivedProjectIds } from './issues';
 import type { Actor } from './types';
 
 /* Test cases (测试用例) business service — project-scoped, optionally validating
@@ -55,9 +56,11 @@ export async function listTestCases(
   if (filter?.project) conds.push(eq(testCases.projectId, filter.project));
   if (filter?.status) conds.push(eq(testCases.status, filter.status));
   if (filter?.result) conds.push(eq(testCases.result, filter.result));
-  // 指派可见性:仅可见项目的用例;null = 管理员不限制。
-  const visible = await visibleSetsFor(actor);
-  if (visible) conds.push(inArray(testCases.projectId, visible.projectIds));
+  // 指派可见性 ∩ 令牌白名单(与 listIssues 同款);null = 管理员不限制。
+  const visibleProjectIds = clampAllowed(actor, (await visibleSetsFor(actor))?.projectIds ?? null);
+  if (visibleProjectIds) conds.push(inArray(testCases.projectId, visibleProjectIds));
+  // 归档项目的批量隐藏:与 listIssues 默认行为一致(详情仍可直查,作历史上下文)。
+  conds.push(notInArray(testCases.projectId, await archivedProjectIds(actor.companyId)));
   const rows = await db.query.testCases.findMany({
     where: and(...conds),
     with: withRequirement,
@@ -76,8 +79,8 @@ export async function getTestCase(actor: Actor, key: string) {
     with: withRequirement,
   });
   if (!row) return null;
-  const visible = await visibleSetsFor(actor);
-  if (visible && !visible.projectIds.includes(row.projectId)) return null;
+  const visibleProjectIds = clampAllowed(actor, (await visibleSetsFor(actor))?.projectIds ?? null);
+  if (visibleProjectIds && !visibleProjectIds.includes(row.projectId)) return null;
   return serializeTestCase(row);
 }
 

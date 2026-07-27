@@ -1,11 +1,12 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { requirements, projects } from '@/db/schema';
 import { serializeRequirement } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
 import { requirePerm } from '@/lib/permissions';
-import { visibleSetsFor } from '@/lib/visibility';
+import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
+import { archivedProjectIds } from './issues';
 import type { Actor } from './types';
 
 /* Requirements / PRD business service. Ported from
@@ -40,9 +41,11 @@ export async function listRequirements(actor: Actor, filter?: { project?: string
   const conds = [eq(requirements.companyId, actor.companyId)];
   if (filter?.project) conds.push(eq(requirements.projectId, filter.project));
   if (filter?.type) conds.push(eq(requirements.type, filter.type));
-  // 指派可见性:仅可见项目的需求;null = 管理员不限制。
-  const visible = await visibleSetsFor(actor);
-  if (visible) conds.push(inArray(requirements.projectId, visible.projectIds));
+  // 指派可见性 ∩ 令牌白名单(与 listIssues 同款);null = 管理员不限制。
+  const visibleProjectIds = clampAllowed(actor, (await visibleSetsFor(actor))?.projectIds ?? null);
+  if (visibleProjectIds) conds.push(inArray(requirements.projectId, visibleProjectIds));
+  // 归档项目的批量隐藏:与 listIssues 默认行为一致(详情仍可直查,作历史上下文)。
+  conds.push(notInArray(requirements.projectId, await archivedProjectIds(actor.companyId)));
   const rows = await db.query.requirements.findMany({
     where: and(...conds),
     with: withIssues,
@@ -60,8 +63,8 @@ export async function getRequirement(actor: Actor, key: string) {
     with: withIssues,
   });
   if (!row) return null;
-  const visible = await visibleSetsFor(actor);
-  if (visible && !visible.projectIds.includes(row.projectId)) return null;
+  const visibleProjectIds = clampAllowed(actor, (await visibleSetsFor(actor))?.projectIds ?? null);
+  if (visibleProjectIds && !visibleProjectIds.includes(row.projectId)) return null;
   return serializeRequirement(row);
 }
 

@@ -26,8 +26,13 @@ export default function IssuesClient() {
   // 「显示已归档」开关:默认隐藏已归档 issue 及已归档项目的 issue。
   const [showArchived, setShowArchived] = React.useState(false);
 
+  // 「显示已归档」开启时放开已完成的一周限制(recentDone opt-in,其他消费方拿全量)。
   const params = React.useMemo(
-    () => ({ ...(isMine ? (meId ? { assignee: meId } : {}) : {}), includeArchived: showArchived }),
+    () => ({
+      ...(isMine ? (meId ? { assignee: meId } : {}) : {}),
+      includeArchived: showArchived,
+      recentDone: !showArchived,
+    }),
     [isMine, meId, showArchived],
   );
   const { data: issues = [] } = useIssues(params);
