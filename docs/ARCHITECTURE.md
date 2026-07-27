@@ -136,7 +136,7 @@ next-spms/
 **权限门**：services 每个入口 `requirePerm(actor, module, 'read'|'write')`，不足抛 `FORBIDDEN`（403）。
 前端经 `GET /api/auth/session`（或 bootstrap）拿到 `permissions`（当前用户各模块有效级别），按此过滤侧边栏与按钮。
 
-**指派可见性**（`src/lib/visibility.ts`，四期）：模块读权限之上再按「研发资源指派」收窄——节点 N 对成员可见 ⟺ 该成员在 N 的子树（含 N）或 N 的祖先链上有 `resource_assignments` **direct** 行（加入 sprint → 其 project/release/product 可见便于导航，兄弟节点不可见）。平台管理员/company_admin 豁免；无任何 direct 指派的普通成员看不到任何节点（严格模式）。应用点：bootstrap 与 issues/requirements/testcases/sprints/catalog 的 list + 详情（范围外按「不存在」处理），MCP 与令牌白名单 `allowedProjectIds` 取交集。产品线不过滤（导航壳，不在指派节点内）；`projectId` 为 NULL 的 issue 视为公司级不过滤；成员池/assignments 服务本身不过滤（管理入口需见全池）。只挡「看」，写操作权限不变。
+**指派可见性**（`src/lib/visibility.ts`，四期）：模块读权限之上再按「研发资源指派」收窄——project/sprint 对成员可见 ⟺ 该成员在其上有 `resource_assignments` **direct** 行，仅保留两个有限例外：加入 sprint → 其 project 可见（便于导航）；加入 project → 其下全部 sprint 可见。**祖先（product/release）direct 不下放**——产品/版本级成员不会自动看到其下项目的 issue，项目需单独指派；release/product 之间保持下放（product direct → 其 release 可见，作导航壳与需求管理层）。平台管理员/company_admin 豁免；无任何 direct 指派的普通成员看不到任何节点（严格模式）。应用点：bootstrap 与 issues/requirements/testcases/sprints/catalog 的 list + 详情（范围外按「不存在」处理），MCP 与令牌白名单 `allowedProjectIds` 取交集。产品线不过滤（导航壳，不在指派节点内）；`projectId` 为 NULL 的 issue 视为公司级不过滤；成员池/assignments 服务本身不过滤（管理入口需见全池）。只挡「看」，写操作权限不变。
 
 默认矩阵（seed 写入全局层，可在 /settings?tab=matrix 改）：
 

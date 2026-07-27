@@ -5,9 +5,12 @@ import type { Actor } from '@/server/services/types';
 
 /* 按研发资源指派(resource_assignments 的 direct 行)的可见性模型。
 
-   规则:节点 N 对成员可见 ⟺ 该成员在 N 的子树(含 N)或 N 的祖先链上有
-   direct 指派行。即:加入 sprint → 其 project/release/product 可见(便于
-   导航),兄弟节点不可见;加入 project → 其下全部 sprint 可见。
+   规则:project/sprint 可见性只看自身(及有限的上下一跳)的 direct 指派,
+   祖先(product/release)direct 不下放——产品/版本级成员不会自动看到其下
+   项目的 issue,项目需单独指派。保留的两个例外均服务于导航与协作:
+   加入 sprint → 其 project 可见;加入 project → 其下全部 sprint 可见。
+   release/product 仍保持祖先下放(product direct → 其 release 可见),作为
+   导航壳与需求管理层。
 
    - 豁免:平台管理员 / company_admin → 返回 null(不限制)。
    - 无 direct 指派的普通成员 → 空集(严格模式:什么都看不到)。
@@ -62,34 +65,23 @@ export async function visibleSetsFor(actor: Actor): Promise<VisibleSets | null> 
 
   const projectById = new Map(projectRows.map((p) => [p.id, p]));
   const releaseById = new Map(releaseRows.map((r) => [r.id, r]));
-  const productOf = (releaseId: string | null) => (releaseId ? releaseById.get(releaseId)?.productId : undefined);
 
-  // 项目:自身 direct,或祖先(release/product)direct,或后代 sprint direct。
+  // 项目:自身 direct,或后代 sprint direct。祖先(release/product)direct 不下放。
   const projectIds = new Set<string>();
   for (const p of projectRows) {
-    if (dProjects.has(p.id) || (p.releaseId && dReleases.has(p.releaseId)) || dProducts.has(productOf(p.releaseId) ?? '')) {
-      projectIds.add(p.id);
-    }
+    if (dProjects.has(p.id)) projectIds.add(p.id);
   }
   for (const s of sprintRows) {
     if (dSprints.has(s.id) && s.projectId) projectIds.add(s.projectId);
   }
 
-  // 迭代:自身 direct,或祖先(project/release/product)direct。
+  // 迭代:自身 direct,或所属 project direct。祖先(release/product)direct 不下放。
   const sprintIds = new Set<string>();
   for (const s of sprintRows) {
-    if (dSprints.has(s.id)) {
-      sprintIds.add(s.id);
-      continue;
-    }
-    const p = s.projectId ? projectById.get(s.projectId) : undefined;
-    if (!p) continue;
-    if (dProjects.has(p.id) || (p.releaseId && dReleases.has(p.releaseId)) || dProducts.has(productOf(p.releaseId) ?? '')) {
-      sprintIds.add(s.id);
-    }
+    if (dSprints.has(s.id) || (s.projectId && dProjects.has(s.projectId))) sprintIds.add(s.id);
   }
 
-  // 版本:自身/祖先 product direct,或后代(可见项目 ⇔ 子树或祖先含 direct)所在版本。
+  // 版本:自身/祖先 product direct(导航壳与需求管理层保持下放),或可见项目所在版本。
   const releaseIds = new Set<string>();
   for (const r of releaseRows) {
     if (dReleases.has(r.id) || dProducts.has(r.productId)) releaseIds.add(r.id);

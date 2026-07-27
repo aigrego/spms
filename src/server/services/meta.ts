@@ -53,8 +53,9 @@ export async function bootstrap(actor: Actor) {
   // stored column. Override the returned `progress` so the UI shows the truth.
   const { projectProgress, releaseProgress } = await computeRollups(companyId);
 
-  // 可见性(visibility.ts):普通成员只看到「自己或后代有 direct 指派」的节点
-  // 及其祖先链;null = 管理员不限制;productLines 不过滤(导航壳)。
+  // 可见性(visibility.ts):普通成员只看到「自己有 direct 指派」的节点——project
+  // 可见其下 sprint、sprint 上溯 project;祖先(product/release)direct 不下放给
+  // project/sprint;null = 管理员不限制;productLines 不过滤(导航壳)。
   const visible = await visibleSetsFor(actor);
   const visProjects = visible ? projectRows.filter((p) => visible.projectIds.includes(p.id)) : projectRows;
   const visSprints = visible ? sprintRows.filter((s) => visible.sprintIds.includes(s.id)) : sprintRows;

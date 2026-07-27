@@ -10,7 +10,7 @@
 - `company_admin` 与平台管理员恒过；`viewer` 类只读角色调写接口同样 403。
 - **项目创建/删除**额外要求 `company_admin` 或平台管理员（矩阵 projects=write 不够）。
 - bootstrap 无模块门（登录即可），返回里的 `permissions` 供前端过滤 UI。
-- **指派可见性**（读收窄，见 ARCHITECTURE「指派可见性」）：bootstrap 及 issues/requirements/test-cases/sprints/products/releases 的列表与详情按研发资源指派（direct）收窄——只看到「自己或后代节点有 direct 指派」的节点及其祖先链；范围外详情按 `ok(null)` 处理。管理员（company_admin/平台）豁免；产品线不过滤；无项目 issue 视为公司级；MCP 再与令牌项目白名单取交集。
+- **指派可见性**（读收窄，见 ARCHITECTURE「指派可见性」）：bootstrap 及 issues/requirements/test-cases/sprints/products/releases 的列表与详情按研发资源指派（direct）收窄——project/sprint 只看自身 direct（project 可见其下 sprint、sprint 上溯 project），祖先（product/release）direct 不下放；范围外详情按 `ok(null)` 处理。管理员（company_admin/平台）豁免；产品线不过滤；无项目 issue 视为公司级；MCP 再与令牌项目白名单取交集。
 
 ## 认证
 
