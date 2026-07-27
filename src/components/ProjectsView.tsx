@@ -209,10 +209,6 @@ export function ProjectsView() {
                     <Hash size={13} />
                     {cnt}
                   </span>
-                  <span className="inline-flex items-center gap-1 text-[12px] text-fg-3">
-                    <Target size={13} />
-                    {p.target}
-                  </span>
                 </div>
               </div>
             );

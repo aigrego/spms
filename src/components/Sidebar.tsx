@@ -15,7 +15,6 @@ import {
   FlaskConical,
   Inbox,
   Settings,
-  CircleUserRound,
   KeyRound,
   Plug,
 } from 'lucide-react';
@@ -214,7 +213,7 @@ export function Sidebar({ myCount }: { myCount: number }) {
             后续需要时恢复。 */}
       </div>
 
-      {/* Bottom: agent access + settings + profile, visible to every signed-in user. */}
+      {/* Bottom: agent access + settings, visible to every signed-in user. */}
       <div className="flex-none border-t border-border px-3 py-2">
         <div className="flex flex-col gap-px">
           <NavItem
@@ -234,12 +233,6 @@ export function Sidebar({ myCount }: { myCount: number }) {
             label={t('nav.settings')}
             active={pathname.startsWith('/settings')}
             href="/settings"
-          />
-          <NavItem
-            icon={<CircleUserRound size={16} />}
-            label={t('nav.profile')}
-            active={pathname.startsWith('/profile')}
-            href="/profile"
           />
         </div>
       </div>

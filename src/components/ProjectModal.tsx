@@ -30,35 +30,31 @@ export function ProjectModal({
   onSaved?: (id: string) => void;
 }) {
   const t = useT();
-  const { teams, releases, humans, agents, productById, firstTeamId } = useAppData();
+  const { releases, humans, agents, productById } = useAppData();
   const create = useCreateProject();
   const update = useUpdateProject();
   const editing = !!project;
 
   const [name, setName] = React.useState('');
-  const [teamId, setTeamId] = React.useState('');
   const [releaseId, setReleaseId] = React.useState('');
   const [status, setStatus] = React.useState<ProjectStatus>('backlog');
   const [leadId, setLeadId] = React.useState('');
   const [aiLeadId, setAiLeadId] = React.useState('');
   const [icon, setIcon] = React.useState('box');
   const [color, setColor] = React.useState('#0063D3');
-  const [target, setTarget] = React.useState('');
   const [description, setDescription] = React.useState('');
 
   React.useEffect(() => {
     if (!open) return;
     setName(project?.name ?? '');
-    setTeamId(project?.teamId ?? firstTeamId ?? '');
     setReleaseId(project?.releaseId ?? '');
     setStatus(project?.status ?? 'backlog');
     setLeadId(project?.leadId ?? '');
     setAiLeadId(project?.aiLeadId ?? '');
     setIcon(project?.icon ?? 'box');
     setColor(project?.color ?? '#0063D3');
-    setTarget(project?.target ?? '');
     setDescription(project?.description ?? '');
-  }, [open, project, firstTeamId]);
+  }, [open, project]);
 
   const releaseOptions = releases.map((r) => ({ id: r.id, label: `${productById(r.productId)?.name ?? ''} · ${r.name}` }));
 
@@ -66,14 +62,12 @@ export function ProjectModal({
     if (!name.trim()) return;
     const input = {
       name: name.trim(),
-      teamId: teamId || null,
       releaseId: releaseId || null,
       status,
       leadId: leadId || null,
       aiLeadId: aiLeadId || null,
       icon,
       color,
-      target: target.trim() || null,
       description: description.trim() || null,
     };
     const row = editing
@@ -131,17 +125,6 @@ export function ProjectModal({
 
           <div className="flex gap-3">
             <div className="flex-1">
-              <span className={fieldLabel}>{t('project.team')}</span>
-              <select className={inputCls} value={teamId} onChange={(e) => setTeamId(e.target.value)}>
-                <option value="">—</option>
-                {teams.map((tm) => (
-                  <option key={tm.id} value={tm.id}>
-                    {tm.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex-1">
               <span className={fieldLabel}>{t('projects.release')}</span>
               <select className={inputCls} value={releaseId} onChange={(e) => setReleaseId(e.target.value)}>
                 <option value="">—</option>
@@ -189,10 +172,6 @@ export function ProjectModal({
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="w-[110px]">
-              <span className={fieldLabel}>{t('project.target')}</span>
-              <input className={inputCls} value={target} onChange={(e) => setTarget(e.target.value)} placeholder="Q3" />
             </div>
           </div>
 
