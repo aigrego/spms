@@ -3,9 +3,9 @@
    (创建按 todo,更新不动)。连接未配置(statusMap NULL)时回退内置默认映射,
    行为与配置前一致。 */
 
-export type SpmsStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'canceled';
+export type SpmsStatus = 'backlog' | 'todo' | 'in_progress' | 'testing' | 'in_review' | 'done' | 'canceled';
 
-export const SPMS_STATUSES: SpmsStatus[] = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'canceled'];
+export const SPMS_STATUSES: SpmsStatus[] = ['backlog', 'todo', 'in_progress', 'testing', 'in_review', 'done', 'canceled'];
 
 export interface NotionStatusRule {
   /** Notion 侧状态名(大小写不敏感匹配;存原始大小写用于展示) */
@@ -19,7 +19,7 @@ export const DEFAULT_STATUS_MAP: Record<string, SpmsStatus> = {
   'not started': 'todo',
   'in progress': 'in_progress',
   'more info needed': 'in_progress',
-  'ready for testing': 'in_review',
+  'ready for testing': 'testing',
   done: 'done',
   closed: 'done',
   'no progress': 'canceled',

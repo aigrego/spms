@@ -2,6 +2,7 @@ export type IssueStatus =
   | 'backlog'
   | 'todo'
   | 'in_progress'
+  | 'testing'
   | 'in_review'
   | 'done'
   | 'canceled';

@@ -68,7 +68,7 @@ export async function listSprints(actor: Actor, filter?: { team?: string }) {
 
 /* ---- product backlog: 未进入任何迭代 且状态为「待处理(todo)」的 issue,
    backlogRank asc。产品待办 = 敏捷 product backlog 概念:只放待规划进下一次
-   迭代的待办工单,in_progress/in_review/done/canceled/backlog 状态一律不进。 */
+   迭代的待办工单,in_progress/testing/in_review/done/canceled/backlog 状态一律不进。 */
 export async function getBacklog(actor: Actor, filter?: { team?: string }) {
   await requirePerm(actor, 'backlog', 'read');
   const conds = [eq(issues.companyId, actor.companyId), isNull(issues.sprintId), eq(issues.status, 'todo')];

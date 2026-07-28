@@ -384,6 +384,7 @@ export function SprintsView({
   const cols = [
     { k: 'todo', label: t('scrum.col.todo'), match: (s: string) => ['backlog', 'todo'].includes(s) },
     { k: 'in_progress', label: t('scrum.col.in_progress'), match: (s: string) => s === 'in_progress' },
+    { k: 'testing', label: t('scrum.col.testing'), match: (s: string) => s === 'testing' },
     { k: 'in_review', label: t('scrum.col.in_review'), match: (s: string) => s === 'in_review' },
     { k: 'done', label: t('scrum.col.done'), match: (s: string) => ['done', 'canceled'].includes(s) },
   ];

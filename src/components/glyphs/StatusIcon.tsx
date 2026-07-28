@@ -41,7 +41,7 @@ export function StatusIcon({ status, size = 16 }: { status: IssueStatus; size?: 
     );
   }
 
-  const fill = ({ backlog: 0, todo: 0, in_progress: 0.4, in_review: 0.75 } as Record<string, number>)[status] ?? 0;
+  const fill = ({ backlog: 0, todo: 0, in_progress: 0.4, testing: 0.6, in_review: 0.75 } as Record<string, number>)[status] ?? 0;
   return (
     <svg {...common}>
       <circle
