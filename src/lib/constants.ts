@@ -23,7 +23,6 @@ export const STATUS: Record<IssueStatus, { color: string }> = {
   todo: { color: '#6E7A94' },
   in_progress: { color: '#FF8423' },
   testing: { color: '#7C5CFC' },
-  in_review: { color: '#0063D3' },
   done: { color: '#0063D3' },
   canceled: { color: '#8E99B0' },
 };
@@ -33,7 +32,6 @@ export const STATUS_ORDER: IssueStatus[] = [
   'todo',
   'in_progress',
   'testing',
-  'in_review',
   'done',
   'canceled',
 ];

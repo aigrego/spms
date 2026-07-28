@@ -4,7 +4,7 @@ import { jsonBody, requireActor, route } from '@/server/http';
 
 type Ctx = { params: Promise<{ key: string; subId: string }> };
 
-const STATUSES: readonly IssueStatus[] = ['backlog', 'todo', 'in_progress', 'testing', 'in_review', 'done', 'canceled'];
+const STATUSES: readonly IssueStatus[] = ['backlog', 'todo', 'in_progress', 'testing', 'done', 'canceled'];
 
 /* PATCH /api/v1/pms/issues/:key/sub/:subId { status } — toggle a sub-issue. */
 export const PATCH = route(async (req, ctx: Ctx) => {

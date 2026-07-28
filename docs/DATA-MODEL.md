@@ -14,7 +14,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 | member_type | `human \| agent` |
 | member_origin | `internal \| external`（external=邮箱挂名外部资源；该邮箱的飞书/Lark 账号首次登录时自动认领：回填 userId、转 internal/active 并补 viewer 席位） |
 | member_status | `active \| invited \| revoked` |
-| issue_status | `backlog \| todo \| in_progress \| testing \| in_review \| done \| canceled` |
+| issue_status | `backlog \| todo \| in_progress \| testing \| done \| canceled` |
 | issue_priority | `urgent \| high \| medium \| low \| none`（紧急度） |
 | issue_importance | `critical \| high \| medium \| low \| none`（重要度，与 priority 正交） |
 | issue_type | `backlog \| ticket \| bug`（备忘/工单/缺陷；缺陷是 Issue 的一种 type） |

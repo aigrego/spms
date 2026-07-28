@@ -213,7 +213,7 @@ function imageMimeFromFilename(name: string): string | null {
 }
 
 /* ---- zod enums (aligned with src/db/schema.ts pgEnum values) -------------- */
-const issueStatus = z.enum(['backlog', 'todo', 'in_progress', 'testing', 'in_review', 'done', 'canceled']);
+const issueStatus = z.enum(['backlog', 'todo', 'in_progress', 'testing', 'done', 'canceled']);
 const issuePriority = z.enum(['urgent', 'high', 'medium', 'low', 'none']);
 const issueImportance = z.enum(['critical', 'high', 'medium', 'low', 'none']);
 const issueType = z.enum(['backlog', 'ticket', 'bug']);
@@ -233,7 +233,7 @@ const companyIdParam = z
 const CONCEPTS = [
   '概念：Issue 是统一工作项，type=bug 即缺陷、ticket 即工单/任务、backlog 即备忘。',
   '所有实体用展示 key 引用（BUG-3 / TKT-7 / FR-2 / NFR-1 / TC-1），内部 uuid 不暴露。',
-  'issue 状态枚举：backlog|todo|in_progress|testing|in_review|done|canceled；需求状态：draft|reviewing|approved|in_dev|shipped|rejected。',
+  'issue 状态枚举：backlog|todo|in_progress|testing|done|canceled；需求状态：draft|reviewing|approved|in_dev|shipped|rejected。',
   'priority（紧急度）：urgent|high|medium|low|none；importance（重要度）：critical|high|medium|low|none，两者正交。',
   '成员（member）分 human 与 agent（atlas/forge/sentry/scribe 四个内置 AI），assigneeId 用 member id，issue 可指派给 agent。',
 ].join(' ');

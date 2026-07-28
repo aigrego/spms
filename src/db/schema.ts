@@ -38,7 +38,6 @@ export const issueStatusEnum = pgEnum('issue_status', [
   'todo',
   'in_progress',
   'testing',
-  'in_review',
   'done',
   'canceled',
 ]);
