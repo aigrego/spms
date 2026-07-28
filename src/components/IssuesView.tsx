@@ -14,6 +14,7 @@ import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, AssigneeMenu } from
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
 import { SegBtn } from '@/components/ui/segmented';
 import { STATUS_ORDER, PRIORITY_ORDER, IMPORTANCE_ORDER } from '@/lib/constants';
+import { usePersistentState } from '@/lib/prefs';
 import { relativeTime } from '@/lib/time';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
@@ -27,6 +28,14 @@ type GroupBy = 'status' | 'priority' | 'importance' | 'assignee' | 'project';
 type TypeFilter = IssueType | 'all';
 const TYPE_FILTERS: TypeFilter[] = ['all', 'bug', 'ticket', 'backlog'];
 type ViewMode = 'list' | 'board';
+
+/* Validators for the persisted toolbar prefs (browser memory) — reject values
+   written by older versions or foreign code so the view never breaks. */
+const GROUP_BYS: GroupBy[] = ['status', 'priority', 'importance', 'assignee', 'project'];
+const isGroupBy = (v: unknown): v is GroupBy => GROUP_BYS.includes(v as GroupBy);
+const isTypeFilter = (v: unknown): v is TypeFilter => TYPE_FILTERS.includes(v as TypeFilter);
+const isViewMode = (v: unknown): v is ViewMode => v === 'list' || v === 'board';
+const isProjectFilter = (v: unknown): v is string => typeof v === 'string';
 
 interface RowProps {
   issue: Issue;
@@ -272,10 +281,10 @@ export function IssuesView({
   const { humans, agents, projects, projectById, labelById, memberById, can } = useAppData();
   const canWrite = can('issues', 'write');
   const create = useCreateIssue();
-  const [viewMode, setViewMode] = React.useState<ViewMode>('list');
-  const [groupBy, setGroupBy] = React.useState<GroupBy>('status');
-  const [typeFilter, setTypeFilter] = React.useState<TypeFilter>('all');
-  const [projectFilter, setProjectFilter] = React.useState<string | 'all'>('all');
+  const [viewMode, setViewMode] = usePersistentState<ViewMode>('issues.viewMode', 'list', isViewMode);
+  const [groupBy, setGroupBy] = usePersistentState<GroupBy>('issues.groupBy', 'status', isGroupBy);
+  const [typeFilter, setTypeFilter] = usePersistentState<TypeFilter>('issues.typeFilter', 'all', isTypeFilter);
+  const [projectFilter, setProjectFilter] = usePersistentState<string>('issues.projectFilter', 'all', isProjectFilter);
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
   const [dragOver, setDragOver] = React.useState<string | null>(null);
   const [grpOpen, setGrpOpen] = React.useState(false);

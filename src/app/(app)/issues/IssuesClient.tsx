@@ -4,6 +4,7 @@ import { useShell } from '@/components/AppShell';
 import { IssueDetail } from '@/components/IssueDetail';
 import { IssuesView } from '@/components/IssuesView';
 import type { UpdateIssueInput } from '@/lib/api';
+import { usePersistentState } from '@/lib/prefs';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useIssues, useUpdateIssue } from '@/store/issues';
@@ -13,6 +14,8 @@ import * as React from 'react';
 /* Issues 视图 — /issues（全部）与 /issues?assignee=me（我的）。
    详情抽屉由 URL 驱动：?selected=<KEY>。 
 */
+const isBoolean = (v: unknown): v is boolean => typeof v === 'boolean';
+
 export default function IssuesClient() {
   const t = useT();
   const router = useRouter();
@@ -23,8 +26,12 @@ export default function IssuesClient() {
 
   const isMine = searchParams.get('assignee') === 'me';
   const selected = searchParams.get('selected');
-  // 「显示已归档」开关:默认隐藏已归档 issue 及已归档项目的 issue。
-  const [showArchived, setShowArchived] = React.useState(false);
+  // 「显示已归档」开关:默认隐藏已归档 issue 及已归档项目的 issue;记入浏览器记忆。
+  const [showArchived, setShowArchived] = usePersistentState<boolean>(
+    'issues.showArchived',
+    false,
+    isBoolean,
+  );
 
   // 「显示已归档」开启时放开已完成的一周限制(recentDone opt-in,其他消费方拿全量)。
   const params = React.useMemo(

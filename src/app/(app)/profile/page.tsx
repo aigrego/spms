@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { SegBtn } from '@/components/ui/segmented';
 import { useAppData } from '@/store/AppData';
 import { ApiError, authApi } from '@/lib/api';
+import { resetBrowserMemory } from '@/lib/prefs';
 import { useT } from '@/lib/i18n';
 import type { Member } from '@/lib/types';
 
@@ -129,6 +130,32 @@ function ProfileTab() {
             {t('common.save')}
           </Button>
         </div>
+      </div>
+    </Card>
+  );
+}
+
+/* 浏览器记忆:issues 列表的分组/筛选/视图等偏好存于 localStorage(spms.prefs.*),
+   这里提供一键清空。 */
+function BrowserMemoryCard() {
+  const t = useT();
+  const [resetDone, setResetDone] = React.useState(false);
+  return (
+    <Card title={t('profile.browserMemory')}>
+      <p className="mb-3 max-w-[520px] text-[13px] text-fg-2">{t('profile.browserMemoryDesc')}</p>
+      <div className="flex items-center gap-2">
+        {resetDone && <span className="text-[12px] text-success">{t('profile.browserMemoryReset')}</span>}
+        <Button
+          variant="secondary"
+          size="md"
+          onClick={() => {
+            resetBrowserMemory();
+            setResetDone(true);
+            setTimeout(() => setResetDone(false), 3000);
+          }}
+        >
+          {t('profile.resetBrowserMemory')}
+        </Button>
       </div>
     </Card>
   );
@@ -339,7 +366,12 @@ function ProfilePageInner() {
           ))}
         </div>
 
-        {tab === 'profile' && <ProfileTab />}
+        {tab === 'profile' && (
+          <>
+            <ProfileTab />
+            <BrowserMemoryCard />
+          </>
+        )}
         {tab === 'security' && (
           <div className="flex flex-col gap-5">
             <SecurityTab />
