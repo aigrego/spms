@@ -11,6 +11,7 @@ import { ImportanceIcon } from '@/components/glyphs/ImportanceIcon';
 import { TypeIcon } from '@/components/glyphs/TypeIcon';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { AISlaBadge, LabelChip, ProjectIcon } from '@/components/glyphs/misc';
+import { Markdown } from '@/components/Markdown';
 import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, ScopedAssigneeMenu, RequirementMenu, LabelMenu } from '@/components/menus';
 import { useT, useLocale } from '@/lib/i18n';
 import { formatActivityTime } from '@/lib/time';
@@ -40,9 +41,10 @@ function ActivityItem({ ev }: { ev: Activity }) {
           {isAI && <span className="font-medium text-brand-orange"> {ev.body}</span>}
         </div>
         {isComment && (
-          <div className="mt-1.5 rounded-[9px] bg-surface-2 px-3 py-2 text-[13px] leading-normal text-fg-1">
-            {ev.body}
-          </div>
+          <Markdown
+            text={ev.body}
+            className="mt-1.5 rounded-[9px] bg-surface-2 px-3 py-2 text-[13px] leading-normal text-fg-1"
+          />
         )}
         <div className="mt-0.5 text-[11px] text-fg-3">{formatActivityTime(ev.createdAt, locale)}</div>
       </div>
@@ -69,16 +71,25 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
   const [value, setValue] = React.useState('');
   // active @-mention: the query text + where the "@" sits in `value`
   const [mention, setMention] = React.useState<{ query: string; at: number } | null>(null);
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const inputRef = React.useRef<HTMLTextAreaElement>(null);
 
   const humans = candidates.filter((m) => m.type === 'human');
   const matches = mention
     ? humans.filter((h) => h.name.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6)
     : [];
 
-  const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // keep the textarea just tall enough for its content (38px floor, 160px cap)
+  const autoResize = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, 38), 160)}px`;
+  };
+
+  const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const v = e.target.value;
     setValue(v);
+    autoResize();
     const caret = e.target.selectionStart ?? v.length;
     // an @-token is "@" preceded by start/space, with no space/@ after it
     const m = v.slice(0, caret).match(/(?:^|\s)@([^\s@]*)$/);
@@ -91,7 +102,10 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
     const next = `${value.slice(0, mention.at)}@${name} ${value.slice(caret)}`;
     setValue(next);
     setMention(null);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      autoResize();
+    });
   };
 
   const submit = () => {
@@ -100,6 +114,7 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
     onSubmit(text);
     setValue('');
     setMention(null);
+    requestAnimationFrame(autoResize);
   };
 
   return (
@@ -126,20 +141,23 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
             ))}
           </div>
         )}
-        <input
+        <textarea
           ref={inputRef}
+          rows={1}
           value={value}
           onChange={onChange}
           onKeyDown={(e) => {
             if (e.key === 'Escape' && mention) {
               e.stopPropagation();
               setMention(null);
-            } else if (e.key === 'Enter' && !mention) {
+            } else if (e.key === 'Enter' && !e.shiftKey && !mention) {
+              // Enter submits; Shift+Enter inserts a newline for code blocks etc.
+              e.preventDefault();
               submit();
             }
           }}
           placeholder={t('detail.commentPlaceholder')}
-          className="h-[38px] w-full rounded-[9px] border border-border-strong bg-surface px-3 text-[13px] text-fg-1 outline-none focus:border-brand-blue"
+          className="block max-h-[160px] min-h-[38px] w-full resize-none rounded-[9px] border border-border-strong bg-surface px-3 py-2 text-[13px] leading-normal text-fg-1 outline-none focus:border-brand-blue"
         />
       </div>
     </div>
@@ -331,9 +349,11 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
               </div>
             )}
 
-            <div className="mb-[22px] text-sm leading-relaxed text-fg-1">
-              {issue.description || t('detail.noDesc')}
-            </div>
+            {issue.description ? (
+              <Markdown text={issue.description} className="mb-[22px] text-sm leading-relaxed text-fg-1" />
+            ) : (
+              <div className="mb-[22px] text-sm leading-relaxed text-fg-1">{t('detail.noDesc')}</div>
+            )}
 
             {/* Attachments */}
             <div className="mb-[22px]">
