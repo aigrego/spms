@@ -12,6 +12,7 @@ import { PriorityIcon } from '@/components/glyphs/PriorityIcon';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { AISlaBadge } from '@/components/glyphs/misc';
 import { ResourcePanelCompact } from '@/components/ResourcePanelCompact';
+import { Markdown } from '@/components/Markdown';
 import { SprintModal, ConfirmDeleteSprint, useSprintDict } from '@/components/SprintModal';
 import { SPRINT_STATUS } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
@@ -460,29 +461,32 @@ export function SprintsView({
                 {(() => {
                   const projs = detail.projectIds.map((id) => projectById(id)).filter((p) => !!p);
                   return projs.length ? (
-                    <div className="mb-2.5 inline-flex max-w-full flex-wrap items-center gap-1 rounded-md bg-surface-2 px-2 py-1 text-[11.5px] text-fg-2">
-                      <span className="text-fg-3">{t('hub.sprintProject')}</span>
-                      {projs.map((p, i) => {
+                    <div className="mb-2.5 max-w-full rounded-md bg-surface-2 px-2 py-1 text-[11.5px] text-fg-2">
+                      <div className="text-fg-3">{t('hub.sprintProject')}</div>
+                      {projs.map((p) => {
                         const release = releaseById(p.releaseId);
                         const product = productById(release?.productId);
                         return (
-                          <span key={p.id} className="inline-flex max-w-full items-center gap-1">
-                            {i > 0 && <span className="text-fg-3">·</span>}
+                          <div key={p.id} className="flex min-w-0 items-center gap-1">
                             <span className="truncate">{p.name}</span>
                             {release && (
                               <>
-                                <ChevronRight size={11} className="text-fg-3" />
+                                <ChevronRight size={11} className="flex-none text-fg-3" />
                                 {product && <span className="truncate">{product.name}</span>}
-                                <span className="font-mono font-semibold text-fg-1">{release.name}</span>
+                                <span className="truncate font-mono font-semibold text-fg-1">{release.name}</span>
                               </>
                             )}
-                          </span>
+                          </div>
                         );
                       })}
                     </div>
                   ) : null;
                 })()}
-                <div className="mb-3 text-[12.5px] leading-snug text-fg-3">{detail.goal ?? '—'}</div>
+                {detail.goal ? (
+                  <Markdown text={detail.goal} className="mb-3 text-[12.5px] leading-snug text-fg-3" />
+                ) : (
+                  <div className="mb-3 text-[12.5px] leading-snug text-fg-3">—</div>
+                )}
                 <div className="mb-2 flex items-center gap-2.5">
                   <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-sunken">
                     <div

@@ -26,8 +26,8 @@ const DICT: Record<Locale, Record<string, string>> = {
     edit: '编辑迭代',
     namePh: '迭代名称，例如 Sprint 12',
     goal: '目标',
-    goalPh: '这个迭代要达成什么？（可选）',
-    project: '所属项目',
+    goalPh: '这个迭代要达成什么？支持简单 Markdown（列表、加粗等，可选）',
+    project: '关联项目',
     projectsHint: '可多选：同一迭代周期可跨多个项目并行',
     status: '状态',
     start: '开始日期',
@@ -46,7 +46,7 @@ const DICT: Record<Locale, Record<string, string>> = {
     edit: 'Edit Sprint',
     namePh: 'Sprint name, e.g. Sprint 12',
     goal: 'Goal',
-    goalPh: 'What should this sprint achieve? (optional)',
+    goalPh: 'What should this sprint achieve? Simple Markdown supported (lists, bold, etc.)',
     project: 'Projects',
     projectsHint: 'Multi-select: one sprint can span several projects',
     status: 'Status',
@@ -66,8 +66,8 @@ const DICT: Record<Locale, Record<string, string>> = {
     edit: '編輯迭代',
     namePh: '迭代名稱，例如 Sprint 12',
     goal: '目標',
-    goalPh: '這個迭代要達成什麼？（可選）',
-    project: '所屬專案',
+    goalPh: '這個迭代要達成什麼？支援簡單 Markdown（列表、粗體等，可選）',
+    project: '關聯專案',
     projectsHint: '可多選：同一迭代週期可跨多個專案並行',
     status: '狀態',
     start: '開始日期',
@@ -278,7 +278,7 @@ export function SprintModal({
               <textarea
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
-                rows={2}
+                rows={4}
                 placeholder={s.goalPh}
                 className="w-full resize-none rounded-lg border border-border-strong bg-surface px-2.5 py-2 text-[13px] leading-relaxed text-fg-1 outline-none placeholder:text-fg-3 focus:border-brand-blue"
               />

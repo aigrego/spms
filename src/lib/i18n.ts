@@ -580,7 +580,7 @@ const zhCN: Dict = {
   'hub.noSprints': '暂无迭代',
   'hub.issues': 'Issue',
   'hub.derivedProgress': '派生进度',
-  'hub.sprintProject': '所属项目',
+  'hub.sprintProject': '关联项目',
 
   // requirement → release picker
   'requirements.release': '目标版本',
@@ -1157,7 +1157,7 @@ const en: Dict = {
   'hub.noSprints': 'No sprints yet',
   'hub.issues': 'Issues',
   'hub.derivedProgress': 'Derived progress',
-  'hub.sprintProject': 'Project',
+  'hub.sprintProject': 'Projects',
 
   'requirements.release': 'Target release',
   'requirements.noRelease': 'No release',
@@ -1729,7 +1729,7 @@ const zhTW: Dict = {
   'hub.noSprints': '尚無迭代',
   'hub.issues': 'Issue',
   'hub.derivedProgress': '派生進度',
-  'hub.sprintProject': '所屬專案',
+  'hub.sprintProject': '關聯專案',
 
   'requirements.release': '目標版本',
   'requirements.noRelease': '未指定版本',
