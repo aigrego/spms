@@ -34,6 +34,10 @@ function useInvalidateIssues() {
     // An issue's requirement link affects requirement issue-counts/lists.
     qc.invalidateQueries({ queryKey: ['requirements'] });
     qc.invalidateQueries({ queryKey: ['requirement'] });
+    // Status/storyPoints/sprintId changes move sprint stats, burndown & velocity.
+    qc.invalidateQueries({ queryKey: ['sprint'] });
+    qc.invalidateQueries({ queryKey: ['burndown'] });
+    qc.invalidateQueries({ queryKey: ['velocity'] });
   };
 }
 

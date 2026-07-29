@@ -66,6 +66,57 @@ function PropRow({ label, children }: { label: string; children: React.ReactNode
 const propBtn =
   'inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-[7px] px-2 py-1 text-[13px] text-fg-1 hover:bg-surface-2';
 
+/* Story points: click the chip (or "—" when unset) to edit inline. Enter/blur
+   saves (empty → clear to null), Esc cancels. Always rendered — issues without
+   points still need a way to set them. */
+function PointsEditor({ value, onSave }: { value: number | null; onSave: (v: number | null) => void }) {
+  const [editing, setEditing] = React.useState(false);
+  const [text, setText] = React.useState('');
+  if (!editing) {
+    return (
+      <button
+        className={propBtn}
+        onClick={() => {
+          setText(value != null ? String(value) : '');
+          setEditing(true);
+        }}
+      >
+        {value != null ? (
+          <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-brand-blue/10 px-1.5 text-[11px] font-semibold text-brand-blue">
+            {value}
+          </span>
+        ) : (
+          <span className="text-fg-3">—</span>
+        )}
+      </button>
+    );
+  }
+  return (
+    <input
+      autoFocus
+      type="number"
+      min={0}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        if (e.key === 'Escape') setEditing(false);
+      }}
+      onBlur={() => {
+        setEditing(false);
+        const trimmed = text.trim();
+        if (trimmed === '') {
+          if (value != null) onSave(null);
+          return;
+        }
+        const n = Number(trimmed);
+        if (Number.isFinite(n) && n >= 0 && n !== value) onSave(n);
+      }}
+      className="h-7 w-20 rounded-[7px] border border-border-strong bg-surface px-2 text-[13px] text-fg-1 outline-none focus:border-brand-blue"
+    />
+  );
+}
+
 /* Comment box with @-mention autocomplete over the issue's project research
    members. Typing "@" opens a picker; choosing a name inserts "@Name " inline. */
 function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Member | null | undefined; onSubmit: (text: string) => void }) {
@@ -639,15 +690,9 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
                   <span className="px-2 py-1 text-[13px] text-fg-1">{t('detail.pts', { n: issue.estimate })}</span>
                 </PropRow>
               )}
-              {issue.storyPoints != null && (
-                <PropRow label={t('detail.points')}>
-                  <span className="inline-flex items-center gap-1.5 px-2 py-1">
-                    <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-brand-blue/10 px-1.5 text-[11px] font-semibold text-brand-blue">
-                      {issue.storyPoints}
-                    </span>
-                  </span>
-                </PropRow>
-              )}
+              <PropRow label={t('detail.points')}>
+                <PointsEditor value={issue.storyPoints} onSave={(v) => patch({ storyPoints: v })} />
+              </PropRow>
             </div>
 
             <div className="my-4 h-px bg-border" />

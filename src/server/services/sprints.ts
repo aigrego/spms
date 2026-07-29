@@ -5,6 +5,7 @@ import { serializeIssueList } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { requirePerm } from '@/lib/permissions';
 import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
+import { recordSprintSnapshot } from './sprintSnapshots';
 import { archivedProjectIds } from './issues';
 import type { Actor } from './types';
 
@@ -297,6 +298,11 @@ export async function moveIssue(actor: Actor, sprintIdOrBacklog: string, issueKe
   if (storyPoints !== undefined) patch.storyPoints = storyPoints;
 
   await db.update(issues).set(patch).where(eq(issues.id, issue.id));
+  // 移入/移出/改点数都会改变燃尽剩余点数 → 新旧迭代各 upsert 一记当日快照。
+  if (issue.sprintId && issue.sprintId !== targetSprint) {
+    await recordSprintSnapshot(actor.companyId, issue.sprintId);
+  }
+  await recordSprintSnapshot(actor.companyId, targetSprint);
   return { issueId: issueKey, sprintId: targetSprint };
 }
 
@@ -464,6 +470,8 @@ export async function startSprint(actor: Actor, id: string) {
   }
   await assertNoOtherActive(actor.companyId, await sprintProjectIds(actor.companyId, id), id);
   await db.update(sprints).set({ status: 'active' }).where(eq(sprints.id, id));
+  // 启动当天记基线快照,燃尽 actual 线从第 0 天起有锚点。
+  await recordSprintSnapshot(actor.companyId, id);
   const [row] = await attachProjectIds(actor.companyId, [
     (await db.select().from(sprints).where(eq(sprints.id, id)).limit(1))[0],
   ]);
@@ -496,6 +504,8 @@ export async function completeSprint(actor: Actor, id: string) {
     )
     .returning({ id: issues.id });
   await db.update(sprints).set({ status: 'completed' }).where(eq(sprints.id, id));
+  // 收尾快照:未完成 issue 已退回待办,记录迭代最终的剩余点数。
+  await recordSprintSnapshot(actor.companyId, id);
   const [row] = await attachProjectIds(actor.companyId, [
     (await db.select().from(sprints).where(eq(sprints.id, id)).limit(1))[0],
   ]);

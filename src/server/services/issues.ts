@@ -7,6 +7,7 @@ import { nextKey } from '@/lib/keys';
 import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
 import { onAgentAssigned } from '@/lib/agents';
 import { requirePerm } from '@/lib/permissions';
+import { recordSprintSnapshot } from './sprintSnapshots';
 import type { Actor } from './types';
 
 /* Issue business service. Ported from apps/spms-server/src/routes/issues.ts —
@@ -279,6 +280,9 @@ export async function createIssue(actor: Actor, input: CreateIssueInput) {
   // is written (the `created` activity already records it).
   if (agent) await onAgentAssigned(companyId, id, agent);
 
+  // 直接建进迭代的 issue 影响当日燃尽快照。
+  if (input.sprintId) await recordSprintSnapshot(companyId, input.sprintId);
+
   const row = await fetchDetail(id);
   return serializeIssueDetail(row!);
 }
@@ -364,6 +368,16 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
 
   await db.update(issues).set(patch).where(eq(issues.id, existing.id));
 
+  // 状态/故事点/所属迭代变化会改变燃尽剩余点数 →  upsert 当日快照;
+  // 换迭代时旧迭代也要补一记。
+  if (input.status !== undefined || input.storyPoints !== undefined || input.sprintId !== undefined) {
+    const nextSprintId = input.sprintId !== undefined ? input.sprintId : existing.sprintId;
+    if (existing.sprintId && existing.sprintId !== nextSprintId) {
+      await recordSprintSnapshot(companyId, existing.sprintId);
+    }
+    await recordSprintSnapshot(companyId, nextSprintId);
+  }
+
   // Record the status transition in the activity feed (the activity_kind enum
   // has 'status' but neither the blueprint nor the port ever wrote it — the
   // MCP contract expects status changes to be traceable in the feed).
@@ -413,6 +427,7 @@ export async function deleteIssue(actor: Actor, key: string) {
   const existing = await findByKey(actor.companyId, key);
   if (!existing) throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
   await db.delete(issues).where(eq(issues.id, existing.id));
+  if (existing.sprintId) await recordSprintSnapshot(actor.companyId, existing.sprintId);
   return { id: key };
 }
 

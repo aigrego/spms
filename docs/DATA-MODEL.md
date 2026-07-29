@@ -87,7 +87,9 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 `sprintId` / `projectId` 复合 PK，均 cascade。一个迭代可包含多个项目（产品按模块拆项目、同一迭代周期多项目并行）。删 project：级联删 join 行；仅含该项目的迭代由应用层一并删除（独享迭代，等同旧级联语义），共享迭代保留仅解除关联。删 product/release 同理：全部项目都在被删子树内的迭代才被删除。
 
 ### sprint_snapshots（燃尽快照）
-`id` PK · `sprintId` NN → sprints cascade · `day` timestamptz NN · `remainingPoints` int NN
+`id` PK（`${sprintId}:${yyyy-MM-dd}` 确定性主键，upsert 免唯一索引）· `sprintId` NN → sprints cascade · `day` timestamptz NN · `remainingPoints` int NN
+
+写入方是 `src/server/services/sprintSnapshots.ts` 的 `recordSprintSnapshot`：issue 状态/故事点/所属迭代变更、issue 创建/删除、迭代启动/完成时按当日 upsert（无定时任务；剩余点数 = 迭代内非 done issue 的点数和，与 getSprint stats 同口径）。
 
 ### requirements（需求/PRD）
 `id` PK · `key` unique NN（FR-N / NFR-N，创建后固定）· `projectId` NN → projects cascade · `releaseId` → releases set null · `title` NN · `type` NN 默认 functional · `category`（仅 NFR）· `priority` NN 默认 none · `importance` NN 默认 none · `status` NN 默认 draft · `description`（PRD 正文）· `acceptanceCriteria` · `authorId` / `aiOwnerId` → members · `position` NN 默认 0 · `createdAt` / `updatedAt` NN
