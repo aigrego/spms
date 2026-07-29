@@ -1,10 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2, Archive, ArchiveRestore } from 'lucide-react';
+import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronLeft, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2, Archive, ArchiveRestore } from 'lucide-react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverTrigger, PopoverContent, MenuItem } from '@/components/ui/popover';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { StatusIcon } from '@/components/glyphs/StatusIcon';
 import { PriorityIcon } from '@/components/glyphs/PriorityIcon';
 import { ImportanceIcon } from '@/components/glyphs/ImportanceIcon';
@@ -184,14 +186,31 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
   const [tab, setTab] = React.useState<'activity' | 'comments'>('activity');
   const [copied, setCopied] = React.useState(false);
   const [moreOpen, setMoreOpen] = React.useState(false);
+  // Image preview lightbox: index into issue.attachments, null = closed.
+  const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
+  const previewOpen = previewIndex !== null;
+  const attachCount = issue?.attachments.length ?? 0;
 
   React.useEffect(() => {
+    // Capture phase: runs before the Dialog's own Escape handling, so `previewOpen`
+    // still reflects the open lightbox and Escape closes only the lightbox, not the drawer.
     const k = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !previewOpen) onClose();
+    };
+    window.addEventListener('keydown', k, true);
+    return () => window.removeEventListener('keydown', k, true);
+  }, [onClose, previewOpen]);
+
+  // ArrowLeft/ArrowRight cycle the preview while the lightbox is open.
+  React.useEffect(() => {
+    if (!previewOpen || attachCount < 2) return;
+    const k = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') setPreviewIndex((i) => (i === null ? i : (i - 1 + attachCount) % attachCount));
+      if (e.key === 'ArrowRight') setPreviewIndex((i) => (i === null ? i : (i + 1) % attachCount));
     };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
-  }, [onClose]);
+  }, [previewOpen, attachCount]);
 
   if (!issue) return null;
 
@@ -207,6 +226,10 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
   const isPRD = !!docsLabel && issue.labels.includes(docsLabel.id) && issue.aiAssigned;
   const patch = (p: Parameters<typeof update.mutate>[0]['input']) => update.mutate({ id, input: p });
   const candidates = candData?.candidates ?? [];
+  // Current lightbox attachment + wrap-around stepping across all attachments.
+  const preview = previewIndex !== null ? (issue.attachments[previewIndex] ?? null) : null;
+  const stepImage = (delta: number) =>
+    setPreviewIndex((i) => (i === null ? i : (i + delta + issue.attachments.length) % issue.attachments.length));
 
   // Upload each picked image straight to Blob, then register it on the issue.
   const addFiles = (files: Iterable<File>) => {
@@ -370,15 +393,20 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
               </div>
               {(issue.attachments.length > 0 || uploading.length > 0) && (
                 <div className="flex flex-wrap gap-2">
-                  {issue.attachments.map((a) => (
+                  {issue.attachments.map((a, idx) => (
                     <div
                       key={a.id}
                       title={a.filename}
                       className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border"
                     >
-                      <a href={a.url} target="_blank" rel="noreferrer">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewIndex(idx)}
+                        aria-label={a.filename}
+                        className="block h-full w-full cursor-pointer"
+                      >
                         <img src={a.url} alt={a.filename} className="h-full w-full object-cover" />
-                      </a>
+                      </button>
                       <button
                         onClick={() => removeAttachment(a.id)}
                         aria-label="delete"
@@ -715,6 +743,65 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
           </div>
         </div>
       </div>
+
+      {/* Attachment image lightbox — replaces opening the blob URL in a new tab */}
+      <Dialog open={!!preview} onOpenChange={(open) => !open && setPreviewIndex(null)}>
+        <DialogContent aria-describedby={undefined} className="w-[min(920px,94vw)] overflow-hidden">
+          <DialogPrimitive.Title className="sr-only">{preview?.filename}</DialogPrimitive.Title>
+          {preview && (
+            <div>
+              <div className="relative flex items-center justify-center bg-surface-2">
+                <img
+                  src={preview.url}
+                  alt={preview.filename}
+                  className="max-h-[76vh] w-auto max-w-full object-contain"
+                />
+                {issue.attachments.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => stepImage(-1)}
+                      aria-label={t('issue.prevImage')}
+                      title={t('issue.prevImage')}
+                      className="absolute left-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-black/45 text-white transition-colors hover:bg-black/65"
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => stepImage(1)}
+                      aria-label={t('issue.nextImage')}
+                      title={t('issue.nextImage')}
+                      className="absolute right-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-black/45 text-white transition-colors hover:bg-black/65"
+                    >
+                      <ChevronRight size={18} />
+                    </button>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-2.5 px-4 py-2.5">
+                <span className="min-w-0 flex-1 truncate text-[12.5px] text-fg-2" title={preview.filename}>
+                  {preview.filename}
+                </span>
+                {issue.attachments.length > 1 && (
+                  <span className="flex-none text-[12px] tabular-nums text-fg-3">
+                    {(previewIndex ?? 0) + 1} / {issue.attachments.length}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setPreviewIndex(null)}
+                  aria-label={t('issue.closePreview')}
+                  title={t('issue.closePreview')}
+                  className="grid h-7 w-7 flex-none place-items-center rounded-[7px] text-fg-3 hover:bg-surface-2 hover:text-fg-1"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
