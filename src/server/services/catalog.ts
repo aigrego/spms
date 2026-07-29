@@ -1,9 +1,9 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db';
-import { productLines, products, releases } from '@/db/schema';
+import { productLines, products, projects, releases, sprints, issues } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
-import { assignMember, clearSubtreeAssignments } from '@/lib/assignments';
+import { assignMember, clearNodeAssignments, sprintsDyingWithProjects } from '@/lib/assignments';
 import { requirePerm } from '@/lib/permissions';
 import { visibleSetsFor } from '@/lib/visibility';
 import type { Actor } from './types';
@@ -90,13 +90,14 @@ export async function deleteProductLine(actor: Actor, id: string) {
     .where(and(eq(productLines.companyId, actor.companyId), eq(productLines.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('PRODUCT_LINE_NOT_FOUND');
-  // Clear virtual-team rows across the whole subtree before the cascade delete.
+  // Clear virtual-team rows + dying sprints across the whole subtree before the
+  // cascade delete (shared sprints survive minus their links).
   const childProducts = await db
     .select({ id: products.id })
     .from(products)
     .where(and(eq(products.companyId, actor.companyId), eq(products.productLineId, id)));
   for (const p of childProducts) {
-    await clearSubtreeAssignments(actor.companyId, 'product', p.id);
+    await clearProductSubtree(actor, p.id);
   }
   await db.delete(productLines).where(eq(productLines.id, id));
   return { id };
@@ -192,6 +193,61 @@ export async function updateProduct(actor: Actor, id: string, input: UpdateProdu
   return { id };
 }
 
+/* Projects under a product (via its releases). */
+async function projectIdsOfProduct(companyId: string, productId: string): Promise<string[]> {
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .innerJoin(releases, eq(projects.releaseId, releases.id))
+    .where(and(eq(projects.companyId, companyId), eq(releases.productId, productId)));
+  return rows.map((r) => r.id);
+}
+
+/* Projects directly under a release. */
+async function projectIdsOfRelease(companyId: string, releaseId: string): Promise<string[]> {
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.companyId, companyId), eq(projects.releaseId, releaseId)));
+  return rows.map((r) => r.id);
+}
+
+/* Shared delete walk for product/release: clear the polymorphic assignment rows
+   of the dying nodes, then explicitly delete sprints that die with the subtree
+   (all their projects inside it) — shared sprints survive minus the links. */
+async function clearLifecycleSubtree(
+  actor: Actor,
+  node: { nodeType: 'product' | 'release'; nodeId: string },
+  projectIds: string[],
+) {
+  const companyId = actor.companyId;
+  const dyingSprints = await sprintsDyingWithProjects(companyId, projectIds);
+  await clearNodeAssignments(companyId, node.nodeType, node.nodeId);
+  for (const p of projectIds) await clearNodeAssignments(companyId, 'project', p);
+  for (const s of dyingSprints) await clearNodeAssignments(companyId, 'sprint', s);
+  if (dyingSprints.length) {
+    // Explicit detach (house style; the FK is set null too), then delete —
+    // snapshots/join rows cascade by FK.
+    await db
+      .update(issues)
+      .set({ sprintId: null })
+      .where(and(eq(issues.companyId, companyId), inArray(issues.sprintId, dyingSprints)));
+    await db.delete(sprints).where(and(eq(sprints.companyId, companyId), inArray(sprints.id, dyingSprints)));
+  }
+}
+
+/* Shared per-product delete walk: clear assignment rows of the product subtree
+   nodes, delete sprints dying with it, but NOT the product row itself. */
+async function clearProductSubtree(actor: Actor, productId: string) {
+  const companyId = actor.companyId;
+  await clearLifecycleSubtree(actor, { nodeType: 'product', nodeId: productId }, await projectIdsOfProduct(companyId, productId));
+  const releaseRows = await db
+    .select({ id: releases.id })
+    .from(releases)
+    .where(and(eq(releases.companyId, companyId), eq(releases.productId, productId)));
+  for (const r of releaseRows) await clearNodeAssignments(companyId, 'release', r.id);
+}
+
 export async function deleteProduct(actor: Actor, id: string) {
   await requirePerm(actor, 'products', 'write');
   const [existing] = await db
@@ -200,7 +256,7 @@ export async function deleteProduct(actor: Actor, id: string) {
     .where(and(eq(products.companyId, actor.companyId), eq(products.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('PRODUCT_NOT_FOUND');
-  await clearSubtreeAssignments(actor.companyId, 'product', id);
+  await clearProductSubtree(actor, id);
   await db.delete(products).where(eq(products.id, id));
   return { id };
 }
@@ -299,7 +355,7 @@ export async function deleteRelease(actor: Actor, id: string) {
     .where(and(eq(releases.companyId, actor.companyId), eq(releases.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('RELEASE_NOT_FOUND');
-  await clearSubtreeAssignments(actor.companyId, 'release', id);
+  await clearLifecycleSubtree(actor, { nodeType: 'release', nodeId: id }, await projectIdsOfRelease(actor.companyId, id));
   await db.delete(releases).where(eq(releases.id, id));
   return { id };
 }

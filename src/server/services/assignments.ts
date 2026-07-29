@@ -8,7 +8,7 @@ import {
   unassignMember,
   nodeExists,
   nodeMemberIds,
-  parentOf,
+  parentsOf,
   subtreeImpact,
   type AssignmentNodeType,
 } from '@/lib/assignments';
@@ -69,9 +69,16 @@ export async function candidates(actor: Actor, nodeType: AssignmentNodeType, nod
   if (!(await nodeExists(companyId, nodeType, nodeId))) throw new ApiException(NODE_NOT_FOUND[nodeType]);
 
   const assignedIds = await nodeMemberIds(companyId, nodeType, nodeId);
-  const parent = await parentOf(companyId, nodeType, nodeId);
-  // product has no node parent → the whole pool IS its quick source.
-  const parentIds = parent ? await nodeMemberIds(companyId, parent.nodeType, parent.nodeId) : null;
+  const parents = await parentsOf(companyId, nodeType, nodeId);
+  // product has no node parent → the whole pool IS its quick source; a sprint
+  // spanning several projects gets the UNION of all parent project pools.
+  let parentIds: Set<string> | null = null;
+  if (parents.length) {
+    parentIds = new Set<string>();
+    for (const p of parents) {
+      for (const id of await nodeMemberIds(companyId, p.nodeType, p.nodeId)) parentIds.add(id);
+    }
+  }
 
   // Active pool + still-invited externals (assignable now); never revoked.
   const pool = await db
@@ -82,7 +89,7 @@ export async function candidates(actor: Actor, nodeType: AssignmentNodeType, nod
 
   return {
     node: { nodeType, nodeId },
-    hasParent: !!parent,
+    hasParent: parents.length > 0,
     candidates: pool.map((m) => ({
       ...serializeMember(m),
       assignedHere: assignedIds.has(m.id),

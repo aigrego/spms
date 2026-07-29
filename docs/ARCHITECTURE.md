@@ -149,7 +149,7 @@ next-spms/
 
 ## 指派传播代数（核心复用逻辑）
 
-生命周期树：**product_line → product → release → project → sprint**（product_line 不是指派节点）。
+生命周期树：**product_line → product → release → project → sprint**（product_line 不是指派节点）。唯一的多父节点例外：sprint 可跨多个 project（`sprint_projects` 多对多），祖先遍历沿全部项目父链扇出（BFS 去重）。
 
 不变式：成员在节点 N ⟺ 在 N 或 N 的某后代有 direct 指派 ⟹ 出现在 N 的所有祖先上（propagated）。
 

@@ -319,17 +319,15 @@ export const labels = pgTable(
 );
 
 /* Sprints (Scrum) — real dates + committed points.
-   A sprint belongs to exactly ONE project (the lifecycle parent); its
-   release/product are derived through the project. teamId kept for compat. */
+   A sprint spans ONE OR MORE projects (sprint_projects join): a product split
+   into module-projects runs one iteration cycle across them. release/product
+   lineage derives through the projects. teamId kept for compat. */
 export const sprints = pgTable('sprints', {
   id: text('id').primaryKey(),
   companyId: text('company_id')
     .references(() => companies.id, { onDelete: 'cascade' })
     .notNull(),
   teamId: text('team_id').references(() => teams.id),
-  // the project this iteration delivers. Deleting the project cascade-
-  // deletes its sprints (cascade-down rule).
-  projectId: text('project_id').references((): any => projects.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   goal: text('goal'),
   status: sprintStatusEnum('status').notNull().default('planned'),
@@ -351,6 +349,25 @@ export const sprintSnapshots = pgTable('sprint_snapshots', {
   day: timestamp('day', { withTimezone: true }).notNull(),
   remainingPoints: integer('remaining_points').notNull(),
 });
+
+/* Sprint <-> Project (many-to-many). Deleting a project removes its join rows;
+   a sprint left with zero projects is deleted at the app level (deleteProject),
+   shared sprints survive with the remaining projects. */
+export const sprintProjects = pgTable(
+  'sprint_projects',
+  {
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    sprintId: text('sprint_id')
+      .references(() => sprints.id, { onDelete: 'cascade' })
+      .notNull(),
+    projectId: text('project_id')
+      .references((): any => projects.id, { onDelete: 'cascade' })
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.sprintId, t.projectId] })],
+);
 
 /* ------------------------------------------------------------------ */
 /* Lifecycle catalog — 产品线 → 产品 → 版本/Release                      */
@@ -806,14 +823,19 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   aiLead: one(members, { fields: [projects.aiLeadId], references: [members.id] }),
   issues: many(issues),
   requirements: many(requirements),
-  sprints: many(sprints),
+  sprintProjects: many(sprintProjects),
 }));
 
 export const sprintsRelations = relations(sprints, ({ one, many }) => ({
   team: one(teams, { fields: [sprints.teamId], references: [teams.id] }),
-  project: one(projects, { fields: [sprints.projectId], references: [projects.id] }),
   issues: many(issues),
   snapshots: many(sprintSnapshots),
+  sprintProjects: many(sprintProjects),
+}));
+
+export const sprintProjectsRelations = relations(sprintProjects, ({ one }) => ({
+  sprint: one(sprints, { fields: [sprintProjects.sprintId], references: [sprints.id] }),
+  project: one(projects, { fields: [sprintProjects.projectId], references: [projects.id] }),
 }));
 
 export const sprintSnapshotsRelations = relations(sprintSnapshots, ({ one }) => ({

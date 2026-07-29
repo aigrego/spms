@@ -2,13 +2,12 @@
 
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { AlertTriangle, Folder, Target } from 'lucide-react';
+import { AlertTriangle, Target } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverTrigger, PopoverContent, MenuItem } from '@/components/ui/popover';
-import { ProjectMenu } from '@/components/menus';
-import { ProjectIcon } from '@/components/glyphs/misc';
+import { ProjectCheckList } from '@/components/ProjectCheckList';
 import { useLocale, useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useCreateSprint, useUpdateSprint, useDeleteSprint } from '@/store/sprints';
@@ -29,7 +28,7 @@ const DICT: Record<Locale, Record<string, string>> = {
     goal: '目标',
     goalPh: '这个迭代要达成什么？（可选）',
     project: '所属项目',
-    pickProject: '选择项目',
+    projectsHint: '可多选：同一迭代周期可跨多个项目并行',
     status: '状态',
     start: '开始日期',
     end: '结束日期',
@@ -48,8 +47,8 @@ const DICT: Record<Locale, Record<string, string>> = {
     namePh: 'Sprint name, e.g. Sprint 12',
     goal: 'Goal',
     goalPh: 'What should this sprint achieve? (optional)',
-    project: 'Project',
-    pickProject: 'Select project',
+    project: 'Projects',
+    projectsHint: 'Multi-select: one sprint can span several projects',
     status: 'Status',
     start: 'Start date',
     end: 'End date',
@@ -69,7 +68,7 @@ const DICT: Record<Locale, Record<string, string>> = {
     goal: '目標',
     goalPh: '這個迭代要達成什麼？（可選）',
     project: '所屬專案',
-    pickProject: '選擇專案',
+    projectsHint: '可多選：同一迭代週期可跨多個專案並行',
     status: '狀態',
     start: '開始日期',
     end: '結束日期',
@@ -167,7 +166,7 @@ export function SprintModal({
 }) {
   const t = useT();
   const s = useSprintDict();
-  const { projects, projectById } = useAppData();
+  const { projects } = useAppData();
   const create = useCreateSprint();
   const update = useUpdateSprint();
   const del = useDeleteSprint();
@@ -175,7 +174,7 @@ export function SprintModal({
 
   const [name, setName] = React.useState('');
   const [goal, setGoal] = React.useState('');
-  const [projectId, setProjectId] = React.useState<string | null>(null);
+  const [projectIds, setProjectIds] = React.useState<string[]>([]);
   const [status, setStatus] = React.useState<SprintStatus>('planned');
   const [startDate, setStartDate] = React.useState('');
   const [endDate, setEndDate] = React.useState('');
@@ -187,21 +186,23 @@ export function SprintModal({
     if (open) {
       setName(sprint?.name ?? '');
       setGoal(sprint?.goal ?? '');
-      setProjectId(sprint?.projectId ?? null);
+      setProjectIds(sprint?.projectIds ?? []);
       setStatus(sprint?.status ?? 'planned');
-      setStartDate(sprint?.startDate ?? '');
-      setEndDate(sprint?.endDate ?? '');
+      // API 返回 ISO 时间戳,date input 需要 yyyy-MM-dd
+      setStartDate(sprint?.startDate?.slice(0, 10) ?? '');
+      setEndDate(sprint?.endDate?.slice(0, 10) ?? '');
       setCapacity(sprint?.capacity != null ? String(sprint.capacity) : '');
       setStatusOpen(false);
       setConfirmDel(false);
     }
   }, [open, sprint]);
 
-  const project = projectById(projectId);
+  const toggleProject = (id: string) =>
+    setProjectIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
   const dateErr = !!startDate && !!endDate && endDate < startDate;
   const cap = capacity.trim() === '' ? null : Number(capacity);
   const capValid = cap === null || (Number.isFinite(cap) && cap >= 0);
-  const valid = !!name.trim() && !!projectId && !!startDate && !!endDate && !dateErr && capValid;
+  const valid = !!name.trim() && projectIds.length > 0 && !!startDate && !!endDate && !dateErr && capValid;
   const busy = create.isPending || update.isPending;
 
   const submit = async () => {
@@ -212,7 +213,7 @@ export function SprintModal({
         input: {
           name: name.trim(),
           goal: goal.trim() || null,
-          projectId,
+          projectIds,
           status,
           startDate,
           endDate,
@@ -224,7 +225,7 @@ export function SprintModal({
       const created = await create.mutateAsync({
         name: name.trim(),
         goal: goal.trim() || null,
-        projectId,
+        projectIds,
         startDate,
         endDate,
         capacity: cap,
@@ -283,35 +284,16 @@ export function SprintModal({
               />
             </Field>
 
-            <div className="flex flex-wrap gap-3.5">
-              <Field label={s.project}>
-                <ProjectMenu
-                  current={projectId}
-                  onPick={setProjectId}
-                  trigger={
-                    <button
-                      type="button"
-                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 hover:bg-surface-2"
-                    >
-                      {project ? (
-                        <span
-                          className="grid h-[18px] w-[18px] place-items-center rounded"
-                          style={{ background: project.color }}
-                        >
-                          <ProjectIcon name={project.icon} size={12} />
-                        </span>
-                      ) : (
-                        <Folder size={15} className="text-fg-3" />
-                      )}
-                      {project ? project.name : s.pickProject}
-                    </button>
-                  }
-                />
-                {projects.length === 0 && (
-                  <span className="mt-1 block text-[11.5px] text-fg-3">{t('menu.noProjects')}</span>
-                )}
-              </Field>
+            <Field label={s.project}>
+              <ProjectCheckList projects={projects} selected={projectIds} onToggle={toggleProject} maxH="max-h-40" />
+              {projects.length === 0 ? (
+                <span className="mt-1 block text-[11.5px] text-fg-3">{t('menu.noProjects')}</span>
+              ) : (
+                <span className="mt-1 block text-[11.5px] text-fg-3">{s.projectsHint}</span>
+              )}
+            </Field>
 
+            <div className="flex flex-wrap gap-3.5">
               {/* status is editable only in edit mode — the create API always
                   starts a sprint as `planned`. */}
               {isEdit && (

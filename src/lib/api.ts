@@ -307,7 +307,7 @@ export const api = {
 
   createSprint: (input: {
     teamId?: string | null;
-    projectId?: string | null;
+    projectIds?: string[];
     name: string;
     goal?: string | null;
     startDate: string;
@@ -319,7 +319,7 @@ export const api = {
     id: string,
     input: Partial<{
       teamId: string | null;
-      projectId: string | null;
+      projectIds: string[];
       name: string;
       goal: string | null;
       status: 'planned' | 'active' | 'completed';

@@ -68,6 +68,7 @@ async function main() {
     releases,
     projects,
     sprints,
+    sprintProjects,
     requirements,
     issues,
     testCases,
@@ -251,7 +252,6 @@ async function main() {
         {
           id: id(),
           companyId,
-          projectId: project.id,
           name: 'Sprint 1',
           goal: '打通脚手架 + 数据库层 + 登录',
           status: 'active' as const,
@@ -262,7 +262,6 @@ async function main() {
         {
           id: id(),
           companyId,
-          projectId: project.id,
           name: 'Sprint 2',
           goal: 'issue / 迭代 API 与页面',
           status: 'planned' as const,
@@ -272,6 +271,11 @@ async function main() {
         },
       ])
       .returning();
+    // sprint ↔ project 多对多(sprint_projects):两个种子迭代都挂在该项目下
+    await db.insert(sprintProjects).values([
+      { companyId, sprintId: sprintActive.id, projectId: project.id },
+      { companyId, sprintId: sprintPlanned.id, projectId: project.id },
+    ]);
 
     /* ---- requirements (FR / NFR) ---- */
     const [fr, nfr] = await db

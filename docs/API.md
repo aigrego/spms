@@ -80,15 +80,15 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/sprints?team` | 列表 |
-| POST | `/sprints` | **新增**（原系统无）：name/startDate/endDate/projectId 等 |
-| PATCH | `/sprints/:id` | **新增**：部分更新 |
+| POST | `/sprints` | **新增**（原系统无）：name/startDate/endDate/projectIds（数组，可跨多项目）等 |
+| PATCH | `/sprints/:id` | **新增**：部分更新（projectIds 整体替换） |
 | DELETE | `/sprints/:id` | **新增**：issues.sprintId set null 后删 |
 | GET | `/sprints/backlog?team` | 产品待办：sprintId IS NULL 且 status=todo（待处理）的 issues，backlogRank asc；其他状态及已归档（含已归档项目的）一律不进 |
 | GET | `/sprints/velocity?team` | 每 sprint committed/completed/capacity + avgVelocity |
 | GET | `/sprints/:id` | 元数据 + committed issues + stats |
 | GET | `/sprints/:id/burndown` | ideal 线性 + snapshots actual |
-| PATCH | `/sprints/:id/issues/:issueKey` | 移入/移出（`:id` 可为 `_backlog`）；移入强制 projectId=sprint.projectId |
-| POST | `/sprints/:id/start` | planned → active；同项目已有进行中迭代 → CONFLICT（PATCH 直改 status=active 同样校验） |
+| PATCH | `/sprints/:id/issues/:issueKey` | 移入/移出（`:id` 可为 `_backlog`）；迭代有项目时 issue 的项目必须在其中（否则 LIFECYCLE_MISMATCH），issue 无项目且迭代恰好一个项目时自动归属 |
+| POST | `/sprints/:id/start` | planned → active；迭代任一项目已有进行中迭代 → CONFLICT（PATCH 直改 status=active 同样校验） |
 | POST | `/sprints/:id/complete` | active → completed；未完成（非 done/canceled）issues sprintId set null 移回待办，返回 `{ sprint, movedCount }` |
 
 ## Catalog 生命周期目录

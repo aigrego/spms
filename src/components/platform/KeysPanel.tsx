@@ -12,8 +12,7 @@ import { PopoverConfirm, fmtDate, tdCls, thCls, fieldLabel, inputCls } from '@/c
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { ApiError } from '@/lib/api';
-import { ProjectIcon } from '@/components/glyphs/misc';
-import { cn } from '@/lib/utils';
+import { ProjectCheckList } from '@/components/ProjectCheckList';
 import { useAppData } from '@/store/AppData';
 import { useT } from '@/lib/i18n';
 import { relativeTime } from '@/lib/time';
@@ -335,34 +334,7 @@ function EditProjectsModal({ k, onClose }: { k: McpKey; onClose: () => void }) {
         </DialogPrimitive.Title>
         <div className="flex flex-col gap-3 px-[18px] py-3">
           <div className="text-[12px] text-fg-3">Agent 只能访问选中项目内的实体(全部选中 = 不限制)</div>
-          <div className="max-h-64 overflow-y-auto overflow-hidden rounded-lg border border-border">
-            {projects.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => toggle(p.id)}
-                className="flex w-full items-center gap-2.5 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-2/60"
-              >
-                <span
-                  className={cn(
-                    'grid h-4 w-4 flex-none place-items-center rounded-full border',
-                    sel.includes(p.id)
-                      ? 'border-brand-blue bg-brand-blue text-white'
-                      : 'border-border-strong bg-surface',
-                  )}
-                >
-                  {sel.includes(p.id) && <Check size={11} strokeWidth={3} />}
-                </span>
-                <span
-                  className="grid h-4 w-4 flex-none place-items-center rounded"
-                  style={{ background: p.color }}
-                >
-                  <ProjectIcon name={p.icon} size={11} />
-                </span>
-                <span className="min-w-0 truncate text-[13.5px] font-medium text-fg-1">{p.name}</span>
-              </button>
-            ))}
-          </div>
+          <ProjectCheckList projects={projects} selected={sel} onToggle={toggle} maxH="max-h-64" />
           {error && <div className="rounded-lg bg-danger-50 px-3 py-2 text-[12.5px] text-danger">{error}</div>}
         </div>
         <div className="flex items-center gap-2 border-t border-border px-[18px] py-3">

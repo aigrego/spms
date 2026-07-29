@@ -218,7 +218,7 @@ export interface TestCase {
 export interface Sprint {
   id: string;
   teamId: string | null;
-  projectId: string | null;
+  projectIds: string[];
   name: string;
   goal: string | null;
   status: SprintStatus;

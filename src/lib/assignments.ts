@@ -1,11 +1,13 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db';
-import { resourceAssignments, sprints, projects, releases, products } from '@/db/schema';
+import { resourceAssignments, sprints, sprintProjects, projects, releases, products } from '@/db/schema';
 
 /* PMS-2 §3 — 研发资源 (virtual team) assignment + propagation algebra.
 
    The lifecycle is a tree:  product → release → project → sprint  (product line
-   is the implicit pool root, NOT an assignment node). The invariant:
+   is the implicit pool root, NOT an assignment node) — with one relaxation: a
+   sprint may span several projects (sprint_projects), so sprint is the one
+   multi-parent node and ancestor walks fan out over all of them. The invariant:
 
      a member sits on node N  ⟺  they have a direct assignment on N or on some
      descendant of N           ⟹  they sit on every ancestor of N.
@@ -29,19 +31,20 @@ export interface NodeRef {
   nodeId: string;
 }
 
-/* The immediate lifecycle parent of a node (null at the product root). */
-export async function parentOf(
+/* The immediate lifecycle parents of a node (empty at the product root).
+   A sprint can span several projects (sprint_projects) → multiple parents;
+   every other node type still has at most one. */
+export async function parentsOf(
   companyId: string,
   nodeType: AssignmentNodeType,
   nodeId: string,
-): Promise<NodeRef | null> {
+): Promise<NodeRef[]> {
   if (nodeType === 'sprint') {
-    const [s] = await db
-      .select({ projectId: sprints.projectId })
-      .from(sprints)
-      .where(and(eq(sprints.id, nodeId), eq(sprints.companyId, companyId)))
-      .limit(1);
-    return s?.projectId ? { nodeType: 'project', nodeId: s.projectId } : null;
+    const rows = await db
+      .select({ projectId: sprintProjects.projectId })
+      .from(sprintProjects)
+      .where(and(eq(sprintProjects.sprintId, nodeId), eq(sprintProjects.companyId, companyId)));
+    return rows.map((r): NodeRef => ({ nodeType: 'project', nodeId: r.projectId }));
   }
   if (nodeType === 'project') {
     const [p] = await db
@@ -49,7 +52,7 @@ export async function parentOf(
       .from(projects)
       .where(and(eq(projects.id, nodeId), eq(projects.companyId, companyId)))
       .limit(1);
-    return p?.releaseId ? { nodeType: 'release', nodeId: p.releaseId } : null;
+    return p?.releaseId ? [{ nodeType: 'release', nodeId: p.releaseId }] : [];
   }
   if (nodeType === 'release') {
     const [r] = await db
@@ -57,22 +60,42 @@ export async function parentOf(
       .from(releases)
       .where(and(eq(releases.id, nodeId), eq(releases.companyId, companyId)))
       .limit(1);
-    return r?.productId ? { nodeType: 'product', nodeId: r.productId } : null;
+    return r?.productId ? [{ nodeType: 'product', nodeId: r.productId }] : [];
   }
-  return null; // product → pool root (implicit, no parent node)
+  return []; // product → pool root (implicit, no parent node)
 }
 
-/* Ancestor chain, nearest parent first, up to (and including) the product. */
+/* The immediate lifecycle parent of a node (null at the product root).
+   For a multi-project sprint this returns the FIRST parent — use parentsOf
+   when all parents matter (propagation walks). */
+export async function parentOf(
+  companyId: string,
+  nodeType: AssignmentNodeType,
+  nodeId: string,
+): Promise<NodeRef | null> {
+  return (await parentsOf(companyId, nodeType, nodeId))[0] ?? null;
+}
+
+/* Ancestor set, nearest parents first, up to (and including) the product.
+   BFS over parentsOf (a sprint may have several project parents), de-duped. */
 export async function ancestorsOf(
   companyId: string,
   nodeType: AssignmentNodeType,
   nodeId: string,
 ): Promise<NodeRef[]> {
   const chain: NodeRef[] = [];
-  let cur: NodeRef | null = await parentOf(companyId, nodeType, nodeId);
-  while (cur) {
-    chain.push(cur);
-    cur = await parentOf(companyId, cur.nodeType, cur.nodeId);
+  const seen = new Set<string>();
+  let frontier = await parentsOf(companyId, nodeType, nodeId);
+  while (frontier.length) {
+    const next: NodeRef[] = [];
+    for (const cur of frontier) {
+      const key = `${cur.nodeType}:${cur.nodeId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      chain.push(cur);
+      next.push(...(await parentsOf(companyId, cur.nodeType, cur.nodeId)));
+    }
+    frontier = next;
   }
   return chain;
 }
@@ -111,10 +134,11 @@ export async function descendantsOf(
 
   if (projectIds.length) {
     const sprs = await db
-      .select({ id: sprints.id })
-      .from(sprints)
-      .where(and(inArray(sprints.projectId, projectIds), eq(sprints.companyId, companyId)));
-    out.push(...sprs.map((s): NodeRef => ({ nodeType: 'sprint', nodeId: s.id })));
+      .select({ id: sprintProjects.sprintId })
+      .from(sprintProjects)
+      .where(and(inArray(sprintProjects.projectId, projectIds), eq(sprintProjects.companyId, companyId)));
+    // a sprint spanning several of these projects must appear only once
+    for (const s of new Set(sprs.map((r) => r.id))) out.push({ nodeType: 'sprint', nodeId: s });
   }
   return out;
 }
@@ -300,14 +324,49 @@ export async function clearSubtreeAssignments(
   for (const r of refs) await clearNodeAssignments(companyId, r.nodeType, r.nodeId);
 }
 
+/* Sprints that die when the given projects are deleted: those whose EVERY
+   sprint_projects link points inside the set (a sprint shared with projects
+   outside the set survives — its link rows cascade away with the projects).
+   Callers delete the returned sprints explicitly before deleting the projects,
+   since the N:N move dropped the projects→sprints FK cascade. */
+export async function sprintsDyingWithProjects(companyId: string, projectIds: string[]): Promise<string[]> {
+  if (!projectIds.length) return [];
+  const links = await db
+    .select({ sprintId: sprintProjects.sprintId, projectId: sprintProjects.projectId })
+    .from(sprintProjects)
+    .where(and(eq(sprintProjects.companyId, companyId), inArray(sprintProjects.projectId, projectIds)));
+  const insideCount = new Map<string, number>();
+  for (const l of links) insideCount.set(l.sprintId, (insideCount.get(l.sprintId) ?? 0) + 1);
+  const dying: string[] = [];
+  for (const [sprintId, inside] of insideCount) {
+    const total = await db
+      .select({ projectId: sprintProjects.projectId })
+      .from(sprintProjects)
+      .where(and(eq(sprintProjects.companyId, companyId), eq(sprintProjects.sprintId, sprintId)));
+    if (total.length === inside) dying.push(sprintId);
+  }
+  return dying;
+}
+
 /* Count the cascade-delete impact of removing a node (for the type-to-confirm
-   dialog, PMS-2 §3.4 / §6.10): how many descendant nodes + assignment rows go. */
+   dialog, PMS-2 §3.4 / §6.10): how many descendant nodes + assignment rows go.
+   Sprints shared with projects outside the subtree survive — only sprints
+   fully inside count as dying. */
 export async function subtreeImpact(companyId: string, nodeType: AssignmentNodeType, nodeId: string) {
   const desc = await descendantsOf(companyId, nodeType, nodeId);
+  const subtreeProjectIds = [
+    ...(nodeType === 'project' ? [nodeId] : []),
+    ...desc.filter((d) => d.nodeType === 'project').map((d) => d.nodeId),
+  ];
+  const dyingSprints = new Set(await sprintsDyingWithProjects(companyId, subtreeProjectIds));
   const counts = { release: 0, project: 0, sprint: 0 };
-  for (const d of desc) counts[d.nodeType as 'release' | 'project' | 'sprint']++;
+  const all: NodeRef[] = [{ nodeType, nodeId }];
+  for (const d of desc) {
+    if (d.nodeType === 'sprint' && !dyingSprints.has(d.nodeId)) continue;
+    counts[d.nodeType as 'release' | 'project' | 'sprint']++;
+    all.push(d);
+  }
   let assignments = 0;
-  const all: NodeRef[] = [{ nodeType, nodeId }, ...desc];
   for (const r of all) assignments += (await nodeMemberIds(companyId, r.nodeType, r.nodeId)).size;
   return { descendants: counts, assignments };
 }

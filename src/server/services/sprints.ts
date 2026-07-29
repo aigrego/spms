@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNull, ne, notInArray, or } from 'drizzle-orm';
 import { db } from '@/db';
-import { sprints, sprintSnapshots, issues, projects } from '@/db/schema';
+import { sprints, sprintProjects, sprintSnapshots, issues, projects } from '@/db/schema';
 import { serializeIssueList } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { requirePerm } from '@/lib/permissions';
@@ -14,7 +14,10 @@ import type { Actor } from './types';
 
    Multi-company: every function takes the Actor and reads/writes strictly
    inside actor.companyId. Module gates: getBacklog → `backlog` read;
-   everything else sprint-related → `sprints` read/write. */
+   everything else sprint-related → `sprints` read/write.
+
+   A sprint spans one or more projects via the sprint_projects join table —
+   a product split into module-projects runs one iteration cycle across them. */
 
 const withRelations = {
   issueLabels: { with: { label: true } },
@@ -24,23 +27,78 @@ const withRelations = {
 
 const DONE_STATUSES = ['done', 'canceled'];
 
+/* The projects a sprint spans (sprint_projects join). */
+async function sprintProjectIds(companyId: string, sprintId: string): Promise<string[]> {
+  const rows = await db
+    .select({ projectId: sprintProjects.projectId })
+    .from(sprintProjects)
+    .where(and(eq(sprintProjects.companyId, companyId), eq(sprintProjects.sprintId, sprintId)));
+  return rows.map((r) => r.projectId);
+}
+
+/* Attach projectIds to sprint rows with one grouped query. */
+async function attachProjectIds<T extends { id: string }>(companyId: string, rows: T[]) {
+  const links = rows.length
+    ? await db
+        .select()
+        .from(sprintProjects)
+        .where(
+          and(
+            eq(sprintProjects.companyId, companyId),
+            inArray(
+              sprintProjects.sprintId,
+              rows.map((r) => r.id),
+            ),
+          ),
+        )
+    : [];
+  const bySprint = new Map<string, string[]>();
+  for (const l of links) bySprint.set(l.sprintId, [...(bySprint.get(l.sprintId) ?? []), l.projectId]);
+  return rows.map((r) => ({ ...r, projectIds: bySprint.get(r.id) ?? [] }));
+}
+
 /* At most one active sprint per project — the lifecycle guard shared by
-   startSprint and the raw status PATCH. */
-async function assertNoOtherActive(companyId: string, projectId: string | null, excludeId: string) {
-  if (!projectId) return;
+   startSprint and the raw status PATCH. A sprint spanning several projects
+   conflicts when ANY of them is already covered by another active sprint. */
+async function assertNoOtherActive(companyId: string, projectIds: string[], excludeId: string) {
+  if (!projectIds.length) return;
   const [other] = await db
-    .select({ id: sprints.id })
-    .from(sprints)
+    .select({ id: sprintProjects.sprintId })
+    .from(sprintProjects)
+    .innerJoin(sprints, eq(sprints.id, sprintProjects.sprintId))
     .where(
       and(
-        eq(sprints.companyId, companyId),
-        eq(sprints.projectId, projectId),
+        eq(sprintProjects.companyId, companyId),
+        inArray(sprintProjects.projectId, projectIds),
         eq(sprints.status, 'active'),
         ne(sprints.id, excludeId),
       ),
     )
     .limit(1);
   if (other) throw new ApiException('CONFLICT', '该项目已有进行中的迭代');
+}
+
+/* 令牌项目白名单过滤条件:迭代须与白名单内至少一个项目有关联。 */
+function allowedSprintCond(actor: Actor) {
+  if (!actor.allowedProjectIds) return null;
+  return inArray(
+    sprints.id,
+    db
+      .select({ id: sprintProjects.sprintId })
+      .from(sprintProjects)
+      .where(
+        and(
+          eq(sprintProjects.companyId, actor.companyId),
+          inArray(sprintProjects.projectId, actor.allowedProjectIds),
+        ),
+      ),
+  );
+}
+
+/* 白名单下的详情门槛:迭代与白名单有交集才可读(0 项目迭代一律不可见,同旧 null 语义)。 */
+function passesWhitelist(actor: Actor, projectIds: string[]): boolean {
+  if (!actor.allowedProjectIds) return true;
+  return projectIds.some((id) => actor.allowedProjectIds!.includes(id));
 }
 
 const sumPoints = (rows: { storyPoints: number | null }[]) =>
@@ -57,13 +115,15 @@ export async function listSprints(actor: Actor, filter?: { team?: string }) {
   // 指派可见性(visibility.ts);null = 管理员不限制。
   const visible = await visibleSetsFor(actor);
   if (visible) conds.push(inArray(sprints.id, visible.sprintIds));
-  // 令牌项目白名单:只看得到白名单内项目的迭代(与 MCP loadBootstrap 同款)。
-  if (actor.allowedProjectIds) conds.push(inArray(sprints.projectId, actor.allowedProjectIds));
-  return db
+  // 令牌项目白名单:只看得到与白名单项目有交集的迭代(与 MCP loadBootstrap 同款)。
+  const whitelist = allowedSprintCond(actor);
+  if (whitelist) conds.push(whitelist);
+  const rows = await db
     .select()
     .from(sprints)
     .where(and(...conds))
     .orderBy(asc(sprints.startDate));
+  return attachProjectIds(actor.companyId, rows);
 }
 
 /* ---- product backlog: 未进入任何迭代 且状态为「待处理(todo)」的 issue,
@@ -96,8 +156,9 @@ export async function getVelocity(actor: Actor, filter?: { team?: string }) {
   // 指派可见性;null = 管理员不限制。
   const visible = await visibleSetsFor(actor);
   if (visible) conds.push(inArray(sprints.id, visible.sprintIds));
-  // 令牌项目白名单:只看得到白名单内项目的迭代。
-  if (actor.allowedProjectIds) conds.push(inArray(sprints.projectId, actor.allowedProjectIds));
+  // 令牌项目白名单:只看得到与白名单项目有交集的迭代。
+  const whitelist = allowedSprintCond(actor);
+  if (whitelist) conds.push(whitelist);
   const sprintRows = await db
     .select()
     .from(sprints)
@@ -136,8 +197,9 @@ export async function getSprint(actor: Actor, id: string) {
   if (!sprint) return null;
   const visible = await visibleSetsFor(actor);
   if (visible && !visible.sprintIds.includes(id)) return null;
-  // 令牌项目白名单:白名单外项目的迭代详情不可读。
-  if (actor.allowedProjectIds && (!sprint.projectId || !actor.allowedProjectIds.includes(sprint.projectId))) return null;
+  // 令牌项目白名单:与白名单无交集的迭代详情不可读。
+  const projectIds = await sprintProjectIds(actor.companyId, id);
+  if (!passesWhitelist(actor, projectIds)) return null;
 
   const rows = await db.query.issues.findMany({
     where: and(eq(issues.companyId, actor.companyId), eq(issues.sprintId, id)),
@@ -149,6 +211,7 @@ export async function getSprint(actor: Actor, id: string) {
 
   return {
     ...sprint,
+    projectIds,
     issues: rows.map(serializeIssueList),
     stats: {
       committedPoints,
@@ -170,8 +233,8 @@ export async function getBurndown(actor: Actor, id: string) {
   if (!sprint) return null;
   const visible = await visibleSetsFor(actor);
   if (visible && !visible.sprintIds.includes(id)) return null;
-  // 令牌项目白名单:白名单外项目的迭代燃尽不可读。
-  if (actor.allowedProjectIds && (!sprint.projectId || !actor.allowedProjectIds.includes(sprint.projectId))) return null;
+  // 令牌项目白名单:与白名单无交集的迭代燃尽不可读。
+  if (!passesWhitelist(actor, await sprintProjectIds(actor.companyId, id))) return null;
 
   const committed = sumPoints(
     await db
@@ -205,7 +268,9 @@ export async function getBurndown(actor: Actor, id: string) {
 }
 
 /* ---- move an issue into / out of a sprint (drag from backlog) ----
-   sprintId is a sprint id or '_backlog'. */
+   sprintId is a sprint id or '_backlog'.
+   一致性规则:迭代有项目时,issue 的项目必须在其中(LIFECYCLE_MISMATCH 报错,
+   不再静默改写);issue 无项目且迭代恰好一个项目时自动归属(保留旧体验)。 */
 export async function moveIssue(actor: Actor, sprintIdOrBacklog: string, issueKey: string, storyPoints?: number | null) {
   await requirePerm(actor, 'sprints', 'write');
   const issue = await db.query.issues.findFirst({
@@ -220,9 +285,14 @@ export async function moveIssue(actor: Actor, sprintIdOrBacklog: string, issueKe
       where: and(eq(sprints.companyId, actor.companyId), eq(sprints.id, targetSprint)),
     });
     if (!sprint) throw new ApiException('SPRINT_NOT_FOUND', `Sprint ${targetSprint} 不存在`);
-    // PMS-2 §4.3: a sprint belongs to one project — the issue adopts it so the
-    // range (project) and time-box (sprint) stay consistent.
-    if (sprint.projectId) patch.projectId = sprint.projectId;
+    const projIds = await sprintProjectIds(actor.companyId, targetSprint);
+    if (projIds.length > 0) {
+      if (issue.projectId && !projIds.includes(issue.projectId)) {
+        throw new ApiException('LIFECYCLE_MISMATCH', 'Issue 所属项目不在该迭代的项目范围内');
+      }
+      // 单项目迭代:无项目 issue 拖入后自动归属该项目(保留旧体验)。
+      if (!issue.projectId && projIds.length === 1) patch.projectId = projIds[0];
+    }
   }
   if (storyPoints !== undefined) patch.storyPoints = storyPoints;
 
@@ -240,7 +310,7 @@ function parseDate(v: Date | string, field: string): Date {
   return d;
 }
 
-/* The legacy team a sprint inherits — derived from its project. */
+/* The legacy team a sprint inherits — derived from its (single) project. */
 async function teamForProject(companyId: string, projectId: string | null | undefined) {
   if (!projectId) return null;
   const [p] = await db
@@ -251,13 +321,25 @@ async function teamForProject(companyId: string, projectId: string | null | unde
   return p?.teamId ?? null;
 }
 
-async function projectExists(companyId: string, id: string) {
-  const [p] = await db
+async function assertProjectsExist(companyId: string, ids: string[]) {
+  if (!ids.length) return;
+  const rows = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.companyId, companyId), eq(projects.id, id)))
-    .limit(1);
-  return !!p;
+    .where(and(eq(projects.companyId, companyId), inArray(projects.id, ids)));
+  if (rows.length !== new Set(ids).size) throw new ApiException('PROJECT_NOT_FOUND');
+}
+
+/* Replace the sprint's project links (delete + re-insert). */
+async function setSprintProjects(companyId: string, sprintId: string, projectIds: string[]) {
+  await db
+    .delete(sprintProjects)
+    .where(and(eq(sprintProjects.companyId, companyId), eq(sprintProjects.sprintId, sprintId)));
+  if (projectIds.length) {
+    await db.insert(sprintProjects).values(
+      [...new Set(projectIds)].map((projectId) => ({ companyId, sprintId, projectId })),
+    );
+  }
 }
 
 export interface CreateSprintInput {
@@ -267,8 +349,8 @@ export interface CreateSprintInput {
   startDate: Date | string;
   endDate: Date | string;
   capacity?: number | null;
-  projectId?: string | null;
-  teamId?: string | null; // legacy; derived from the project when not given
+  projectIds?: string[];
+  teamId?: string | null; // legacy; derived from the (single) project when not given
 }
 
 /* ---- create ---- */
@@ -281,9 +363,8 @@ export async function createSprint(actor: Actor, input: CreateSprintInput) {
   const startDate = parseDate(input.startDate, 'startDate');
   const endDate = parseDate(input.endDate, 'endDate');
   if (+endDate < +startDate) throw new ApiException('VALIDATION_FAILED', '结束日期不能早于开始日期');
-  if (input.projectId && !(await projectExists(actor.companyId, input.projectId))) {
-    throw new ApiException('PROJECT_NOT_FOUND');
-  }
+  const projectIds = [...new Set(input.projectIds ?? [])];
+  await assertProjectsExist(actor.companyId, projectIds);
 
   const id = crypto.randomUUID();
   await db.insert(sprints).values({
@@ -295,10 +376,15 @@ export async function createSprint(actor: Actor, input: CreateSprintInput) {
     startDate,
     endDate,
     capacity: input.capacity ?? null,
-    projectId: input.projectId ?? null,
-    teamId: input.teamId !== undefined ? input.teamId : await teamForProject(actor.companyId, input.projectId),
+    teamId:
+      input.teamId !== undefined
+        ? input.teamId
+        : await teamForProject(actor.companyId, projectIds.length === 1 ? projectIds[0] : null),
   });
-  const [row] = await db.select().from(sprints).where(eq(sprints.id, id)).limit(1);
+  await setSprintProjects(actor.companyId, id, projectIds);
+  const [row] = await attachProjectIds(actor.companyId, [
+    (await db.select().from(sprints).where(eq(sprints.id, id)).limit(1))[0],
+  ]);
   return row;
 }
 
@@ -309,7 +395,7 @@ export interface UpdateSprintInput {
   startDate?: Date | string;
   endDate?: Date | string;
   capacity?: number | null;
-  projectId?: string | null;
+  projectIds?: string[];
   teamId?: string | null;
 }
 
@@ -322,9 +408,8 @@ export async function updateSprint(actor: Actor, id: string, input: UpdateSprint
     .where(and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('SPRINT_NOT_FOUND');
-  if (input.projectId && !(await projectExists(actor.companyId, input.projectId))) {
-    throw new ApiException('PROJECT_NOT_FOUND');
-  }
+  const projectIds = input.projectIds !== undefined ? [...new Set(input.projectIds)] : undefined;
+  if (projectIds) await assertProjectsExist(actor.companyId, projectIds);
 
   const patch: Partial<typeof sprints.$inferInsert> = {};
   if (input.name !== undefined) {
@@ -337,8 +422,8 @@ export async function updateSprint(actor: Actor, id: string, input: UpdateSprint
     // same one-active-per-project rule as startSprint. (The UI drives planned→
     // active→completed via the dedicated start/complete endpoints.)
     if (input.status === 'active' && existing.status !== 'active') {
-      const effProject = input.projectId !== undefined ? input.projectId : existing.projectId;
-      await assertNoOtherActive(actor.companyId, effProject, id);
+      const effProjects = projectIds ?? (await sprintProjectIds(actor.companyId, id));
+      await assertNoOtherActive(actor.companyId, effProjects, id);
     }
     patch.status = input.status;
   }
@@ -349,15 +434,19 @@ export async function updateSprint(actor: Actor, id: string, input: UpdateSprint
   const effEnd = patch.endDate ?? existing.endDate;
   if (+effEnd < +effStart) throw new ApiException('VALIDATION_FAILED', '结束日期不能早于开始日期');
   if (input.capacity !== undefined) patch.capacity = input.capacity;
-  if (input.projectId !== undefined) {
-    patch.projectId = input.projectId;
+  if (projectIds) {
+    await setSprintProjects(actor.companyId, id, projectIds);
     // Keep the legacy teamId aligned unless explicitly overridden.
-    if (input.teamId === undefined) patch.teamId = await teamForProject(actor.companyId, input.projectId);
+    if (input.teamId === undefined) {
+      patch.teamId = await teamForProject(actor.companyId, projectIds.length === 1 ? projectIds[0] : null);
+    }
   }
   if (input.teamId !== undefined) patch.teamId = input.teamId;
 
   await db.update(sprints).set(patch).where(eq(sprints.id, id));
-  const [row] = await db.select().from(sprints).where(eq(sprints.id, id)).limit(1);
+  const [row] = await attachProjectIds(actor.companyId, [
+    (await db.select().from(sprints).where(eq(sprints.id, id)).limit(1))[0],
+  ]);
   return row;
 }
 
@@ -373,9 +462,11 @@ export async function startSprint(actor: Actor, id: string) {
   if (existing.status !== 'planned') {
     throw new ApiException('VALIDATION_FAILED', '仅待开始的迭代可以启动');
   }
-  await assertNoOtherActive(actor.companyId, existing.projectId, id);
+  await assertNoOtherActive(actor.companyId, await sprintProjectIds(actor.companyId, id), id);
   await db.update(sprints).set({ status: 'active' }).where(eq(sprints.id, id));
-  const [row] = await db.select().from(sprints).where(eq(sprints.id, id)).limit(1);
+  const [row] = await attachProjectIds(actor.companyId, [
+    (await db.select().from(sprints).where(eq(sprints.id, id)).limit(1))[0],
+  ]);
   return row;
 }
 
@@ -405,7 +496,9 @@ export async function completeSprint(actor: Actor, id: string) {
     )
     .returning({ id: issues.id });
   await db.update(sprints).set({ status: 'completed' }).where(eq(sprints.id, id));
-  const [row] = await db.select().from(sprints).where(eq(sprints.id, id)).limit(1);
+  const [row] = await attachProjectIds(actor.companyId, [
+    (await db.select().from(sprints).where(eq(sprints.id, id)).limit(1))[0],
+  ]);
   return { sprint: row, movedCount: moved.length };
 }
 

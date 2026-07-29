@@ -7,7 +7,7 @@ import { Copy, Check, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api';
 import type { McpCapability } from '@/lib/platformApi';
-import { ProjectIcon } from '@/components/glyphs/misc';
+import { ProjectCheckList } from '@/components/ProjectCheckList';
 import { useCompanies, useCompanyMembers, useCreateMcpKey, usePlatformUsers } from '@/store/platform';
 import { useAppData } from '@/store/AppData';
 import { fieldLabel, inputCls } from './common';
@@ -194,34 +194,7 @@ export function CreateKeyModal({
               <div className="mb-1.5 text-[12px] text-fg-3">
                 Agent 只能访问选中项目内的实体(全部选中 = 不限制)
               </div>
-              <div className="max-h-40 overflow-y-auto overflow-hidden rounded-lg border border-border">
-                {projects.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => toggleProject(p.id)}
-                    className="flex w-full items-center gap-2.5 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-2/60"
-                  >
-                    <span
-                      className={cn(
-                        'grid h-4 w-4 flex-none place-items-center rounded-full border',
-                        projectSel.includes(p.id)
-                          ? 'border-brand-blue bg-brand-blue text-white'
-                          : 'border-border-strong bg-surface',
-                      )}
-                    >
-                      {projectSel.includes(p.id) && <Check size={11} strokeWidth={3} />}
-                    </span>
-                    <span
-                      className="grid h-4 w-4 flex-none place-items-center rounded"
-                      style={{ background: p.color }}
-                    >
-                      <ProjectIcon name={p.icon} size={11} />
-                    </span>
-                    <span className="min-w-0 truncate text-[13.5px] font-medium text-fg-1">{p.name}</span>
-                  </button>
-                ))}
-              </div>
+              <ProjectCheckList projects={projects} selected={projectSel} onToggle={toggleProject} maxH="max-h-40" />
             </div>
           )}
           {platformAdmin && (

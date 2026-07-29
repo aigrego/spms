@@ -3,7 +3,7 @@ import { put } from '@vercel/blob';
 import { z } from 'zod';
 import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
-import { companies, companyMemberships, labels, members, productLines, products, projects, releases, sprints, teams, users } from '@/db/schema';
+import { companies, companyMemberships, labels, members, productLines, products, projects, releases, sprints, sprintProjects, teams, users } from '@/db/schema';
 import { ApiException, type ErrorCode } from '@/lib/envelope';
 import { ensureAgents, ensureCurrentMember } from '@/lib/identity';
 import { computeRollups } from '@/lib/rollup';
@@ -113,13 +113,14 @@ async function buildMcpActor(companyId: string, ownerId: string | null): Promise
 async function loadBootstrap(actor: Actor) {
   const companyId = actor.companyId;
   await ensureAgents(companyId);
-  const [memberRows, teamRows, labelRows, projectRows, sprintRows, productLineRows, productRows, releaseRows] =
+  const [memberRows, teamRows, labelRows, projectRows, sprintRows, sprintProjectRows, productLineRows, productRows, releaseRows] =
     await Promise.all([
       db.select().from(members).where(eq(members.companyId, companyId)),
       db.select().from(teams).where(eq(teams.companyId, companyId)),
       db.select().from(labels).where(eq(labels.companyId, companyId)),
       db.select().from(projects).where(eq(projects.companyId, companyId)),
       db.select().from(sprints).where(eq(sprints.companyId, companyId)).orderBy(asc(sprints.startDate)),
+      db.select().from(sprintProjects).where(eq(sprintProjects.companyId, companyId)),
       db
         .select()
         .from(productLines)
@@ -138,8 +139,12 @@ async function loadBootstrap(actor: Actor) {
   const visibleSprintIds = visible ? new Set(visible.sprintIds) : null;
   const visibleProductIds = visible ? new Set(visible.productIds) : null;
   const visibleReleaseIds = visible ? new Set(visible.releaseIds) : null;
-  // sprint 归属项目还须在(白名单 ∩ 可见性)项目集内。
+  // sprint 须与(白名单 ∩ 可见性)项目集有交集(多项目迭代经 sprint_projects)。
   const sprintProjectAllowed = visibleProjectIds ? new Set(visibleProjectIds) : null;
+  const projectsBySprint = new Map<string, string[]>();
+  for (const l of sprintProjectRows) {
+    projectsBySprint.set(l.sprintId, [...(projectsBySprint.get(l.sprintId) ?? []), l.projectId]);
+  }
   return {
     me: actor.memberId,
     role: actor.role,
@@ -151,14 +156,13 @@ async function loadBootstrap(actor: Actor) {
     projects: (visibleProjectIds ? projectRows.filter((p) => visibleProjectIds.includes(p.id)) : projectRows).map(
       (p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 }),
     ),
-    sprints:
-      visibleSprintIds || sprintProjectAllowed
-        ? sprintRows.filter(
-            (s) =>
-              (!visibleSprintIds || visibleSprintIds.has(s.id)) &&
-              (!sprintProjectAllowed || (s.projectId != null && sprintProjectAllowed.has(s.projectId))),
-          )
-        : sprintRows,
+    sprints: sprintRows
+      .filter(
+        (s) =>
+          (!visibleSprintIds || visibleSprintIds.has(s.id)) &&
+          (!sprintProjectAllowed || (projectsBySprint.get(s.id) ?? []).some((pid) => sprintProjectAllowed.has(pid))),
+      )
+      .map((s) => ({ ...s, projectIds: projectsBySprint.get(s.id) ?? [] })),
     productLines: productLineRows,
     products: visibleProductIds ? productRows.filter((p) => visibleProductIds.has(p.id)) : productRows,
     releases: (visibleReleaseIds ? releaseRows.filter((r) => visibleReleaseIds.has(r.id)) : releaseRows).map((r) => ({
@@ -492,7 +496,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   reg(
     'spms_start_sprint',
     {
-      description: `启动迭代（planned → active）。同一项目同时只能有一个进行中的迭代，冲突时报错。id 从 spms_list_sprints 获得。${CONCEPTS}`,
+      description: `启动迭代（planned → active）。迭代可包含多个项目；任一项目已有其他进行中的迭代时冲突报错。id 从 spms_list_sprints 获得。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         id: z.string().describe('迭代 id（uuid）'),
@@ -564,7 +568,8 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       description:
         `创建 Issue。创建缺陷传 type='bug'（返回 key 形如 BUG-N）；工单/任务 type='ticket'（默认）；备忘 type='backlog'。` +
         `requirementId 传需求展示 key（FR-N）；assigneeId/projectId/sprintId/labels 传对应 id（spms_get_bootstrap 可查）。` +
-        `sprint 属于某个项目时，issue 会自动归属该项目（projectId 冲突会报 LIFECYCLE_MISMATCH）。${CONCEPTS}`,
+        `sprint 包含项目（可多项目）时，issue 的项目必须在其中（冲突报 LIFECYCLE_MISMATCH）；` +
+        `未传 projectId 且 sprint 恰好一个项目时自动归属该项目。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         title: z.string().describe('标题（必填）'),
@@ -800,7 +805,8 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
     {
       description:
         `把 Issue 移入/移出迭代。sprintId 传迭代 id，或 '_backlog' 移出迭代（回到产品待办）。` +
-        `迭代属于项目时 issue 自动归属该项目。可同时更新 storyPoints。${CONCEPTS}`,
+        `迭代包含项目（可多项目）时 issue 的项目必须在其中，否则报 LIFECYCLE_MISMATCH；` +
+        `issue 无项目且迭代恰好一个项目时自动归属。可同时更新 storyPoints。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         sprintId: z.string().describe("迭代 id，或 '_backlog' 移出迭代"),

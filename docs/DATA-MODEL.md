@@ -80,8 +80,11 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 ### projects
 `id` PK · `name` NN · `teamId` → teams · `releaseId` → releases cascade（可空）· `status` NN 默认 backlog · `leadId` / `aiLeadId` → members · `icon` NN · `color` NN · `target`（如 "Q3"）· `progress` real NN 默认 0（派生覆盖）· `description` · `summary` / `goal` / `nonGoals`（PRD 三段）· `archivedAt`（归档；卡片默认隐藏，其 issue 等效批量归档）
 
-### sprints（恰好属于一个 project）
-`id` PK · `teamId` → teams（兼容保留）· `projectId` → projects cascade · `name` NN · `goal` · `status` NN 默认 planned · `startDate` / `endDate` timestamptz NN · `capacity` int · `createdAt` NN
+### sprints（可跨多个 project）
+`id` PK · `teamId` → teams（兼容保留，恰好一个项目时从其推导）· `name` NN · `goal` · `status` NN 默认 planned · `startDate` / `endDate` timestamptz NN · `capacity` int · `createdAt` NN
+
+### sprint_projects（迭代 ↔ 项目，多对多）
+`sprintId` / `projectId` 复合 PK，均 cascade。一个迭代可包含多个项目（产品按模块拆项目、同一迭代周期多项目并行）。删 project：级联删 join 行；仅含该项目的迭代由应用层一并删除（独享迭代，等同旧级联语义），共享迭代保留仅解除关联。删 product/release 同理：全部项目都在被删子树内的迭代才被删除。
 
 ### sprint_snapshots（燃尽快照）
 `id` PK · `sprintId` NN → sprints cascade · `day` timestamptz NN · `remainingPoints` int NN
@@ -110,15 +113,15 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 ## 关系与级联
 
 ```
-product_line ─cascade→ product ─cascade→ release ─cascade→ project ─cascade→ sprint
-                                                          │─cascade→ requirement
+product_line ─cascade→ product ─cascade→ release ─cascade→ project ─cascade→ requirement
                                                           │─cascade→ test_case
+                                                          │─cascade→ sprint_projects（独享迭代应用层删除，共享迭代解除关联）
                                                           └─set null→ issue.projectId
+sprint ─cascade→ sprint_projects / sprint_snapshots；─set null→ issue.sprintId
 requirement ─set null→ issue.requirementId / test_case.requirementId
-sprint ─set null→ issue.sprintId
 member ─cascade→ assignments；─set null→ author/assignee/lead 引用
 ```
 
-- 删 project：requirements/sprints/test_cases 级联删，**issues 只 set null**
+- 删 project：requirements/test_cases 级联删，迭代经 sprint_projects 解除关联（独享迭代一并删除），**issues 只 set null**
 - 删成员：assignments 级联删，其余引用 set null
 - 删公司：公司内全部业务数据、counters、memberships、公司级 mcp_api_keys 级联删（沙箱整体清除）

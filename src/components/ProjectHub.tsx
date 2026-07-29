@@ -92,7 +92,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
   const issues = allIssues.filter((i) => i.projectId === projectId);
   const done = issues.filter((i) => i.status === 'done').length;
   const points = issues.reduce((s, i) => s + (i.storyPoints ?? 0), 0);
-  const projectSprints = sprints.filter((s) => s.projectId === projectId);
+  const projectSprints = sprints.filter((s) => s.projectIds.includes(projectId));
 
   const TABS: { key: Tab; label: string; count: number }[] = [
     { key: 'basics', label: t('hub.basics'), count: 0 },

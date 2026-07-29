@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/db';
-import { products, projects, releases, resourceAssignments, sprints } from '@/db/schema';
+import { products, projects, releases, resourceAssignments, sprints, sprintProjects } from '@/db/schema';
 import type { Actor } from '@/server/services/types';
 
 /* 按研发资源指派(resource_assignments 的 direct 行)的可见性模型。
@@ -31,7 +31,7 @@ export async function visibleSetsFor(actor: Actor): Promise<VisibleSets | null> 
   if (!actor.memberId) return EMPTY;
   const companyId = actor.companyId;
 
-  const [direct, projectRows, releaseRows, sprintRows, productRows] = await Promise.all([
+  const [direct, projectRows, releaseRows, sprintRows, sprintProjectRows, productRows] = await Promise.all([
     db
       .select({ nodeType: resourceAssignments.nodeType, nodeId: resourceAssignments.nodeId })
       .from(resourceAssignments)
@@ -51,9 +51,13 @@ export async function visibleSetsFor(actor: Actor): Promise<VisibleSets | null> 
       .from(releases)
       .where(eq(releases.companyId, companyId)),
     db
-      .select({ id: sprints.id, projectId: sprints.projectId })
+      .select({ id: sprints.id })
       .from(sprints)
       .where(eq(sprints.companyId, companyId)),
+    db
+      .select({ sprintId: sprintProjects.sprintId, projectId: sprintProjects.projectId })
+      .from(sprintProjects)
+      .where(eq(sprintProjects.companyId, companyId)),
     db.select({ id: products.id }).from(products).where(eq(products.companyId, companyId)),
   ]);
   if (!direct.length) return EMPTY;
@@ -66,19 +70,23 @@ export async function visibleSetsFor(actor: Actor): Promise<VisibleSets | null> 
   const projectById = new Map(projectRows.map((p) => [p.id, p]));
   const releaseById = new Map(releaseRows.map((r) => [r.id, r]));
 
-  // 项目:自身 direct,或后代 sprint direct。祖先(release/product)direct 不下放。
+  // 项目:自身 direct,或后代 sprint direct(多项目迭代经 sprint_projects 关联)。
+  // 祖先(release/product)direct 不下放。
   const projectIds = new Set<string>();
   for (const p of projectRows) {
     if (dProjects.has(p.id)) projectIds.add(p.id);
   }
-  for (const s of sprintRows) {
-    if (dSprints.has(s.id) && s.projectId) projectIds.add(s.projectId);
+  for (const l of sprintProjectRows) {
+    if (dSprints.has(l.sprintId)) projectIds.add(l.projectId);
   }
 
-  // 迭代:自身 direct,或所属 project direct。祖先(release/product)direct 不下放。
+  // 迭代:自身 direct,或(任一)所属 project direct。祖先(release/product)direct 不下放。
   const sprintIds = new Set<string>();
   for (const s of sprintRows) {
-    if (dSprints.has(s.id) || (s.projectId && dProjects.has(s.projectId))) sprintIds.add(s.id);
+    if (dSprints.has(s.id)) sprintIds.add(s.id);
+  }
+  for (const l of sprintProjectRows) {
+    if (dProjects.has(l.projectId)) sprintIds.add(l.sprintId);
   }
 
   // 版本:自身/祖先 product direct(导航壳与需求管理层保持下放),或可见项目所在版本。

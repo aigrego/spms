@@ -80,7 +80,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_create_test_case` | `projectId, title, requirementId?, priority?, preconditions?, steps?, expected?` | 创建测试用例 |
 | `spms_update_test_case` | `key, ...` | 更新用例（含 result: passed/failed/blocked） |
 | `spms_move_issue_to_sprint` | `sprintId（或 '_backlog'）, issueKey, storyPoints?` | 移入/移出迭代 |
-| `spms_start_sprint` | `id` | 启动迭代（planned → active；同项目唯一进行中） |
+| `spms_start_sprint` | `id` | 启动迭代（planned → active；迭代可跨多项目，任一项目已有进行中迭代即冲突） |
 | `spms_complete_sprint` | `id` | 完成迭代（active → completed；未完成 Issue 移回待办，返回 movedCount） |
 | `spms_create_project` | `name, releaseId?, leadId?, target?, description?` | 创建项目 |
 

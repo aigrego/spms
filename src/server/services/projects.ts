@@ -1,8 +1,8 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db';
-import { projects, teams, releases, issues } from '@/db/schema';
+import { projects, teams, releases, issues, sprints } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
-import { assignMember, clearSubtreeAssignments } from '@/lib/assignments';
+import { assignMember, clearNodeAssignments, sprintsDyingWithProjects } from '@/lib/assignments';
 import { requirePerm } from '@/lib/permissions';
 import type { Actor } from './types';
 
@@ -166,7 +166,8 @@ export async function archiveProject(actor: Actor, id: string, archived: boolean
   return { id, archived };
 }
 
-/* ---- delete ---- (detaches issues, cascades requirements/sprints) */
+/* ---- delete ---- (detaches issues; sole-project sprints are deleted with the
+   project, shared sprints survive minus the link) */
 export async function deleteProject(actor: Actor, id: string) {
   await requirePerm(actor, 'projects', 'write');
   requireProjectAdmin(actor);
@@ -176,9 +177,31 @@ export async function deleteProject(actor: Actor, id: string) {
     .where(and(eq(projects.companyId, actor.companyId), eq(projects.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('PROJECT_NOT_FOUND');
-  // PMS-2: clear the polymorphic virtual-team rows for the project + its sprints
-  // BEFORE the row (and its cascading sprints) vanish.
-  await clearSubtreeAssignments(actor.companyId, 'project', id);
+
+  // Sprints that span ONLY this project die with it (the old cascade rule);
+  // sprints shared with other projects survive — their join rows cascade-
+  // delete with the project. Dying sprints are deleted explicitly since the
+  // N:N move dropped the projects→sprints FK cascade.
+  const soleSprintIds = await sprintsDyingWithProjects(actor.companyId, [id]);
+
+  // PMS-2: clear the polymorphic virtual-team rows for the project + the sprints
+  // that die with it (shared sprints keep their own rows — they still exist).
+  await clearNodeAssignments(actor.companyId, 'project', id);
+  for (const sprintId of soleSprintIds) await clearNodeAssignments(actor.companyId, 'sprint', sprintId);
+
+  // Delete the dying sprints explicitly (no projects→sprints FK cascade since
+  // the N:N move): detach their issues, then the row — snapshots/join rows
+  // cascade by FK.
+  if (soleSprintIds.length) {
+    await db
+      .update(issues)
+      .set({ sprintId: null })
+      .where(and(eq(issues.companyId, actor.companyId), inArray(issues.sprintId, soleSprintIds)));
+    await db
+      .delete(sprints)
+      .where(and(eq(sprints.companyId, actor.companyId), inArray(sprints.id, soleSprintIds)));
+  }
+
   // issues.projectId detaches (set null), not delete — issues survive.
   // Requirements cascade-delete, which auto-nulls those issues' requirementId.
   await db

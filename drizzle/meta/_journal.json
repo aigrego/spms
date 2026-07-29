@@ -113,6 +113,13 @@
       "when": 1785213766618,
       "tag": "0015_jittery_blonde_phantom",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1785301908779,
+      "tag": "0016_white_hellfire_club",
+      "breakpoints": true
     }
   ]
 }

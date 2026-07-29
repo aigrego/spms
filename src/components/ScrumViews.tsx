@@ -455,22 +455,30 @@ export function SprintsView({
                     <ResourcePanelCompact nodeType="sprint" nodeId={detail.id} variant="compact" />
                   </div>
                 </div>
-                {/* PMS-2 §6.6: a sprint belongs to one project → version lineage */}
+                {/* PMS-2 §6.6: a sprint may span several projects → version
+                    lineage renders one breadcrumb per project. */}
                 {(() => {
-                  const project = projectById(detail.projectId);
-                  const release = releaseById(project?.releaseId);
-                  const product = productById(release?.productId);
-                  return project ? (
+                  const projs = detail.projectIds.map((id) => projectById(id)).filter((p) => !!p);
+                  return projs.length ? (
                     <div className="mb-2.5 inline-flex max-w-full flex-wrap items-center gap-1 rounded-md bg-surface-2 px-2 py-1 text-[11.5px] text-fg-2">
                       <span className="text-fg-3">{t('hub.sprintProject')}</span>
-                      <span className="truncate">{project.name}</span>
-                      {release && (
-                        <>
-                          <ChevronRight size={11} className="text-fg-3" />
-                          {product && <span className="truncate">{product.name}</span>}
-                          <span className="font-mono font-semibold text-fg-1">{release.name}</span>
-                        </>
-                      )}
+                      {projs.map((p, i) => {
+                        const release = releaseById(p.releaseId);
+                        const product = productById(release?.productId);
+                        return (
+                          <span key={p.id} className="inline-flex max-w-full items-center gap-1">
+                            {i > 0 && <span className="text-fg-3">·</span>}
+                            <span className="truncate">{p.name}</span>
+                            {release && (
+                              <>
+                                <ChevronRight size={11} className="text-fg-3" />
+                                {product && <span className="truncate">{product.name}</span>}
+                                <span className="font-mono font-semibold text-fg-1">{release.name}</span>
+                              </>
+                            )}
+                          </span>
+                        );
+                      })}
                     </div>
                   ) : null;
                 })()}

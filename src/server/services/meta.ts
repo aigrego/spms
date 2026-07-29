@@ -6,6 +6,7 @@ import {
   labels,
   projects,
   sprints,
+  sprintProjects,
   productLines,
   products,
   releases,
@@ -33,13 +34,14 @@ export async function bootstrap(actor: Actor) {
   await ensureAgents(companyId);
   await ensureAiLabel(companyId);
 
-  const [memberRows, teamRows, labelRows, projectRows, sprintRows, productLineRows, productRows, releaseRows] =
+  const [memberRows, teamRows, labelRows, projectRows, sprintRows, sprintProjectRows, productLineRows, productRows, releaseRows] =
     await Promise.all([
       db.select().from(members).where(eq(members.companyId, companyId)),
       db.select().from(teams).where(eq(teams.companyId, companyId)),
       db.select().from(labels).where(eq(labels.companyId, companyId)),
       db.select().from(projects).where(eq(projects.companyId, companyId)),
       db.select().from(sprints).where(eq(sprints.companyId, companyId)).orderBy(asc(sprints.startDate)),
+      db.select().from(sprintProjects).where(eq(sprintProjects.companyId, companyId)),
       db
         .select()
         .from(productLines)
@@ -61,6 +63,12 @@ export async function bootstrap(actor: Actor) {
   const visSprints = visible ? sprintRows.filter((s) => visible.sprintIds.includes(s.id)) : sprintRows;
   const visProducts = visible ? productRows.filter((p) => visible.productIds.includes(p.id)) : productRows;
   const visReleases = visible ? releaseRows.filter((r) => visible.releaseIds.includes(r.id)) : releaseRows;
+
+  // 迭代的多项目关联(sprint_projects)展开为 projectIds 数组随迭代下发。
+  const projectsBySprint = new Map<string, string[]>();
+  for (const l of sprintProjectRows) {
+    projectsBySprint.set(l.sprintId, [...(projectsBySprint.get(l.sprintId) ?? []), l.projectId]);
+  }
 
   // Companies the actor can enter: every company for a platform admin, else the
   // companies they hold a membership in (oldest membership first).
@@ -93,7 +101,7 @@ export async function bootstrap(actor: Actor) {
     teams: teamRows,
     labels: labelRows,
     projects: visProjects.map((p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 })),
-    sprints: visSprints,
+    sprints: visSprints.map((s) => ({ ...s, projectIds: projectsBySprint.get(s.id) ?? [] })),
     productLines: productLineRows,
     products: visProducts,
     releases: visReleases.map((r) => ({ ...r, progress: releaseProgress.get(r.id) ?? 0 })),

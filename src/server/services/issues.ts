@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { issues, issueLabels, subIssues, activities, members, projects, requirements, sprints } from '@/db/schema';
+import { issues, issueLabels, subIssues, activities, members, projects, requirements, sprints, sprintProjects } from '@/db/schema';
 import { serializeIssueList, serializeIssueDetail } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
@@ -79,23 +79,32 @@ async function teamForProject(companyId: string, projectId: string | null) {
   return p?.teamId ?? null;
 }
 
-/* §4.3 consistency: a sprint belongs to one project — the issue adopts the
-   sprint's project, or rejects an explicitly conflicting one. Returns the
-   resolved projectId. Throws SPRINT_NOT_FOUND / LIFECYCLE_MISMATCH. */
+/* §4.3 consistency: a sprint spans one or more projects (sprint_projects) —
+   the issue's project must be one of them (explicit conflicts are rejected);
+   a project-less issue adopts the project only when the sprint has exactly
+   one (multi-project sprints leave it company-scoped). Returns the resolved
+   projectId. Throws SPRINT_NOT_FOUND / LIFECYCLE_MISMATCH. */
 async function resolveSprintProject(
   companyId: string,
   sprintId: string,
   projectId: string | null,
 ): Promise<string | null> {
   const [sp] = await db
-    .select({ projectId: sprints.projectId })
+    .select({ id: sprints.id })
     .from(sprints)
     .where(and(eq(sprints.companyId, companyId), eq(sprints.id, sprintId)))
     .limit(1);
   if (!sp) throw new ApiException('SPRINT_NOT_FOUND', '迭代不存在');
-  if (sp.projectId) {
-    if (projectId && projectId !== sp.projectId) throw new ApiException('LIFECYCLE_MISMATCH');
-    return sp.projectId;
+  const projIds = (
+    await db
+      .select({ projectId: sprintProjects.projectId })
+      .from(sprintProjects)
+      .where(and(eq(sprintProjects.companyId, companyId), eq(sprintProjects.sprintId, sprintId)))
+  ).map((r) => r.projectId);
+  if (projIds.length > 0) {
+    if (projectId && !projIds.includes(projectId)) throw new ApiException('LIFECYCLE_MISMATCH');
+    if (projectId) return projectId;
+    return projIds.length === 1 ? projIds[0] : null;
   }
   return projectId;
 }
@@ -324,11 +333,16 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
     patch.requirementId = reqId;
   }
   if (input.sprintId !== undefined) patch.sprintId = input.sprintId;
-  // §4.3 consistency: keep issue.project aligned with the sprint's project.
-  const nextSprintId = input.sprintId !== undefined ? input.sprintId : existing.sprintId;
-  if (nextSprintId) {
-    const effProject = input.projectId !== undefined ? input.projectId : existing.projectId;
-    patch.projectId = await resolveSprintProject(companyId, nextSprintId, effProject ?? null);
+  // §4.3 consistency: only re-validate when the update itself touches the
+  // sprint/project link. Unrelated edits (status, title, …) must not be
+  // blocked by a pre-existing mismatch (e.g. the sprint's projects were
+  // edited after the issue entered it).
+  if (input.sprintId !== undefined || input.projectId !== undefined) {
+    const nextSprintId = input.sprintId !== undefined ? input.sprintId : existing.sprintId;
+    if (nextSprintId) {
+      const effProject = input.projectId !== undefined ? input.projectId : existing.projectId;
+      patch.projectId = await resolveSprintProject(companyId, nextSprintId, effProject ?? null);
+    }
   }
   if (patch.projectId !== undefined) await assertProjectWritable(actor, patch.projectId ?? null);
   // Keep the legacy teamId aligned with the issue's (possibly changed) project.

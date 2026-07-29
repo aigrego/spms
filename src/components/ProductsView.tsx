@@ -305,7 +305,8 @@ export function ProductsView() {
     const relIds = new Set(rels.map((r) => r.id));
     const projs = projects.filter((p) => p.releaseId && relIds.has(p.releaseId));
     const projIds = new Set(projs.map((p) => p.id));
-    const sprs = sprints.filter((s) => s.projectId && projIds.has(s.projectId));
+    // 仅统计「全部项目都在被删范围内」的迭代——共享迭代只解除关联,不会被删。
+    const sprs = sprints.filter((s) => s.projectIds.length > 0 && s.projectIds.every((id) => projIds.has(id)));
     const out: string[] = [];
     if (prods.length) out.push(t('confirm.impactProducts', { n: prods.length }));
     if (rels.length) out.push(t('confirm.impactReleases', { n: rels.length }));
