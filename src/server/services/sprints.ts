@@ -296,6 +296,8 @@ export async function moveIssue(actor: Actor, sprintIdOrBacklog: string, issueKe
     }
   }
   if (storyPoints !== undefined) patch.storyPoints = storyPoints;
+  // 拖入迭代时未设点的 issue 默认 1 点,让燃尽/速度有基线;更大粒度再手动调。
+  else if (targetSprint && issue.storyPoints == null) patch.storyPoints = 1;
 
   await db.update(issues).set(patch).where(eq(issues.id, issue.id));
   // 移入/移出/改点数都会改变燃尽剩余点数 → 新旧迭代各 upsert 一记当日快照。

@@ -77,7 +77,7 @@ export default function IssuesClient() {
         onUpdate={onUpdate}
         onNewIssue={openNewIssue}
       />
-      {selected && <IssueDetail id={selected} onClose={() => setSelected(null)} />}
+      {selected && <IssueDetail id={selected} onClose={() => setSelected(null)} onOpen={(key) => setSelected(key)} />}
     </>
   );
 }

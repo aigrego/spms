@@ -18,7 +18,7 @@ import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, ScopedAssigneeMenu,
 import { useT, useLocale } from '@/lib/i18n';
 import { formatActivityTime } from '@/lib/time';
 import { useAppData } from '@/store/AppData';
-import { useIssue, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue, useArchiveIssue, useRegisterAttachment, useDeleteAttachment } from '@/store/issues';
+import { useIssue, useAllIssues, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue, useArchiveIssue, useRegisterAttachment, useDeleteAttachment } from '@/store/issues';
 import { useIssueCandidates } from '@/store/resources';
 import { useRequirements } from '@/store/requirements';
 import { uploadImage } from '@/lib/upload';
@@ -217,10 +217,12 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
   );
 }
 
-export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }) {
+export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () => void; onOpen?: (key: string) => void }) {
   const { memberById, projectById, labelById, sprintById, me, labelByKey, releaseById, productById, productLineById } = useAppData();
   const t = useT();
   const { data: issue } = useIssue(id);
+  // 上一个/下一个:与列表一致的「展示 ID 倒序」全集里取相邻项(不含已归档)。
+  const { data: allIssues = [] } = useAllIssues();
   const update = useUpdateIssue();
   const addComment = useAddComment();
   const toggleSub = useToggleSub();
@@ -264,6 +266,18 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
   }, [previewOpen, attachCount]);
 
   if (!issue) return null;
+
+  // 展示 ID 尾号数字降序(与 listIssues 的 SQL 排序同口径),取当前项前后邻居。
+  const numOf = (key: string) => {
+    const m = key.match(/(\d+)$/);
+    return m ? parseInt(m[1], 10) : 0;
+  };
+  const orderedKeys = [...allIssues]
+    .sort((a, b) => numOf(b.id) - numOf(a.id) || (a.id < b.id ? 1 : -1))
+    .map((i) => i.id);
+  const idx = orderedKeys.indexOf(issue.id);
+  const prevKey = idx > 0 ? orderedKeys[idx - 1] : null;
+  const nextKey = idx >= 0 && idx < orderedKeys.length - 1 ? orderedKeys[idx + 1] : null;
 
   const assignee = memberById(issue.assigneeId);
   const project = projectById(issue.projectId);
@@ -346,9 +360,31 @@ export function IssueDetail({ id, onClose }: { id: string; onClose: () => void }
       >
         {/* Header */}
         <div className="flex items-center gap-2.5 border-b border-border px-[18px] py-3">
+          {onOpen && (
+            <button
+              aria-label={t('detail.prevIssue')}
+              title={t('detail.prevIssue')}
+              disabled={!prevKey}
+              onClick={() => prevKey && onOpen(prevKey)}
+              className="grid h-6 w-6 flex-none place-items-center rounded-md text-fg-3 hover:bg-surface-2 hover:text-fg-1 disabled:pointer-events-none disabled:opacity-30"
+            >
+              <ChevronLeft size={14} />
+            </button>
+          )}
           <span className="flex-none whitespace-nowrap font-mono text-[12.5px] text-fg-3">
             {issue.id}
           </span>
+          {onOpen && (
+            <button
+              aria-label={t('detail.nextIssue')}
+              title={t('detail.nextIssue')}
+              disabled={!nextKey}
+              onClick={() => nextKey && onOpen(nextKey)}
+              className="grid h-6 w-6 flex-none place-items-center rounded-md text-fg-3 hover:bg-surface-2 hover:text-fg-1 disabled:pointer-events-none disabled:opacity-30"
+            >
+              <ChevronRight size={14} />
+            </button>
+          )}
           {issue.archivedAt && (
             <span className="inline-flex flex-none items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-fg-3">
               <Archive size={11} /> {t('issue.archived')}

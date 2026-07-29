@@ -36,7 +36,7 @@ export default function SprintsClient() {
   return (
     <>
       <SprintsView sprint={selected} onSelectSprint={onSelectSprint} onOpen={(id) => setIssue(id)} />
-      {issueKey && <IssueDetail id={issueKey} onClose={() => setIssue(null)} />}
+      {issueKey && <IssueDetail id={issueKey} onClose={() => setIssue(null)} onOpen={(key) => setIssue(key)} />}
     </>
   );
 }

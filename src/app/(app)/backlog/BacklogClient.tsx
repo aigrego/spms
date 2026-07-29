@@ -27,7 +27,7 @@ export default function BacklogClient() {
   return (
     <>
       <BacklogView onOpen={(id) => setSelected(id)} />
-      {selected && <IssueDetail id={selected} onClose={() => setSelected(null)} />}
+      {selected && <IssueDetail id={selected} onClose={() => setSelected(null)} onOpen={(key) => setSelected(key)} />}
     </>
   );
 }

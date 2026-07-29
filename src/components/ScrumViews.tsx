@@ -451,7 +451,7 @@ export function SprintsView({
         {detail && (
           <>
             {/* summary + charts */}
-            <div className="mb-5 grid gap-4" style={{ gridTemplateColumns: 'minmax(0,1.1fr) minmax(0,1.4fr) minmax(0,1fr)' }}>
+            <div className="mb-5 grid gap-4" style={{ gridTemplateColumns: 'minmax(0,1.2fr) minmax(0,1.1fr) minmax(0,1.4fr)' }}>
               {/* sprint goal + stats */}
               <div className="rounded-[14px] border border-border bg-surface p-5 shadow-1">
                 <div className="mb-1 flex items-center gap-2">

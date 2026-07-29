@@ -143,7 +143,13 @@ export async function listIssues(
   const rows = await db.query.issues.findMany({
     where: and(...conds),
     with: withRelations,
-    orderBy: [desc(issues.updatedAt)],
+    // 展示顺序固定为展示 ID 倒序(尾号数字降序,数字相同按 key 降序),
+    // 不随创建/修改时间漂移 —— 列表位置稳定可预期。
+    // 注意:模板串里的正则必须写成 \\d(JS 会把 \d 吞成字面 d)。
+    orderBy: [
+      sql`case when ${issues.key} ~ '\\d+$' then cast(substring(${issues.key} from '\\d+$') as integer) else 0 end desc`,
+      desc(issues.key),
+    ],
   });
   return rows.map(serializeIssueList);
 }
