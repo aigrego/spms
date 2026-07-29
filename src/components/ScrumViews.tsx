@@ -107,8 +107,8 @@ function BurndownChart({ data }: { data: Burndown }) {
   const actualPts = data.points.filter((p) => p.actual !== null);
   const actualPath = actualPts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(p.day)} ${y(p.actual as number)}`).join(' ');
 
-  // y gridlines at 0, 25, 50, 75, 100%
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(maxY * f));
+  // y gridlines at 0, 25, 50, 75, 100% (去重:maxY 较小时相邻刻度取整后会相等)
+  const ticks = [...new Set([0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(maxY * f)))];
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 240 }}>
@@ -141,12 +141,19 @@ function BurndownChart({ data }: { data: Burndown }) {
 /* ------------------------------------------------------------------ */
 function VelocityChart({ data }: { data: Velocity }) {
   const t = useT();
-  const series = data.series;
+  // 只画最近 8 个迭代:再多 svg 整体缩窄、柱子和标签都会糊;速度本身就是近期趋势。
+  const series = data.series.slice(-8);
   if (!series.length) return null;
   const maxY = Math.max(...series.map((s) => Math.max(s.committed, s.completed)), 1);
   const barH = 120;
   const groupW = 64;
   const W = Math.max(series.length * groupW + 20, 200);
+  // 9px 字号下 64px 组宽最多放 ~6 个汉字;先压缩常见英文命名(Sprint 12 → S12),
+  // 仍超长再截断,全名走 <title> 悬停提示。
+  const shortName = (name: string) => {
+    const s = name.replace('Sprint ', 'S');
+    return s.length > 6 ? `${s.slice(0, 6)}…` : s;
+  };
 
   return (
     <div className="flex flex-col gap-2">
@@ -162,7 +169,8 @@ function VelocityChart({ data }: { data: Velocity }) {
               {/* completed (blue) */}
               <rect x={cx + 2} y={barH - completedH} width="16" height={completedH} rx="2" fill="var(--brand-blue)" />
               <text x={cx} y={barH + 14} textAnchor="middle" fontSize="9" fill="var(--fg-3)">
-                {s.name.replace('Sprint ', 'S')}
+                {shortName(s.name)}
+                <title>{s.name}</title>
               </text>
               <text x={cx} y={barH + 25} textAnchor="middle" fontSize="9" fill="var(--fg-2)" fontWeight="600">
                 {s.completed}
