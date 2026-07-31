@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
 export default function MatrixRedirect() {
-  redirect('/settings?tab=matrix');
+  redirect('/settings/matrix');
 }

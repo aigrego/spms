@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import {
   LayoutGrid,
   Box,
@@ -80,10 +80,9 @@ export function Sidebar({ myCount }: { myCount: number }) {
   const { can } = useAppData();
   const t = useT();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
 
-  const isMyIssues = pathname === '/issues' && searchParams.get('assignee') === 'me';
-  const isAllIssues = pathname === '/issues' && !isMyIssues;
+  const isMyIssues = pathname === '/my-issues' || pathname.startsWith('/my-issues/');
+  const isAllIssues = pathname === '/issues' || pathname.startsWith('/issues/');
 
   const showIssues = can('issues', 'read');
   const showProducts = can('products', 'read');
@@ -109,7 +108,7 @@ export function Sidebar({ myCount }: { myCount: number }) {
               label={t('nav.myIssues')}
               count={myCount}
               active={isMyIssues}
-              href="/issues?assignee=me"
+              href="/my-issues"
             />
             <NavItem
               icon={<Inbox size={16} />}

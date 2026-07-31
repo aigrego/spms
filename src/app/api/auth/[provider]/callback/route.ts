@@ -13,8 +13,7 @@ function loginFail(req: NextRequest, provider: string) {
 }
 
 function bindResult(req: NextRequest, result: 'bound' | 'taken' | 'failed') {
-  const url = new URL('/profile', req.url);
-  url.searchParams.set('tab', 'security');
+  const url = new URL('/profile/security', req.url);
   url.searchParams.set('oauth', result);
   const res = NextResponse.redirect(url, 302);
   res.cookies.delete(BIND_STATE_COOKIE);
@@ -36,7 +35,7 @@ async function pickUsername(preferred: string | undefined, fallback: string): Pr
    Two modes, selected by `state`:
    - state=bind.<nonce> (from /api/auth/<p>/bind): verify the nonce cookie and
      the active session, then link union_id onto THAT user (no new account,
-     no re-login) → 302 /profile?tab=security&oauth=bound|taken|failed.
+     no re-login) → 302 /profile/security?oauth=bound|taken|failed.
    - otherwise (login mode):
      1) union_id 命中 users.larkUnionId → 老用户直接登录;
      2) 否则创建 users 账号（'!oauth' 禁用密码登录，可在 /profile 安全页补设

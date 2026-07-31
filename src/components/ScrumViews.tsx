@@ -335,11 +335,13 @@ export function SprintsView({
   onSelectSprint,
   onOpen,
 }: {
-  // selected sprint id (driven by the ?selected= URL param); null → fall back to active
+  // selected sprint id (driven by the /sprints/<id> path segment); null → fall back to active
   sprint?: string | null;
   // '' clears the selection (used after deleting the selected sprint)
   onSelectSprint?: (id: string) => void;
-  onOpen: (id: string) => void;
+  // 看板 issue 点击:带上当前生效的 sprintId(可能是 fallback 的活跃迭代),
+  // 供路由拼 /sprints/<id>/issues/<KEY>。
+  onOpen: (sprintId: string | null, issueKey: string) => void;
 }) {
   const t = useT();
   const sd = useSprintDict();
@@ -590,7 +592,7 @@ export function SprintsView({
                     </div>
                     <div className="flex flex-col gap-2">
                       {items.map((i) => (
-                        <ScrumIssueRow key={i.id} issue={i} onOpen={onOpen} />
+                        <ScrumIssueRow key={i.id} issue={i} onOpen={(issueKey) => onOpen(sprintId, issueKey)} />
                       ))}
                     </div>
                   </div>

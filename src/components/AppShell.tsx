@@ -43,7 +43,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const openCmd = React.useCallback(() => setCmdOpen(true), []);
 
   const openIssue = React.useCallback(
-    (key: string) => router.push(`/issues?selected=${encodeURIComponent(key)}`),
+    (key: string) => router.push(`/issues/${encodeURIComponent(key)}`),
     [router],
   );
 

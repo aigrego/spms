@@ -59,7 +59,7 @@ const emptyCls = 'rounded-[10px] border border-dashed border-border px-3 py-5 te
 
 /* Project hub — the blueprint's in-app View switch becomes real routes:
    需求/测试用例 tabs link out to the full pools (?project=), sprint rows to
-   /sprints?selected=<id>, issue rows to /issues?selected=<KEY>. */
+   /sprints/<id>, issue rows to /issues/<KEY>. */
 export function ProjectHub({ projectId }: { projectId: string }) {
   const t = useT();
   const router = useRouter();
@@ -256,7 +256,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
               {projectSprints.map((s) => (
                 <div
                   key={s.id}
-                  onClick={() => router.push(`/sprints?selected=${s.id}`)}
+                  onClick={() => router.push(`/sprints/${s.id}`)}
                   className="group flex cursor-pointer items-center gap-3 rounded-[12px] border border-border bg-surface px-3.5 py-2.5 transition-colors hover:bg-surface-2"
                 >
                   <div className="min-w-0 flex-1">
@@ -290,7 +290,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
               <div className="px-3 py-5 text-center text-[12.5px] text-fg-3">{t('issues.empty')}</div>
             ) : (
               issues.map((i) => (
-                <div key={i.id} onClick={() => router.push(`/issues?selected=${encodeURIComponent(i.id)}`)} className="flex cursor-pointer items-center gap-2.5 border-b border-border bg-surface px-3 py-2 last:border-b-0 hover:bg-surface-2">
+                <div key={i.id} onClick={() => router.push(`/issues/${encodeURIComponent(i.id)}`)} className="flex cursor-pointer items-center gap-2.5 border-b border-border bg-surface px-3 py-2 last:border-b-0 hover:bg-surface-2">
                   <StatusIcon status={i.status} size={15} />
                   <span className="flex-none font-mono text-[11.5px] text-fg-3">{i.id}</span>
                   <EditableTitle value={i.title} onSave={(title) => updateIssue.mutate({ id: i.id, input: { title } })} className="min-w-0 flex-1 text-[13px] text-fg-1" />

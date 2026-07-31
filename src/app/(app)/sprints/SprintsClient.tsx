@@ -1,41 +1,38 @@
 'use client';
 
 import * as React from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { SprintsView } from '@/components/ScrumViews';
 import { IssueDetail } from '@/components/IssueDetail';
 
-/* 迭代 Sprint — 选中迭代由 ?selected=<sprintId> 深链驱动；看板上的 Issue 详情
-   抽屉用独立的 ?issue=<KEY> 参数，避免覆盖迭代选择。 */
-export default function SprintsClient() {
+/* 迭代 Sprint — 选中迭代由 /sprints/<sprintId> 路径驱动;看板上的 Issue 详情
+   抽屉是嵌套路径 /sprints/<sprintId>/issues/<KEY>。 */
+export default function SprintsClient({
+  sprintId = null,
+  issueKey = null,
+}: {
+  sprintId?: string | null;
+  issueKey?: string | null;
+}) {
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const selected = searchParams.get('selected');
-  const issueKey = searchParams.get('issue');
-
-  const push = React.useCallback(
-    (mutate: (sp: URLSearchParams) => void) => {
-      const sp = new URLSearchParams(searchParams.toString());
-      mutate(sp);
-      const qs = sp.toString();
-      router.push(qs ? `${pathname}?${qs}` : pathname);
-    },
-    [router, pathname, searchParams],
-  );
 
   const onSelectSprint = React.useCallback(
-    (id: string) => push((sp) => (id ? sp.set('selected', id) : sp.delete('selected'))),
-    [push],
+    (id: string) => router.push(id ? `/sprints/${id}` : '/sprints'),
+    [router],
   );
   const setIssue = React.useCallback(
-    (key: string | null) => push((sp) => (key ? sp.set('issue', key) : sp.delete('issue'))),
-    [push],
+    (key: string | null, forSprintId?: string | null) => {
+      const sid = forSprintId ?? sprintId;
+      if (key && sid) router.push(`/sprints/${sid}/issues/${encodeURIComponent(key)}`);
+      else if (sid) router.push(`/sprints/${sid}`);
+      else router.push('/sprints');
+    },
+    [router, sprintId],
   );
 
   return (
     <>
-      <SprintsView sprint={selected} onSelectSprint={onSelectSprint} onOpen={(id) => setIssue(id)} />
+      <SprintsView sprint={sprintId} onSelectSprint={onSelectSprint} onOpen={(sid, key) => setIssue(key, sid)} />
       {issueKey && <IssueDetail id={issueKey} onClose={() => setIssue(null)} onOpen={(key) => setIssue(key)} />}
     </>
   );

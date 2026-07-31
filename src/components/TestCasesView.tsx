@@ -417,7 +417,7 @@ function NewTestCaseModal({
   );
 }
 
-/* The drawer is URL-driven (?selected=<id>) by the page wrapper. */
+/* The drawer is URL-driven (/testcases/<id>) by the page wrapper. */
 export function TestCasesView({
   project,
   selected,

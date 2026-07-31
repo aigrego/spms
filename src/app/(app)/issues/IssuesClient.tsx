@@ -8,24 +8,27 @@ import { usePersistentState } from '@/lib/prefs';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useIssues, useUpdateIssue } from '@/store/issues';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import * as React from 'react';
 
-/* Issues 视图 — /issues（全部）与 /issues?assignee=me（我的）。
-   详情抽屉由 URL 驱动：?selected=<KEY>。 
-*/
+/* Issues 视图 — /issues（全部）与 /my-issues（我的）。
+   详情抽屉由路径驱动：/issues/<KEY>、/my-issues/<KEY>。 */
 const isBoolean = (v: unknown): v is boolean => typeof v === 'boolean';
 
-export default function IssuesClient() {
+export default function IssuesClient({
+  view = 'all',
+  selected = null,
+}: {
+  view?: 'all' | 'mine';
+  selected?: string | null;
+}) {
   const t = useT();
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const { meId } = useAppData();
   const { openNewIssue } = useShell();
 
-  const isMine = searchParams.get('assignee') === 'me';
-  const selected = searchParams.get('selected');
+  const isMine = view === 'mine';
+  const basePath = isMine ? '/my-issues' : '/issues';
   // 「显示已归档」开关:默认隐藏已归档 issue 及已归档项目的 issue;记入浏览器记忆。
   const [showArchived, setShowArchived] = usePersistentState<boolean>(
     'issues.showArchived',
@@ -52,13 +55,9 @@ export default function IssuesClient() {
 
   const setSelected = React.useCallback(
     (key: string | null) => {
-      const sp = new URLSearchParams(searchParams.toString());
-      if (key) sp.set('selected', key);
-      else sp.delete('selected');
-      const qs = sp.toString();
-      router.push(qs ? `${pathname}?${qs}` : pathname);
+      router.push(key ? `${basePath}/${encodeURIComponent(key)}` : basePath);
     },
-    [router, pathname, searchParams],
+    [router, basePath],
   );
 
   const meta = isMine

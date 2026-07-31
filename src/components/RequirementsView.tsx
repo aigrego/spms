@@ -660,8 +660,8 @@ function ReqRow({ req, onOpen }: { req: Requirement; onOpen: (id: string) => voi
   );
 }
 
-/* The drawer is URL-driven (?selected=<KEY>) by the page wrapper; linked issues
-   jump to /issues?selected=<KEY>. */
+/* The drawer is URL-driven (/requirements/<KEY>) by the page wrapper; linked issues
+   jump to /issues/<KEY>. */
 export function RequirementsView({
   project,
   selected,
@@ -772,7 +772,7 @@ export function RequirementsView({
         <RequirementDetail
           id={selected}
           onClose={() => onSelect(null)}
-          onOpenIssue={(key) => router.push(`/issues?selected=${encodeURIComponent(key)}`)}
+          onOpenIssue={(key) => router.push(`/issues/${encodeURIComponent(key)}`)}
         />
       )}
       <NewRequirementModal

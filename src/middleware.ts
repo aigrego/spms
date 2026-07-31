@@ -5,6 +5,7 @@ import { NextResponse, type NextRequest } from 'next/server';
    cookie bounces into the app. */
 const APP_PREFIXES = [
   '/issues',
+  '/my-issues',
   '/products',
   '/requirements',
   '/testcases',
@@ -38,6 +39,7 @@ export const config = {
     '/',
     '/login',
     '/issues/:path*',
+    '/my-issues/:path*',
     '/products/:path*',
     '/requirements/:path*',
     '/testcases/:path*',

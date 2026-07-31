@@ -43,7 +43,7 @@
 ### Phase C1：前端基础 + Issues 视图 ✅ 已完成
 - api client（fetch 直连，信封解包）、types、i18n、ui/glyphs 组件、AppData Provider、store hooks
 - Sidebar、登录页、CommandPalette(⌘K)、NewIssueModal(c)
-- IssuesView（分组/看板/拖拽/行内编辑）+ IssueDetail 抽屉（`?selected=<KEY>`）
+- IssuesView（分组/看板/拖拽/行内编辑）+ IssueDetail 抽屉（`/issues/<KEY>`）
 
 ### Phase C2/C3：其余视图 ✅ 已完成
 - Sprints（迭代选择器/燃尽图/速度图/四列看板）、Backlog（拖入迭代）、Roadmap（占位甘特）

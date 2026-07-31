@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
 export default function MembersRedirect() {
-  redirect('/settings?tab=members');
+  redirect('/settings/members');
 }

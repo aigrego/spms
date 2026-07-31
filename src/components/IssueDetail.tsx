@@ -336,11 +336,11 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
       })
       .catch(() => {});
   };
-  // Share = a URL deep link that opens this very issue's drawer (/issues?selected=<KEY>).
+  // Share = a URL deep link that opens this very issue's drawer (/issues/<KEY>).
   const shareUrl =
     typeof window === 'undefined'
-      ? `/issues?selected=${encodeURIComponent(issue.id)}`
-      : `${window.location.origin}/issues?selected=${encodeURIComponent(issue.id)}`;
+      ? `/issues/${encodeURIComponent(issue.id)}`
+      : `${window.location.origin}/issues/${encodeURIComponent(issue.id)}`;
   const copyLink = () => copyToClipboard(shareUrl);
   const copyId = () => copyToClipboard(issue.id);
 

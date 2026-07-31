@@ -129,7 +129,7 @@ next-spms/
 
 **角色×模块矩阵**（`src/lib/permissions.ts`）：
 - 4 个可配置角色 × 10 个模块（issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents）× 3 档（`none < read < write`）
-- 矩阵存 `role_permissions` 表，**两层拆分**：`companyId=''` 为全局默认（平台管理员在 /settings?tab=matrix 配置），`companyId=<公司>` 为本公司覆盖（company_admin 在 /settings?tab=company-matrix 配置，`/api/v1/pms/permissions-matrix`）；生效值 = 全局 + 按单元格覆盖
+- 矩阵存 `role_permissions` 表，**两层拆分**：`companyId=''` 为全局默认（平台管理员在 /settings/matrix 配置），`companyId=<公司>` 为本公司覆盖（company_admin 在 /settings/company-matrix 配置，`/api/v1/pms/permissions-matrix`）；生效值 = 全局 + 按单元格覆盖
 - `company_admin` 与平台管理员恒全权限，不入矩阵；缺失行按 `none` 处理；进程内按公司缓存 60s
 - **项目创建/删除**额外限定 `company_admin` 或平台管理员（不受矩阵 projects=write 影响）
 
@@ -138,7 +138,7 @@ next-spms/
 
 **指派可见性**（`src/lib/visibility.ts`，四期）：模块读权限之上再按「研发资源指派」收窄——project/sprint 对成员可见 ⟺ 该成员在其上有 `resource_assignments` **direct** 行，仅保留两个有限例外：加入 sprint → 其 project 可见（便于导航）；加入 project → 其下全部 sprint 可见。**祖先（product/release）direct 不下放**——产品/版本级成员不会自动看到其下项目的 issue，项目需单独指派；release/product 之间保持下放（product direct → 其 release 可见，作导航壳与需求管理层）。平台管理员/company_admin 豁免；无任何 direct 指派的普通成员看不到任何节点（严格模式）。应用点：bootstrap 与 issues/requirements/testcases/sprints/catalog 的 list + 详情（范围外按「不存在」处理），MCP 与令牌白名单 `allowedProjectIds` 取交集。产品线不过滤（导航壳，不在指派节点内）；`projectId` 为 NULL 的 issue 视为公司级不过滤；成员池/assignments 服务本身不过滤（管理入口需见全池）。只挡「看」，写操作权限不变。
 
-默认矩阵（seed 写入全局层，可在 /settings?tab=matrix 改）：
+默认矩阵（seed 写入全局层，可在 /settings/matrix 改）：
 
 | 角色 | write 模块 | read 模块 | none |
 |---|---|---|---|

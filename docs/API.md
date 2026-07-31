@@ -32,7 +32,7 @@
 | GET | `/api/auth/lark/login` | 302 跳转 Lark（国际版）授权页（未配置 → 404） |
 | GET | `/api/auth/lark/callback` | Lark OAuth 回调，逻辑同飞书 callback；失败跳 `/login?error=lark` |
 | GET | `/api/auth/<provider>/bind` | 已登录用户发起绑定：写 nonce cookie 后 302 跳授权页（`state=bind.<nonce>`） |
-| GET | `/api/auth/<provider>/callback` | 绑定模式（`state=bind.*`）：校验 nonce + session 后把 union_id 挂到当前用户 → 302 `/profile?tab=security&oauth=bound\|taken\|failed` |
+| GET | `/api/auth/<provider>/callback` | 绑定模式（`state=bind.*`）：校验 nonce + session 后把 union_id 挂到当前用户 → 302 `/profile/security?oauth=bound\|taken\|failed` |
 | POST | `/api/auth/oauth/unbind` | 解绑当前账号的飞书/Lark 身份；纯 OAuth 账号（无密码）拒绝，防止锁死 |
 
 ## Meta

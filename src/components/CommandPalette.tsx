@@ -35,7 +35,7 @@ export function CommandPalette({
 
   const navItems = [
     { icon: Plus, label: t('cmd.new'), kbd: 'C', act: () => onNewIssue() },
-    { icon: LayoutGrid, label: t('cmd.openMyIssues'), act: () => onNavigate('/issues?assignee=me') },
+    { icon: LayoutGrid, label: t('cmd.openMyIssues'), act: () => onNavigate('/my-issues') },
     { icon: Layers, label: t('cmd.openProducts'), act: () => onNavigate('/products') },
     { icon: FileText, label: t('cmd.openRequirements'), act: () => onNavigate('/requirements') },
     { icon: Box, label: t('cmd.openProjects'), act: () => onNavigate('/projects') },

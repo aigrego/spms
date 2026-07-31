@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { SegBtn } from '@/components/ui/segmented';
 import { CompaniesPanel } from '@/components/platform/CompaniesPanel';
 import { MembersPanel } from '@/components/platform/MembersPanel';
@@ -154,12 +154,11 @@ function PreferencesPanel() {
 }
 
 /* /settings — 偏好(所有用户)+ 平台管理 Tab(仅平台管理员,合并自原
-   /platform 子页,旧路由重定向到这里;Agent 接入已独立为 /agent-access)。 */
-export default function SettingsClient() {
+   /platform 子页,旧路由重定向到这里;Agent 接入已独立为 /agent-access)。
+   Tab 由路径段驱动:/settings/<tab>(缺省 preferences)。 */
+export default function SettingsClient({ tab: tabProp }: { tab?: string }) {
   const t = useT();
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const { isPlatformAdmin, companyRole } = useAppData();
 
   const tabs: { key: TabKey; label: string; adminOnly?: boolean; companyAdminOnly?: boolean }[] = [
@@ -175,11 +174,11 @@ export default function SettingsClient() {
       (!tab.companyAdminOnly || companyRole === 'company_admin' || isPlatformAdmin),
   );
 
-  const raw = searchParams.get('tab') as TabKey | null;
+  const raw = (tabProp ?? null) as TabKey | null;
   const tab: TabKey = visible.some((v) => v.key === raw) ? (raw as TabKey) : 'preferences';
 
   const setTab = (key: TabKey) => {
-    router.replace(key === 'preferences' ? pathname : `${pathname}?tab=${key}`, { scroll: false });
+    router.replace(key === 'preferences' ? '/settings' : `/settings/${key}`, { scroll: false });
   };
 
   return (

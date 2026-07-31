@@ -144,7 +144,7 @@ function CompanySwitcher() {
               <div
                 onClick={() => {
                   setOpen(false);
-                  router.push('/settings?tab=companies');
+                  router.push('/settings/companies');
                 }}
                 className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-fg-1 hover:bg-surface-2"
               >
