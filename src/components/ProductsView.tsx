@@ -7,7 +7,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ProjectIcon } from '@/components/glyphs/misc';
-import { PRODUCT_STATUS, RELEASE_STATUS } from '@/lib/constants';
+import { PRODUCT_STATUS, RELEASE_STATUS, PROJECT_PHASE_ORDER } from '@/lib/constants';
 import { ConfirmDestructive } from '@/components/ConfirmDestructive';
 import { ResourcePanel } from '@/components/ResourcePanel';
 import { RowActions } from '@/components/RowActions';
@@ -25,7 +25,7 @@ import {
   useUpdateRelease,
   useDeleteRelease,
 } from '@/store/catalog';
-import type { ProductLine, Product, Release, ProductStatus, ReleaseStatus } from '@/lib/types';
+import type { ProductLine, Product, Release, ProductStatus, ReleaseStatus, ProjectPhase } from '@/lib/types';
 
 const SWATCHES = ['#0063D3', '#1F9D55', '#7A5AE0', '#D89400', '#D6293E', '#0EA5A5', '#DB5A00'];
 const PRODUCT_ICONS = ['box', 'zap', 'eye', 'target', 'activity'];
@@ -96,6 +96,11 @@ function CatalogModal({ state, onClose }: { state: ModalState; onClose: () => vo
   const [progress, setProgress] = React.useState(
     state.kind === 'release' ? Math.round((state.entity?.progress ?? 0) * 100) : 0,
   );
+  // PLC phase 挂在版本上(项目卡片的生命周期进度条读它);status=released 时
+  // 默认建议 release 段,用户仍可手改。
+  const [phase, setPhase] = React.useState<ProjectPhase>(
+    state.kind === 'release' ? state.entity?.phase ?? 'concept' : 'concept',
+  );
 
   const editing = !!e;
   const titleKey =
@@ -128,6 +133,7 @@ function CatalogModal({ state, onClose }: { state: ModalState; onClose: () => vo
         name: name.trim(),
         description,
         status: status as ReleaseStatus,
+        phase,
         progress: progress / 100,
       };
       if (editing) await updateRelease.mutateAsync({ id: e!.id, input });
@@ -232,10 +238,29 @@ function CatalogModal({ state, onClose }: { state: ModalState; onClose: () => vo
             <div className="flex gap-3">
               <div className="flex-1">
                 <span className={fieldLabel}>{t('requirements.status')}</span>
-                <select className={inputCls} value={status} onChange={(ev) => setStatus(ev.target.value)}>
+                <select
+                  className={inputCls}
+                  value={status}
+                  onChange={(ev) => {
+                    const v = ev.target.value;
+                    setStatus(v);
+                    // 联动建议:状态改为已发布时,生命周期默认推进到「发布」段(可手改)。
+                    if (v === 'released') setPhase('release');
+                  }}
+                >
                   {RELEASE_STATUSES.map((s) => (
                     <option key={s} value={s}>
                       {t(`releaseStatus.${s}`)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1">
+                <span className={fieldLabel}>{t('project.phase')}</span>
+                <select className={inputCls} value={phase} onChange={(ev) => setPhase(ev.target.value as ProjectPhase)}>
+                  {PROJECT_PHASE_ORDER.map((ph) => (
+                    <option key={ph} value={ph}>
+                      {t(`phase.${ph}`)}
                     </option>
                   ))}
                 </select>

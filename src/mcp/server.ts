@@ -10,6 +10,7 @@ import { computeRollups } from '@/lib/rollup';
 import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
 import * as issueSvc from '@/server/services/issues';
 import * as attachmentSvc from '@/server/services/attachments';
+import * as catalogSvc from '@/server/services/catalog';
 import * as projectSvc from '@/server/services/projects';
 import * as requirementSvc from '@/server/services/requirements';
 import * as resourceSvc from '@/server/services/resources';
@@ -226,6 +227,8 @@ const requirementCategory = z.enum(['performance', 'security', 'usability', 'rel
 const requirementStatus = z.enum(['draft', 'reviewing', 'approved', 'in_dev', 'shipped', 'rejected']);
 const testCaseStatus = z.enum(['draft', 'active', 'deprecated']);
 const testResult = z.enum(['untested', 'passed', 'failed', 'blocked']);
+const releaseStatus = z.enum(['planned', 'in_progress', 'released', 'deprecated']);
+const lifecyclePhase = z.enum(['concept', 'development', 'release', 'maintenance', 'retired']);
 
 /* Company selector attached to every tool: only meaningful for platform-level
    keys; company-level keys and browser sessions ignore it. */
@@ -839,6 +842,34 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         const actor = await actorFor(args.companyId);
         const { companyId: _companyId, ...input } = args;
         return projectSvc.createProject(actor, input);
+      }),
+  );
+
+  reg(
+    'spms_update_release',
+    {
+      description:
+        `更新版本/Release（按 id，spms_get_bootstrap 的 releases 可查）：可改 name/description/status/phase/` +
+        `targetDate/progress/position。status：planned|in_progress|released|deprecated；` +
+        `phase 为产品生命周期段（concept 构思→development 开发→release 发布→maintenance 维护→retired 退役），` +
+        `项目卡片的生命周期进度条读它。只传要改的字段。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        id: z.string().describe('版本/Release id'),
+        name: z.string().optional(),
+        description: z.string().nullable().optional(),
+        status: releaseStatus.optional(),
+        phase: lifecyclePhase.optional().describe('产品生命周期段'),
+        targetDate: z.string().nullable().optional().describe('目标日期（ISO），传 null 清空'),
+        progress: z.number().min(0).max(1).optional().describe('进度 0–1'),
+        position: z.number().optional(),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, id, ...input } = args;
+        return catalogSvc.updateRelease(actor, id, input);
       }),
   );
 
