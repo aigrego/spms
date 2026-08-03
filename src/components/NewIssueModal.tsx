@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Folder, Loader2, Paperclip, Tag, X } from 'lucide-react';
+import { FileText, Folder, Loader2, Paperclip, Tag, X } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
@@ -14,7 +14,9 @@ import { Avatar } from '@/components/glyphs/Avatar';
 import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, ProjectMenu, ScopedAssigneeMenu, LabelMenu } from '@/components/menus';
 import { useT } from '@/lib/i18n';
 import { api, type AttachmentMeta } from '@/lib/api';
-import { uploadImage } from '@/lib/upload';
+import { uploadAttachment } from '@/lib/upload';
+import { ATTACHMENT_ACCEPT, isImageType } from '@/lib/attachments';
+import { usePersistentState } from '@/lib/prefs';
 import { useAppData } from '@/store/AppData';
 import { useCreateIssue } from '@/store/issues';
 import { useNodeAssignments } from '@/store/resources';
@@ -39,10 +41,13 @@ const Chip = React.forwardRef<
 );
 Chip.displayName = 'Chip';
 
-/* An image picked/pasted before the issue exists: uploaded to Blob at once,
+/* A file picked/pasted before the issue exists: uploaded to Blob at once,
    registered on the issue only after create succeeds. */
-type PendingImage = {
+type PendingFile = {
   key: string;
+  filename: string;
+  contentType: string;
+  // object URL for image thumbnails; empty for documents
   preview: string;
   meta: AttachmentMeta | null;
   uploading: boolean;
@@ -75,8 +80,15 @@ export function NewIssueModal({
   const [projectId, setProjectId] = React.useState<string | null>(null);
   const [assignee, setAssignee] = React.useState<string | null>(null);
   const [labels, setLabels] = React.useState<string[]>([]);
-  const [pending, setPending] = React.useState<PendingImage[]>([]);
+  const [pending, setPending] = React.useState<PendingFile[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  // Browser memory: remember the last picked project so the next new issue
+  // defaults to it (presetProject, when given, always wins).
+  const [cachedProjectId, setCachedProjectId] = usePersistentState<string | null>(
+    'newIssue.projectId',
+    null,
+    (v): v is string => typeof v === 'string',
+  );
 
   React.useEffect(() => {
     if (open) {
@@ -86,20 +98,33 @@ export function NewIssueModal({
       setStatus(preset?.status ?? 'todo');
       setPriority('none');
       setImportance('none');
-      setProjectId(presetProject ?? null);
+      setProjectId(presetProject ?? (cachedProjectId && projectById(cachedProjectId) ? cachedProjectId : null));
       setAssignee(null);
       setLabels([]);
       setPending([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, preset, presetProject]);
 
-  // Upload each picked/pasted image immediately; keep the blob meta pending
+  // Upload each picked/pasted file immediately; keep the blob meta pending
   // until the issue exists.
   const addFiles = (files: Iterable<File>) => {
     for (const file of files) {
       const key = crypto.randomUUID();
-      setPending((p) => [...p, { key, preview: URL.createObjectURL(file), meta: null, uploading: true, failed: false }]);
-      uploadImage(file)
+      const image = isImageType(file.type);
+      setPending((p) => [
+        ...p,
+        {
+          key,
+          filename: file.name,
+          contentType: file.type,
+          preview: image ? URL.createObjectURL(file) : '',
+          meta: null,
+          uploading: true,
+          failed: false,
+        },
+      ]);
+      uploadAttachment(file)
         .then((meta) =>
           setPending((p) => p.map((x) => (x.key === key ? { ...x, meta, uploading: false } : x))),
         )
@@ -188,10 +213,19 @@ export function NewIssueModal({
               {pending.map((p) => (
                 <div
                   key={p.key}
-                  title={p.failed ? t('issue.uploadFailed') : p.meta?.filename}
+                  title={p.failed ? t('issue.uploadFailed') : p.filename}
                   className="relative h-14 w-14 overflow-hidden rounded-lg border border-border"
                 >
-                  <img src={p.preview} alt="" className="h-full w-full object-cover" />
+                  {p.preview ? (
+                    <img src={p.preview} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-0.5 bg-surface-2 px-1">
+                      <FileText size={16} className="flex-none text-fg-3" />
+                      <span className="w-full truncate text-center text-[10px] leading-tight text-fg-2">
+                        {p.filename}
+                      </span>
+                    </div>
+                  )}
                   {p.uploading && (
                     <div className="absolute inset-0 grid place-items-center bg-black/40">
                       <Loader2 size={16} className="animate-spin text-white" />
@@ -215,6 +249,7 @@ export function NewIssueModal({
             current={projectId}
             onPick={(id) => {
               setProjectId(id);
+              setCachedProjectId(id);
               setAssignee(null);
             }}
             trigger={
@@ -292,7 +327,7 @@ export function NewIssueModal({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept={ATTACHMENT_ACCEPT}
             multiple
             hidden
             onChange={(e) => {

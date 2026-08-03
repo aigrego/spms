@@ -1,19 +1,21 @@
 import { upload } from '@vercel/blob/client';
 import type { AttachmentMeta } from './api';
+import { isAllowedType } from './attachments';
 
-/* Client-direct image upload to Vercel Blob. The browser gets an upload token
-   from /api/v1/pms/attachments/upload and PUTs the file straight to Blob;
-   the returned meta is then registered on the issue via
-   api.registerAttachment(). Images only, 10MB max (enforced server-side too). */
+/* Client-direct attachment upload to Vercel Blob. The browser gets an upload
+   token from /api/v1/pms/attachments/upload and PUTs the file straight to
+   Blob; the returned meta is then registered on the issue via
+   api.registerAttachment(). Images + common document formats, 10MB max
+   (enforced server-side too). */
 
-export const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+export const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
 
-export async function uploadImage(file: File): Promise<AttachmentMeta> {
-  if (!file.type.startsWith('image/')) {
-    throw new Error('仅支持图片文件');
+export async function uploadAttachment(file: File): Promise<AttachmentMeta> {
+  if (!isAllowedType(file.type)) {
+    throw new Error('不支持的附件格式');
   }
-  if (file.size > MAX_IMAGE_SIZE) {
-    throw new Error('图片大小需在 10MB 以内');
+  if (file.size > MAX_ATTACHMENT_SIZE) {
+    throw new Error('附件大小需在 10MB 以内');
   }
   const blob = await upload(file.name, file, {
     access: 'public',

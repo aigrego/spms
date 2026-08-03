@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { ApiException, fail } from '@/lib/envelope';
 import { requireActor } from '@/server/http';
 import { MAX_ATTACHMENT_SIZE } from '@/server/services/attachments';
+import { ALLOWED_ATTACHMENT_TYPES } from '@/lib/attachments';
 
 /* POST /api/v1/pms/attachments/upload — client-direct upload token for
    @vercel/blob/client's upload(). The blob SDK expects its own response
@@ -18,7 +19,7 @@ export async function POST(req: Request) {
       onBeforeGenerateToken: async () => {
         await requireActor(); // session gate — throws when logged out
         return {
-          allowedContentTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'],
+          allowedContentTypes: ALLOWED_ATTACHMENT_TYPES,
           maximumSizeInBytes: MAX_ATTACHMENT_SIZE,
           addRandomSuffix: true,
         };

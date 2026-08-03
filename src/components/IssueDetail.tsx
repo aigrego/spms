@@ -21,7 +21,8 @@ import { useAppData } from '@/store/AppData';
 import { useIssue, useAllIssues, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue, useArchiveIssue, useRegisterAttachment, useDeleteAttachment } from '@/store/issues';
 import { useIssueCandidates } from '@/store/resources';
 import { useRequirements } from '@/store/requirements';
-import { uploadImage } from '@/lib/upload';
+import { uploadAttachment } from '@/lib/upload';
+import { ATTACHMENT_ACCEPT, isImageType } from '@/lib/attachments';
 import type { Activity, IssueStatus, Member } from '@/lib/types';
 
 function ActivityItem({ ev }: { ev: Activity }) {
@@ -231,7 +232,7 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
   const registerAttachment = useRegisterAttachment();
   const deleteAttachment = useDeleteAttachment();
   // In-flight uploads (blob uploaded, registration pending) — shown as dimmed tiles.
-  const [uploading, setUploading] = React.useState<{ key: string; preview: string }[]>([]);
+  const [uploading, setUploading] = React.useState<{ key: string; preview: string; image: boolean }[]>([]);
   const attachInputRef = React.useRef<HTMLInputElement>(null);
   const { data: projectReqs = [] } = useRequirements(issue?.projectId ? { project: issue.projectId } : undefined);
   // Assignee + @-mention pool: the issue's project research resources (+ AI agents).
@@ -239,7 +240,8 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
   const [tab, setTab] = React.useState<'activity' | 'comments'>('activity');
   const [copied, setCopied] = React.useState(false);
   const [moreOpen, setMoreOpen] = React.useState(false);
-  // Image preview lightbox: index into issue.attachments, null = closed.
+  // Image preview lightbox: index into the image-only attachment list (documents
+  // open in a new tab instead), null = closed.
   const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
   const previewOpen = previewIndex !== null;
   const attachCount = issue?.attachments.length ?? 0;
@@ -291,17 +293,20 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
   const isPRD = !!docsLabel && issue.labels.includes(docsLabel.id) && issue.aiAssigned;
   const patch = (p: Parameters<typeof update.mutate>[0]['input']) => update.mutate({ id, input: p });
   const candidates = candData?.candidates ?? [];
-  // Current lightbox attachment + wrap-around stepping across all attachments.
-  const preview = previewIndex !== null ? (issue.attachments[previewIndex] ?? null) : null;
+  // Current lightbox attachment + wrap-around stepping across image attachments
+  // only (documents never enter the lightbox — they open in a new tab).
+  const imageAttachments = issue.attachments.filter((a) => isImageType(a.contentType));
+  const preview = previewIndex !== null ? (imageAttachments[previewIndex] ?? null) : null;
   const stepImage = (delta: number) =>
-    setPreviewIndex((i) => (i === null ? i : (i + delta + issue.attachments.length) % issue.attachments.length));
+    setPreviewIndex((i) => (i === null ? i : (i + delta + imageAttachments.length) % imageAttachments.length));
 
-  // Upload each picked image straight to Blob, then register it on the issue.
+  // Upload each picked file straight to Blob, then register it on the issue.
   const addFiles = (files: Iterable<File>) => {
     for (const file of files) {
       const key = crypto.randomUUID();
-      setUploading((u) => [...u, { key, preview: URL.createObjectURL(file) }]);
-      uploadImage(file)
+      const image = isImageType(file.type);
+      setUploading((u) => [...u, { key, preview: image ? URL.createObjectURL(file) : '', image }]);
+      uploadAttachment(file)
         .then((meta) =>
           registerAttachment.mutate(
             { id, meta },
@@ -312,7 +317,8 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
     }
   };
 
-  // Paste an image anywhere in the panel to attach it (same as 添加图片).
+  // Paste an image anywhere in the panel to attach it (documents go through
+  // the file picker — the clipboard rarely carries them as files).
   const onPaste = (e: React.ClipboardEvent) => {
     const files = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
     if (files.length) {
@@ -480,32 +486,56 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
               </div>
               {(issue.attachments.length > 0 || uploading.length > 0) && (
                 <div className="flex flex-wrap gap-2">
-                  {issue.attachments.map((a, idx) => (
-                    <div
-                      key={a.id}
-                      title={a.filename}
-                      className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setPreviewIndex(idx)}
-                        aria-label={a.filename}
-                        className="block h-full w-full cursor-pointer"
+                  {issue.attachments.map((a) => {
+                    const image = isImageType(a.contentType);
+                    return (
+                      <div
+                        key={a.id}
+                        title={a.filename}
+                        className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border"
                       >
-                        <img src={a.url} alt={a.filename} className="h-full w-full object-cover" />
-                      </button>
-                      <button
-                        onClick={() => removeAttachment(a.id)}
-                        aria-label="delete"
-                        className="absolute right-0.5 top-0.5 hidden h-4 w-4 place-items-center rounded-full bg-black/55 text-white hover:bg-black/75 group-hover:grid"
-                      >
-                        <X size={10} />
-                      </button>
-                    </div>
-                  ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (image) {
+                              setPreviewIndex(imageAttachments.findIndex((x) => x.id === a.id));
+                            } else {
+                              window.open(a.url, '_blank', 'noopener');
+                            }
+                          }}
+                          aria-label={a.filename}
+                          className="block h-full w-full cursor-pointer"
+                        >
+                          {image ? (
+                            <img src={a.url} alt={a.filename} className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full w-full flex-col items-center justify-center gap-0.5 bg-surface-2 px-1">
+                              <FileText size={16} className="flex-none text-fg-3" />
+                              <span className="w-full truncate text-center text-[10px] leading-tight text-fg-2">
+                                {a.filename}
+                              </span>
+                            </div>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => removeAttachment(a.id)}
+                          aria-label="delete"
+                          className="absolute right-0.5 top-0.5 hidden h-4 w-4 place-items-center rounded-full bg-black/55 text-white hover:bg-black/75 group-hover:grid"
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    );
+                  })}
                   {uploading.map((u) => (
                     <div key={u.key} className="relative h-16 w-16 overflow-hidden rounded-lg border border-border">
-                      <img src={u.preview} alt="" className="h-full w-full object-cover opacity-60" />
+                      {u.image ? (
+                        <img src={u.preview} alt="" className="h-full w-full object-cover opacity-60" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-surface-2">
+                          <FileText size={16} className="text-fg-3" />
+                        </div>
+                      )}
                       <div className="absolute inset-0 grid place-items-center">
                         <Loader2 size={16} className="animate-spin text-fg-2" />
                       </div>
@@ -516,7 +546,7 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
               <input
                 ref={attachInputRef}
                 type="file"
-                accept="image/*"
+                accept={ATTACHMENT_ACCEPT}
                 multiple
                 hidden
                 onChange={(e) => {
@@ -837,7 +867,7 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
                   alt={preview.filename}
                   className="max-h-[76vh] w-auto max-w-full object-contain"
                 />
-                {issue.attachments.length > 1 && (
+                {imageAttachments.length > 1 && (
                   <>
                     <button
                       type="button"
@@ -864,9 +894,9 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
                 <span className="min-w-0 flex-1 truncate text-[12.5px] text-fg-2" title={preview.filename}>
                   {preview.filename}
                 </span>
-                {issue.attachments.length > 1 && (
+                {imageAttachments.length > 1 && (
                   <span className="flex-none text-[12px] tabular-nums text-fg-3">
-                    {(previewIndex ?? 0) + 1} / {issue.attachments.length}
+                    {(previewIndex ?? 0) + 1} / {imageAttachments.length}
                   </span>
                 )}
                 <button

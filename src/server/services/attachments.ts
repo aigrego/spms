@@ -4,13 +4,15 @@ import { db } from '@/db';
 import { issueAttachments, issues } from '@/db/schema';
 import { serializeAttachment } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
+import { isAllowedType } from '@/lib/attachments';
 import { requirePerm } from '@/lib/permissions';
 import type { Actor } from './types';
 
-/* Issue image attachments (Vercel Blob, client-direct upload). The browser
+/* Issue attachments (Vercel Blob, client-direct upload). The browser
    uploads the file straight to Blob via the /attachments/upload token route,
    then calls registerAttachment to persist the row. Deleting removes both the
-   blob and the row. Module gate: `issues` write. */
+   blob and the row. Images and common document formats (see
+   src/lib/attachments.ts). Module gate: `issues` write. */
 
 export const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -36,8 +38,8 @@ export async function registerAttachment(actor: Actor, issueKey: string, meta: R
   if (!meta.url?.trim() || !meta.pathname?.trim()) {
     throw new ApiException('VALIDATION_FAILED', '附件 url/pathname 不能为空');
   }
-  if (!meta.contentType?.startsWith('image/')) {
-    throw new ApiException('VALIDATION_FAILED', '仅支持图片附件');
+  if (!meta.contentType || !isAllowedType(meta.contentType)) {
+    throw new ApiException('VALIDATION_FAILED', '不支持的附件格式');
   }
   if (!Number.isFinite(meta.size) || meta.size <= 0 || meta.size > MAX_ATTACHMENT_SIZE) {
     throw new ApiException('VALIDATION_FAILED', '附件大小需在 10MB 以内');
@@ -50,7 +52,7 @@ export async function registerAttachment(actor: Actor, issueKey: string, meta: R
     issueId: issue.id,
     url: meta.url,
     pathname: meta.pathname,
-    filename: meta.filename?.trim() || 'image',
+    filename: meta.filename?.trim() || 'file',
     contentType: meta.contentType,
     size: meta.size,
     uploadedById: actor.memberId,
