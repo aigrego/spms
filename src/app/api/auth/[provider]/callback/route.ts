@@ -6,7 +6,16 @@ import { upsertVerifiedEmail } from '@/lib/emails';
 import { claimExternalInvites, ensureCurrentMember, syncMemberProjection } from '@/lib/identity';
 import { createSessionCookie, getSession } from '@/lib/session';
 import { defaultCompanyForUser } from '@/server/http';
-import { BIND_STATE_COOKIE, fetchOAuthProfile, parseProvider, providerConfigured } from '@/server/lark';
+import { BIND_STATE_COOKIE, fetchOAuthProfile, parseProvider, providerConfigured, type OAuthProvider } from '@/server/lark';
+
+/* 各 provider 的稳定身份存哪个字段：飞书/Lark 共享 union_id，GitHub 用数字 id。 */
+function identityKey(p: OAuthProvider): 'larkUnionId' | 'githubId' {
+  return p === 'github' ? 'githubId' : 'larkUnionId';
+}
+
+function providerLabel(p: OAuthProvider): string {
+  return p === 'feishu' ? '飞书' : p === 'lark' ? 'Lark' : 'GitHub';
+}
 
 function loginFail(req: NextRequest, provider: string) {
   return NextResponse.redirect(new URL(`/login?error=${provider}`, req.url), 302);
@@ -31,13 +40,13 @@ async function pickUsername(preferred: string | undefined, fallback: string): Pr
   return `${fallback}_${crypto.randomUUID().slice(0, 4)}`;
 }
 
-/* GET /api/auth/<feishu|lark>/callback?code=...&state=...
+/* GET /api/auth/<feishu|lark|github>/callback?code=...&state=...
    Two modes, selected by `state`:
    - state=bind.<nonce> (from /api/auth/<p>/bind): verify the nonce cookie and
-     the active session, then link union_id onto THAT user (no new account,
-     no re-login) → 302 /profile/security?oauth=bound|taken|failed.
+     the active session, then link the provider identity onto THAT user (no new
+     account, no re-login) → 302 /profile/security?oauth=bound|taken|failed.
    - otherwise (login mode):
-     1) union_id 命中 users.larkUnionId → 老用户直接登录;
+     1) 身份命中 users.larkUnionId / githubId → 老用户直接登录;
      2) 否则创建 users 账号（'!oauth' 禁用密码登录，可在 /profile 安全页补设
         密码开通密码登录），IdP 邮箱登记进 user_emails（verified），并用该
         邮箱认领「邀请外部资源」预埋的 members 行 —— 回填 userId、转
@@ -66,13 +75,14 @@ export async function GET(
     if (!cookieNonce || cookieNonce !== bindNonce || !session) return bindResult(req, 'failed');
     try {
       const profile = await fetchOAuthProfile(p, code);
+      const idKey = identityKey(p);
       const [taken] = await db
         .select({ id: users.id })
         .from(users)
-        .where(eq(users.larkUnionId, profile.unionId))
+        .where(eq(users[idKey], profile.unionId))
         .limit(1);
       if (taken && taken.id !== session.uid) return bindResult(req, 'taken');
-      await db.update(users).set({ larkUnionId: profile.unionId }).where(eq(users.id, session.uid));
+      await db.update(users).set({ [idKey]: profile.unionId }).where(eq(users.id, session.uid));
       // IdP 邮箱登记为 verified 邮箱;绑定的身份同样按邮箱认领外部邀请
       //(邀请 = 公司希望此人加入的意图)。
       if (profile.email) {
@@ -88,11 +98,12 @@ export async function GET(
 
   try {
     const profile = await fetchOAuthProfile(p, code);
+    const idKey = identityKey(p);
 
-    let [u] = await db.select().from(users).where(eq(users.larkUnionId, profile.unionId)).limit(1);
+    let [u] = await db.select().from(users).where(eq(users[idKey], profile.unionId)).limit(1);
     if (!u) {
       const displayName =
-        profile.name || `${p === 'feishu' ? '飞书' : 'Lark'}用户 ${profile.unionId.slice(0, 8)}`;
+        profile.name || `${providerLabel(p)}用户 ${profile.unionId.slice(0, 8)}`;
       const username = await pickUsername(profile.email, `${p}_${profile.unionId.slice(0, 8)}`);
       await db
         .insert(users)
@@ -102,11 +113,11 @@ export async function GET(
           name: displayName,
           passwordHash: '!oauth',
           role: 'member',
-          larkUnionId: profile.unionId,
+          [idKey]: profile.unionId,
           avatarUrl: profile.avatarUrl ?? null,
         })
         .onConflictDoNothing();
-      [u] = await db.select().from(users).where(eq(users.larkUnionId, profile.unionId)).limit(1);
+      [u] = await db.select().from(users).where(eq(users[idKey], profile.unionId)).limit(1);
       if (!u) throw new Error('user upsert failed');
       if (profile.email) {
         await upsertVerifiedEmail(u.id, profile.email);

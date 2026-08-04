@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { KeyRound, Shield, Smartphone } from 'lucide-react';
 import { Avatar } from '@/components/glyphs/Avatar';
-import { FeishuMark, LarkMark } from '@/components/LoginArtwork';
+import { FeishuMark, GitHubMark, LarkMark } from '@/components/LoginArtwork';
 import { ChangePasswordForm } from '@/components/profile/ChangePasswordForm';
 import { EmailsCard } from '@/components/profile/EmailsCard';
 import { Badge } from '@/components/ui/badge';
@@ -192,6 +192,7 @@ function SecurityTab() {
   const { session } = useAppData();
   const sp = useSearchParams();
   const larkBound = session?.user.larkBound ?? false;
+  const githubBound = session?.user.githubBound ?? false;
   const [busy, setBusy] = React.useState(false);
   const [unbound, setUnbound] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -200,12 +201,12 @@ function SecurityTab() {
   // OAuth 绑定回调跳回 /profile/security?oauth=bound|taken|failed。
   const oauthResult = sp.get('oauth');
 
-  const unbind = async () => {
+  const unbind = async (provider?: 'lark' | 'github') => {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      await authApi.unbindOauth();
+      await authApi.unbindOauth(provider);
       await qc.invalidateQueries({ queryKey: ['session'] });
       setUnbound(true);
     } catch (e) {
@@ -215,7 +216,7 @@ function SecurityTab() {
     }
   };
 
-  const bindButton = (p: 'feishu' | 'lark') => (
+  const bindButton = (p: 'feishu' | 'lark' | 'github') => (
     <Button
       key={p}
       variant="secondary"
@@ -224,8 +225,8 @@ function SecurityTab() {
         window.location.href = `/api/auth/${p}/bind`;
       }}
     >
-      {p === 'feishu' ? <FeishuMark size={15} /> : <LarkMark size={15} />}
-      {p === 'feishu' ? '飞书' : 'Lark'}
+      {p === 'feishu' ? <FeishuMark size={15} /> : p === 'lark' ? <LarkMark size={15} /> : <GitHubMark size={15} />}
+      {p === 'feishu' ? '飞书' : p === 'lark' ? 'Lark' : 'GitHub'}
     </Button>
   );
 
@@ -261,21 +262,32 @@ function SecurityTab() {
             {error ?? (oauthResult === 'taken' ? t('profile.oauthTaken') : t('profile.oauthFailed'))}
           </div>
         )}
-        {unbound && !larkBound && (
+        {unbound && (
           <div className="mb-3 rounded-lg px-3 py-2 text-[12.5px]" style={{ background: 'var(--success-50, #E8F7EE)', color: '#17723B' }}>
             {t('profile.unbindOk')}
           </div>
         )}
-        {larkBound ? (
+        {larkBound && (
           <div className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5">
             <FeishuMark size={15} />
             <span className="text-[13px] font-medium text-fg-1">{t('profile.lark')} / Lark</span>
             <div className="flex-1" />
-            <Button variant="secondary" size="md" disabled={busy} onClick={unbind}>
+            <Button variant="secondary" size="md" disabled={busy} onClick={() => unbind('lark')}>
               {t('profile.unbind')}
             </Button>
           </div>
-        ) : (
+        )}
+        {githubBound && (
+          <div className="mt-2 flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5">
+            <GitHubMark size={15} />
+            <span className="text-[13px] font-medium text-fg-1">GitHub</span>
+            <div className="flex-1" />
+            <Button variant="secondary" size="md" disabled={busy} onClick={() => unbind('github')}>
+              {t('profile.unbind')}
+            </Button>
+          </div>
+        )}
+        {!larkBound && !githubBound && (
           <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-[12.5px] text-fg-3">
             {t('profile.noBound')}
           </div>
@@ -285,7 +297,8 @@ function SecurityTab() {
           <div className="flex flex-wrap gap-2">
             {oauth?.feishu && bindButton('feishu')}
             {oauth?.lark && bindButton('lark')}
-            {['GitHub', 'Google', 'Apple', '微信', '钉钉'].map((p) => (
+            {oauth?.github && bindButton('github')}
+            {['Google', 'Apple', '微信', '钉钉'].map((p) => (
               <SoonButton key={p}>{p}</SoonButton>
             ))}
           </div>

@@ -454,7 +454,9 @@ export interface SessionUser {
   isPlatformAdmin?: boolean;
   // Whether a Lark identity is linked (profile page security tab).
   larkBound?: boolean;
-  // OAuth 头像（飞书/Lark）；空则展示首字母色块。
+  // Whether a GitHub identity is linked.
+  githubBound?: boolean;
+  // OAuth 头像（飞书/Lark/GitHub）；空则展示首字母色块。
   avatarUrl?: string | null;
   // 主邮箱(user_emails),可空。
   email?: string | null;
@@ -466,6 +468,7 @@ export interface SessionUser {
 export interface OAuthProviderConfig {
   feishu?: { configured?: boolean; url?: string } | null;
   lark?: { configured?: boolean; url?: string } | null;
+  github?: { configured?: boolean; url?: string } | null;
 }
 
 /* 用户邮箱条目(user_emails)。verified = Lark/飞书 OAuth 回写。 */
@@ -564,8 +567,8 @@ export const authApi = {
   // Update the signed-in user's display name (profile page).
   updateProfile: (name: string) =>
     authRequest<{ user: SessionUser }>('/api/auth/profile', json('PATCH', { name })),
-  // 第三方登录（飞书 / Lark）配置探测；未配置/失败时返回 null，按钮隐藏。
-  oauthConfig: async (): Promise<{ feishu: OAuthEntry; lark: OAuthEntry } | null> => {
+  // 第三方登录（飞书 / Lark / GitHub）配置探测；未配置/失败时返回 null，按钮隐藏。
+  oauthConfig: async (): Promise<{ feishu: OAuthEntry; lark: OAuthEntry; github: OAuthEntry } | null> => {
     try {
       const data = await authRequest<OAuthProviderConfig | null>('/api/auth/oauth/config');
       if (!data) return null;
@@ -573,11 +576,13 @@ export const authApi = {
         e?.configured ? { configured: true, url: e.url } : null;
       const feishu = entry(data.feishu);
       const lark = entry(data.lark);
-      return feishu || lark ? { feishu, lark } : null;
+      const github = entry(data.github);
+      return feishu || lark || github ? { feishu, lark, github } : null;
     } catch {
       return null;
     }
   },
-  // 解绑当前账号的飞书/Lark 身份（个人资料-安全页）。
-  unbindOauth: () => authRequest<unknown>('/api/auth/oauth/unbind', json('POST', {})),
+  // 解绑当前账号的第三方身份（个人资料-安全页；缺省解飞书/Lark）。
+  unbindOauth: (provider?: 'lark' | 'github') =>
+    authRequest<unknown>('/api/auth/oauth/unbind', json('POST', { provider })),
 };

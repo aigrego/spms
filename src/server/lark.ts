@@ -1,12 +1,12 @@
 import { env } from '@/lib/env';
 
-/* Feishu (飞书, CN) / Lark (international) OAuth helpers. The two products run
-   on separate open platforms (open.feishu.cn vs open.larksuite.com) and require
-   separate apps; each provider is enabled only when its *_APP_ID / *_APP_SECRET
-   env vars are set. The redirect URI defaults to <origin>/api/auth/<provider>/callback
-   unless <PROVIDER>_REDIRECT_URI overrides it. */
+/* OAuth provider helpers. Feishu (飞书, CN) / Lark (international) run on
+   separate open platforms (open.feishu.cn vs open.larksuite.com); GitHub is an
+   OAuth App (https://github.com/settings/developers). Each provider is enabled
+   only when its env vars are set. The redirect URI defaults to
+   <origin>/api/auth/<provider>/callback unless the env override is set. */
 
-export type OAuthProvider = 'feishu' | 'lark';
+export type OAuthProvider = 'feishu' | 'lark' | 'github';
 
 interface ProviderConf {
   apiBase: string;
@@ -28,10 +28,16 @@ const PROVIDERS: Record<OAuthProvider, ProviderConf> = {
     appSecret: env.larkAppSecret,
     redirectUri: env.larkRedirectUri,
   },
+  github: {
+    apiBase: 'https://github.com',
+    appId: env.githubClientId,
+    appSecret: env.githubClientSecret,
+    redirectUri: env.githubRedirectUri,
+  },
 };
 
 export function parseProvider(raw: string): OAuthProvider | null {
-  return raw === 'feishu' || raw === 'lark' ? raw : null;
+  return raw === 'feishu' || raw === 'lark' || raw === 'github' ? raw : null;
 }
 
 export function providerConfigured(p: OAuthProvider): boolean {
@@ -48,6 +54,11 @@ export function providerRedirectUri(p: OAuthProvider, origin: string): string {
    BIND_STATE_COOKIE in the callback. */
 export function providerAuthorizeUrl(p: OAuthProvider, origin: string, state?: string): string {
   const redirect = encodeURIComponent(providerRedirectUri(p, origin));
+  if (p === 'github') {
+    // scope 只要 read:user + user:email（公开资料 + 邮箱）。
+    const scope = encodeURIComponent('read:user user:email');
+    return `${PROVIDERS.github.apiBase}/login/oauth/authorize?client_id=${PROVIDERS.github.appId}&redirect_uri=${redirect}&scope=${scope}&state=${state ?? crypto.randomUUID()}`;
+  }
   return `${PROVIDERS[p].apiBase}/open-apis/authen/v1/authorize?app_id=${PROVIDERS[p].appId}&redirect_uri=${redirect}&state=${state ?? crypto.randomUUID()}`;
 }
 
@@ -58,17 +69,21 @@ export const BIND_STATE_COOKIE = 'spms_oauth_bind';
 export interface OAuthProfile {
   unionId: string;
   name: string;
-  // 邮箱用于匹配「邀请外部资源」预埋的 members.email。user_info 的 email /
-  // enterprise_email 字段需要应用开通对应 scope（contact:user.email:readonly
-  // 等）并重新发布后才返回；拿不到时为 undefined（退化为仅 union_id 匹配）。
+  // 邮箱用于匹配「邀请外部资源」预埋的 members.email。飞书/Lark user_info 的
+  // email / enterprise_email 字段需要应用开通对应 scope 并重新发布后才返回；
+  // GitHub 用户隐藏邮箱时 /user 返回 null（改走 /user/emails）。拿不到时为
+  // undefined（退化为仅按稳定 id 匹配）。
   email?: string;
-  // 头像（avatar_big 优先）；user_info 基础字段，无需额外 scope。
+  // 头像；基础资料字段，无需额外 scope。
   avatarUrl?: string;
 }
 
-/* authorization code → app_access_token → user_access_token → user_info.
-   union_id is the stable cross-app identity. Throws on any failure. */
+/* authorization code → app_access_token → user_access_token → user_info
+   (GitHub: code → access_token → /user + /user/emails). The returned unionId
+   is the stable cross-app identity (GitHub: numeric id stringified).
+   Throws on any failure. */
 export async function fetchOAuthProfile(p: OAuthProvider, code: string): Promise<OAuthProfile> {
+  if (p === 'github') return fetchGithubProfile(code);
   const conf = PROVIDERS[p];
 
   // 1) app_access_token — the app-level credential.
@@ -123,5 +138,65 @@ export async function fetchOAuthProfile(p: OAuthProvider, code: string): Promise
     name: info.data?.name?.trim() || '',
     email: info.data?.email?.trim() || info.data?.enterprise_email?.trim() || undefined,
     avatarUrl: info.data?.avatar_big || info.data?.avatar_middle || info.data?.avatar_url || undefined,
+  };
+}
+
+/* GitHub: authorization code → access_token → GET /user → GET /user/emails.
+   /user 的 email 字段在用户隐藏邮箱时为 null，所以邮箱固定走 /user/emails
+   （primary && verified 优先，退化第一个 verified，再退化 undefined）。 */
+async function fetchGithubProfile(code: string): Promise<OAuthProfile> {
+  const conf = PROVIDERS.github;
+
+  // 1) code → access_token。必须带 Accept: application/json，否则返回 form 编码；
+  //    失败时 GitHub 仍返回 200，错误在 body 的 error 字段。
+  const tokRes = await fetch(`${conf.apiBase}/login/oauth/access_token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      client_id: conf.appId,
+      client_secret: conf.appSecret,
+      code,
+      redirect_uri: conf.redirectUri,
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!tokRes.ok) throw new Error(`github access_token failed (status=${tokRes.status})`);
+  const tok = (await tokRes.json()) as { access_token?: string; error?: string };
+  if (!tok.access_token) throw new Error(`github access_token failed (${tok.error ?? 'unknown'})`);
+
+  const headers = {
+    Authorization: `Bearer ${tok.access_token}`,
+    Accept: 'application/vnd.github+json',
+  };
+
+  // 2) 用户资料（id / login / name / avatar_url）。
+  const userRes = await fetch('https://api.github.com/user', {
+    headers,
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!userRes.ok) throw new Error(`github /user failed (status=${userRes.status})`);
+  const user = (await userRes.json()) as {
+    id?: number;
+    login?: string;
+    name?: string | null;
+    avatar_url?: string;
+  };
+  if (!user.id || !user.login) throw new Error('github /user missing id/login');
+
+  // 3) 邮箱：primary && verified 优先。
+  const emailsRes = await fetch('https://api.github.com/user/emails', {
+    headers,
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!emailsRes.ok) throw new Error(`github /user/emails failed (status=${emailsRes.status})`);
+  const emailList = (await emailsRes.json()) as { email?: string; primary?: boolean; verified?: boolean }[];
+  const verified = Array.isArray(emailList) ? emailList.filter((e) => e.verified && e.email) : [];
+  const email = verified.find((e) => e.primary)?.email ?? verified[0]?.email;
+
+  return {
+    unionId: String(user.id),
+    name: user.name?.trim() || user.login,
+    email,
+    avatarUrl: user.avatar_url || undefined,
   };
 }

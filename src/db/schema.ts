@@ -131,7 +131,9 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   role: text('role').notNull().default('member'), // 'admin' | 'member'
   larkUnionId: text('lark_union_id').unique(),
-  // OAuth 头像（飞书/Lark user_info 的 avatar），登录时刷新；空则展示首字母色块。
+  // GitHub OAuth 身份（数字 id 转字符串，跨应用稳定）。
+  githubId: text('github_id').unique(),
+  // OAuth 头像（飞书/Lark/GitHub 资料的 avatar），登录时刷新；空则展示首字母色块。
   avatarUrl: text('avatar_url'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -26,14 +26,16 @@
 | POST | `/api/auth/emails` | `{ email }` 添加备用邮箱（自填 verified=false；全表查重 → CONFLICT；备用 ≤5 个） |
 | PATCH | `/api/auth/emails` | `{ email }` 把该邮箱设为主邮箱 |
 | DELETE | `/api/auth/emails` | `{ email }` 删除备用邮箱（主邮箱不可删） |
-| GET | `/api/auth/oauth/config` | `{ feishu: { configured, url? }, lark: { configured, url? } }`（各第三方登录是否已配置） |
+| GET | `/api/auth/oauth/config` | `{ feishu: { configured, url? }, lark: {...}, github: {...} }`（各第三方登录是否已配置） |
 | GET | `/api/auth/feishu/login` | 302 跳转飞书授权页（未配置 → 404） |
 | GET | `/api/auth/feishu/callback` | 飞书 OAuth 回调：union_id 命中→直接登录；否则建 users 账号；IdP 邮箱登记进 user_emails（verified）并按其认领「邀请外部资源」（回填 userId、转 internal、每邀请公司补 viewer 席位）→ 跳 `/issues`；失败跳 `/login?error=feishu` |
 | GET | `/api/auth/lark/login` | 302 跳转 Lark（国际版）授权页（未配置 → 404） |
 | GET | `/api/auth/lark/callback` | Lark OAuth 回调，逻辑同飞书 callback；失败跳 `/login?error=lark` |
+| GET | `/api/auth/github/login` | 302 跳转 GitHub 授权页（OAuth App，scope `read:user user:email`；未配置 → 404） |
+| GET | `/api/auth/github/callback` | GitHub OAuth 回调，逻辑同飞书 callback（身份按数字 id 存 `users.githubId`，邮箱取自 `/user/emails` 的 verified 邮箱）；失败跳 `/login?error=github` |
 | GET | `/api/auth/<provider>/bind` | 已登录用户发起绑定：写 nonce cookie 后 302 跳授权页（`state=bind.<nonce>`） |
-| GET | `/api/auth/<provider>/callback` | 绑定模式（`state=bind.*`）：校验 nonce + session 后把 union_id 挂到当前用户 → 302 `/profile/security?oauth=bound\|taken\|failed` |
-| POST | `/api/auth/oauth/unbind` | 解绑当前账号的飞书/Lark 身份；纯 OAuth 账号（无密码）拒绝，防止锁死 |
+| GET | `/api/auth/<provider>/callback` | 绑定模式（`state=bind.*`）：校验 nonce + session 后把身份挂到当前用户（飞书/Lark → `larkUnionId`，GitHub → `githubId`）→ 302 `/profile/security?oauth=bound\|taken\|failed` |
+| POST | `/api/auth/oauth/unbind` | `{ provider?: 'lark' \| 'github' }` 解绑当前账号的对应身份（缺省 lark）；无密码账号解绑最后一个身份时拒绝，防止锁死 |
 
 ## Meta
 

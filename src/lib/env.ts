@@ -27,6 +27,10 @@ export const env = {
   larkAppId: process.env.LARK_APP_ID,
   larkAppSecret: process.env.LARK_APP_SECRET,
   larkRedirectUri: process.env.LARK_REDIRECT_URI,
+  // GitHub OAuth login (OAuth App) — optional; the GitHub button is hidden when unset.
+  githubClientId: process.env.GITHUB_CLIENT_ID,
+  githubClientSecret: process.env.GITHUB_CLIENT_SECRET,
+  githubRedirectUri: process.env.GITHUB_REDIRECT_URI,
   // Notion integration (public OAuth) — optional; the settings-page connect
   // button is disabled with a hint when unset.
   notionClientId: process.env.NOTION_CLIENT_ID,

@@ -65,7 +65,7 @@ next-spms/
 │   │   └── meta.ts             # bootstrap 聚合
 │   ├── mcp/server.ts           # McpServer + tools 注册
 │   ├── app/
-│   │   ├── (auth)/login/       # 登录页（密码 + 飞书扫码）
+│   │   ├── (auth)/login/       # 登录页（密码 + 飞书/Lark/GitHub OAuth）
 │   │   ├── (app)/              # 主应用（Header + Sidebar 布局 + AuthGate）
 │   │   │   ├── issues/  products/  requirements/  testcases/
 │   │   │   ├── projects/  projects/[id]/  resources/
@@ -75,13 +75,13 @@ next-spms/
 │   │   │   ├── profile/          # 个人资料页（资料/安全/已授权应用三 Tab）
 │   │   ├── api/v1/pms/**/route.ts   # 业务 API（路径与原系统一致）
 │   │   ├── api/v1/platform/**/route.ts # 平台管理 API（仅平台管理员；mcp-keys 支持 member 自助）
-│   │   ├── api/auth/           # login/logout/session/switch-company/change-password/lark/*
+│   │   ├── api/auth/           # login/logout/session/switch-company/change-password/[provider]/*/oauth/*
 │   │   └── mcp/route.ts        # MCP Streamable HTTP 端点
 │   ├── components/             # ui/ glyphs/ menus/ inline/ Header/ Sidebar/ profile/(改密码表单)/ platform/(设置页四个管理面板)/ 各详情抽屉
 │   ├── views/ 或 components/   # 各页面视图（IssuesView/ProjectHub/...）
 │   ├── store/                  # React Query hooks + AppDataProvider
 │   └── lib/ (前端)             # types / api client / i18n
-└── .env.local                  # DATABASE_URL / SESSION_SECRET / MCP_API_KEY / LARK_*
+└── .env.local                  # DATABASE_URL / SESSION_SECRET / MCP_API_KEY / LARK_* / GITHUB_*
 ```
 
 ## 响应信封与错误约定
@@ -98,19 +98,21 @@ next-spms/
 `spms_session`（HttpOnly / SameSite=Lax / 7 天），payload `{ uid, username, role, cid }`。
 `username` 也接受**任一邮箱**（`user_emails` 主/备，大小写不敏感）——邮箱反查用户后共用同一密码。
 `cid` = 当前公司 id，登录时取第一个可见公司；`POST /api/auth/switch-company { companyId }` 重签 cookie 切换（要求目标公司成员或平台管理员）。
-纯 OAuth 账号（`passwordHash='!oauth'`）可在 /profile 安全页**免旧密码直接设置密码**，设置后密码登录开通——密码与飞书/Lark 登录由此统一到同一账号。
+纯 OAuth 账号（`passwordHash='!oauth'`）可在 /profile 安全页**免旧密码直接设置密码**，设置后密码登录开通——密码与飞书/Lark/GitHub 登录由此统一到同一账号。
 
 ### 用户邮箱（user_emails）
-一个用户可拥有多个邮箱：一个主邮箱（部分唯一索引保证）+ 至多 5 个备用；邮箱全表唯一（一个邮箱只属于一个用户）。无 SMTP，唯一验证来源是 Lark/飞书 OAuth 返回的邮箱（`verified`）——**只有 verified 邮箱可认领外部邀请/授予席位**；自填邮箱仅作登录标识、展示与 Notion 指派人匹配。管理端点 `GET/POST/PATCH/DELETE /api/auth/emails`（本人自助）；平台管理员建号/加成员时可写主邮箱；规则集中在 `src/lib/emails.ts`。
+一个用户可拥有多个邮箱：一个主邮箱（部分唯一索引保证）+ 至多 5 个备用；邮箱全表唯一（一个邮箱只属于一个用户）。无 SMTP，唯一验证来源是 Lark/飞书/GitHub OAuth 返回的邮箱（`verified`）——**只有 verified 邮箱可认领外部邀请/授予席位**；自填邮箱仅作登录标识、展示与 Notion 指派人匹配。管理端点 `GET/POST/PATCH/DELETE /api/auth/emails`（本人自助）；平台管理员建号/加成员时可写主邮箱；规则集中在 `src/lib/emails.ts`。
 
-### 飞书扫码登录
-1. 登录页按钮跳转 `https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=...&redirect_uri=...`（飞书页面展示扫码）
-2. 回调 `/api/auth/lark/callback?code=...`：
-   - `app_access_token`（tenant 凭证）→ 用 code 换 `user_access_token` → 拉 `user_info`
-   - 按 `larkUnionId` 找 user；不存在则自动创建 user（同名 member 懒绑定）
+### 第三方 OAuth 登录（飞书 / Lark / GitHub）
+通用框架：`src/server/lark.ts`（provider 抽象，env 未配置对应变量时该 provider 停用）+ `src/app/api/auth/[provider]/{login,callback,bind}` 动态路由。
+1. 登录页按钮跳转各 provider 授权页：飞书/Lark → `<apiBase>/open-apis/authen/v1/authorize?app_id=...&redirect_uri=...`（飞书页面展示扫码）；GitHub → `https://github.com/login/oauth/authorize?client_id=...&scope=read:user user:email`
+2. 回调 `/api/auth/<provider>/callback?code=...`：
+   - 飞书/Lark：`app_access_token`（tenant 凭证）→ 用 code 换 `user_access_token` → 拉 `user_info`；GitHub：code 换 `access_token` → 拉 `/user` + `/user/emails`（邮箱取 primary+verified 优先）
+   - 按稳定身份找 user（飞书/Lark → `larkUnionId`，GitHub → `githubId`，数字 id 转字符串）；不存在则自动创建 user（同名 member 懒绑定）
    - IdP 邮箱经 `upsertVerifiedEmail` 登记进 `user_emails`（verified，首个邮箱自动成为主邮箱），并按该邮箱认领「邀请外部资源」预埋的 members 行
    - 写 session cookie，跳 `/issues`
-3. env 未配置 `LARK_APP_ID/LARK_APP_SECRET` 时，登录页隐藏飞书入口（前端通过 `/api/auth/lark/config` 探测）
+3. 某个 provider 的 env（`FEISHU_APP_ID/FEISHU_APP_SECRET`、`LARK_APP_ID/LARK_APP_SECRET`、`GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET`，均可选 `*_REDIRECT_URI` 覆盖）未配置时，登录页隐藏对应入口（前端通过 `/api/auth/oauth/config` 探测）
+4. 绑定模式：已登录用户经 `/api/auth/<provider>/bind`（nonce cookie 防 CSRF）把身份挂到当前账号；解绑 `POST /api/auth/oauth/unbind { provider }`，无密码账号解绑最后一个身份时拒绝（防锁死）
 
 ### 权限模型（RBAC，二期）
 
@@ -125,7 +127,7 @@ next-spms/
 - 公司管理员在 **研发资源 → 内部成员** 给本公司席位成员调整公司角色 / 移除席位（`/api/v1/pms/seats`）。
 - 席位分配时把用户幂等投影进本公司资源池（`members` 表，供指派）；席位移除时同步撤销该投影（移出所有节点指派、状态置 revoked，重新分配席位时自动重激活）。仅持席位的用户才会被懒投影——无席位的平台管理员进入公司沙箱不再产生 `members` 行（其 `Actor.memberId` 为 null）。
 - **删除用户**（成员管理页，`DELETE /api/v1/platform/users/:userId`，不能删自己）：先把该用户在各家公司的投影逐一 revoke（同席位移除的善后），再删 `users` 行；`members.user_id` 外键 `ON DELETE SET NULL` 兜底——member 行永不随用户硬删，历史 issue/活动的归属与姓名快照保留。
-- **邀请外部资源（按邮箱）**：邮箱已属于平台用户（`user_emails` 主/备）→ 直接落 `userId`、转 internal/active 并授 viewer 席位（与 Lark 认领同结果）；否则预埋 external/invited 行，等本人 Lark 登录按 verified 邮箱认领。
+- **邀请外部资源（按邮箱）**：邮箱已属于平台用户（`user_emails` 主/备）→ 直接落 `userId`、转 internal/active 并授 viewer 席位（与 OAuth 认领同结果）；否则预埋 external/invited 行，等本人 OAuth 登录按 verified 邮箱认领。
 
 **角色×模块矩阵**（`src/lib/permissions.ts`）：
 - 4 个可配置角色 × 10 个模块（issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents）× 3 档（`none < read < write`）

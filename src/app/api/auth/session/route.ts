@@ -27,6 +27,7 @@ export const GET = route(async () => {
       name: users.name,
       role: users.role,
       larkUnionId: users.larkUnionId,
+      githubId: users.githubId,
       avatarUrl: users.avatarUrl,
       passwordHash: users.passwordHash,
     })
@@ -40,6 +41,7 @@ export const GET = route(async () => {
     name: u.name,
     role: u.role,
     larkBound: !!u.larkUnionId,
+    githubBound: !!u.githubId,
     avatarUrl: u.avatarUrl,
     email: await primaryEmailOf(u.id),
     hasPassword: u.passwordHash !== '!oauth',

@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Logo } from '@/components/Logo';
-import { FeishuMark, LarkMark, LoginArtwork } from '@/components/LoginArtwork';
+import { FeishuMark, GitHubMark, LarkMark, LoginArtwork } from '@/components/LoginArtwork';
 import { authApi, ApiError, type OAuthEntry } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 
@@ -21,10 +21,11 @@ export default function LoginPage() {
     const p = new URLSearchParams(window.location.search).get('error');
     if (p === 'feishu') return '飞书登录失败，请重试';
     if (p === 'lark') return 'Lark 登录失败，请重试';
+    if (p === 'github') return 'GitHub 登录失败，请重试';
     return null;
   });
   const [busy, setBusy] = React.useState(false);
-  const [oauth, setOauth] = React.useState<{ feishu: OAuthEntry; lark: OAuthEntry } | null>(null);
+  const [oauth, setOauth] = React.useState<{ feishu: OAuthEntry; lark: OAuthEntry; github: OAuthEntry } | null>(null);
 
   // 第三方登录入口仅在对应服务端已配置时展示；未配置 / 接口失败都隐藏按钮。
   React.useEffect(() => {
@@ -163,6 +164,18 @@ export default function LoginPage() {
                     }}
                   >
                     <LarkMark size={16} /> Lark 登录
+                  </Button>
+                )}
+                {oauth.github && (
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    className="w-full"
+                    onClick={() => {
+                      window.location.href = oauth.github?.url ?? '/api/auth/github/login';
+                    }}
+                  >
+                    <GitHubMark size={16} /> GitHub 登录
                   </Button>
                 )}
               </div>
