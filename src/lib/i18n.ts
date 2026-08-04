@@ -78,7 +78,7 @@ const zhCN: Dict = {
   'reports.form.pickHint': '点击上方产品，为 {date} 添加工作内容',
   'reports.form.unknownProduct': '未知产品',
   'reports.form.removeProduct': '移除该产品',
-  'reports.form.blockPlaceholder': '该产品当天做了什么…每行一条',
+  'reports.form.blockPlaceholder': '该产品当天做了什么…每行一条，支持简单 Markdown',
 
   'profile.title': '个人资料',
   'profile.subtitle': '管理你的资料、安全与应用授权',
@@ -706,7 +706,7 @@ const en: Dict = {
   'reports.form.pickHint': 'Pick a product above to log work for {date}',
   'reports.form.unknownProduct': 'Unknown product',
   'reports.form.removeProduct': 'Remove this product',
-  'reports.form.blockPlaceholder': 'What was done on this product today… one per line',
+  'reports.form.blockPlaceholder': 'What was done on this product today… one per line, simple Markdown supported',
 
   'profile.title': 'Profile',
   'profile.subtitle': 'Manage your profile, security and app authorizations',
@@ -1302,7 +1302,7 @@ const zhTW: Dict = {
   'reports.form.pickHint': '點擊上方產品，為 {date} 添加工作內容',
   'reports.form.unknownProduct': '未知產品',
   'reports.form.removeProduct': '移除該產品',
-  'reports.form.blockPlaceholder': '該產品當天做了什麼…每行一條',
+  'reports.form.blockPlaceholder': '該產品當天做了什麼…每行一條，支援簡單 Markdown',
 
   'profile.title': '個人資料',
   'profile.subtitle': '管理你的資料、安全與應用授權',

@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverContent, PopoverTrigger, MenuItem } from '@/components/ui/popover';
 import { SegBtn, TabBtn } from '@/components/ui/segmented';
 import { Avatar } from '@/components/glyphs/Avatar';
+import { Markdown } from '@/components/Markdown';
 import { Skeleton } from '@/components/StateBlock';
 import { relativeTime } from '@/lib/time';
 import { useT } from '@/lib/i18n';
@@ -42,8 +43,6 @@ function toTaskLines(content: string): string[] {
     .map((l) => l.replace(/^\s*(?:\d+[.、)]|[a-zA-Z][.)]|[-*•·])\s*/, '').trim())
     .filter(Boolean);
 }
-
-const LETTERS = 'abcdefghijklmnopqrstuvwxyz';
 
 /* ------------------------------------------------------------------ */
 /* 写日报                                                              */
@@ -249,17 +248,14 @@ type SummaryGroup =
   | { id: string; depth: 2; subs: TaskBlock[] }
   | { id: string; depth: 3; subs: { id: string; subs: TaskBlock[] }[] };
 
+/* 任务内容:按 Markdown 渲染(TKT-14)。同一成员/产品可能有多条 entry,逐条渲染。 */
 function TaskList({ rows }: { rows: FlatRow[] }) {
-  const tasks = rows.flatMap((r) => toTaskLines(r.entry.content));
   return (
-    <ul className="flex flex-col gap-1 pl-1">
-      {tasks.map((task, ti) => (
-        <li key={ti} className="flex gap-2 text-[13px] leading-relaxed text-fg-1">
-          <span className="flex-none text-fg-3">{LETTERS[ti % 26]}.</span>
-          <span>{task}</span>
-        </li>
+    <div className="flex flex-col gap-2 pl-1">
+      {rows.map((r) => (
+        <Markdown key={r.entry.id} text={r.entry.content} className="text-[13px] leading-relaxed text-fg-1" />
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -295,10 +291,11 @@ function FilterMenu({
   );
 }
 
-/* 汇总文本(对齐向上上报格式),按当前分组维度生成:
-     按产品:   产品: / 1. 成员: / a. 任务
-     按人员:   成员: / 1. 产品: / a. 任务
-     按负责人: 负责人: / 1. 产品: / a. 成员: / - 任务 */
+/* 汇总文本(对齐向上上报格式,TKT-14 起输出简单 Markdown):
+   标题与分组名加粗,任务行统一 `- ` 列表并按层级缩进,中间层保留 `1.` 编号。
+     按产品:   **产品:** / 1. **成员:** /    - 任务
+     按人员:   **成员:** / 1. **产品:** /    - 任务
+     按负责人: **负责人:** / 1. **产品:** /    - **成员:** /      - 任务 */
 function buildCopyText(
   date: string,
   groups: SummaryGroup[],
@@ -308,29 +305,29 @@ function buildCopyText(
   noLeadLabel: string,
 ): string {
   const [y, m, d] = date.split('-').map(Number);
-  const out: string[] = [`${d}/${m}/${y} 工作总结:`, ''];
+  const out: string[] = [`**${d}/${m}/${y} 工作总结:**`, ''];
   const outerName = (g: SummaryGroup) =>
     mode === 'product' ? productName(g.id) : g.id === NO_LEAD ? noLeadLabel : memberName(g.id);
-  const pushTasks = (rows: FlatRow[], prefix: (i: number) => string) => {
+  const pushTasks = (rows: FlatRow[], indent: string) => {
     rows
       .flatMap((r) => toTaskLines(r.entry.content))
-      .forEach((task, i) => out.push(`${prefix(i)}${task}`));
+      .forEach((task) => out.push(`${indent}- ${task}`));
   };
   for (const g of groups) {
-    out.push(`${outerName(g)}:`);
+    out.push(`**${outerName(g)}:**`);
     if (g.depth === 2) {
       const innerName = (id: string) => (mode === 'product' ? memberName(id) : productName(id));
       g.subs.forEach((s, si) => {
-        out.push(`${si + 1}. ${innerName(s.id)}:`);
-        pushTasks(s.rows, (i) => `${LETTERS[i % 26]}. `);
+        out.push(`${si + 1}. **${innerName(s.id)}:**`);
+        pushTasks(s.rows, '   ');
         out.push('');
       });
     } else {
       g.subs.forEach((p, pi) => {
-        out.push(`${pi + 1}. ${productName(p.id)}:`);
-        p.subs.forEach((s, si) => {
-          out.push(`${LETTERS[si % 26]}. ${memberName(s.id)}:`);
-          pushTasks(s.rows, () => '- ');
+        out.push(`${pi + 1}. **${productName(p.id)}:**`);
+        p.subs.forEach((s) => {
+          out.push(`   - **${memberName(s.id)}:**`);
+          pushTasks(s.rows, '     ');
           out.push('');
         });
       });

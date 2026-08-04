@@ -116,7 +116,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 `id` PK · `companyId` NN → companies cascade · `memberId` NN → members cascade（作者，human member）· `date` date NN（'YYYY-MM-DD' 日历日字符串，无时区语义——客户端本地时区给出，服务端视为不透明 day key）· `createdAt` / `updatedAt` NN · 唯一 `(companyId, memberId, date)`（每人每天一份，覆盖提交 = upsert）
 
 ### daily_report_entries（日报条目，按产品拆分）
-`id` PK · `reportId` NN → daily_reports cascade · `companyId` NN → companies cascade（冗余，便于按公司/产品过滤汇总）· `productId` NN → products cascade · `content` text NN（该产品下的工作内容，每行一条任务）· `position` int NN 默认 0 · 唯一 `(reportId, productId)`
+`id` PK · `reportId` NN → daily_reports cascade · `companyId` NN → companies cascade（冗余，便于按公司/产品过滤汇总）· `productId` NN → products cascade · `content` text NN（该产品下的工作内容，简单 Markdown；汇总视图按 Markdown 渲染——MCP 上报的普通行自动规整为 `- ` 列表项）· `position` int NN 默认 0 · 唯一 `(reportId, productId)`
 
 设计动机：日报汇总按 产品 → 人员 → 任务 上卷（负责人以产品为维度统一上报），因此内容不存单一文本块，而是按产品拆成 entry。汇总视图支持三种维度：按产品（产品 → 人 → 任务，默认）、按人员（人 → 产品 → 任务）、按负责人（负责人 → 产品 → 人 → 任务，按 products.leadId 外层分组，leadId 为空归入「未指定负责人」组排最后）。读取走行级可见性：管理员全可见，其他成员仅见本人日报全部条目及自己负责产品（products.leadId = 我）的条目。
 
