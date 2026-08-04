@@ -28,7 +28,7 @@
 | DELETE | `/api/auth/emails` | `{ email }` 删除备用邮箱（主邮箱不可删） |
 | GET | `/api/auth/oauth/config` | `{ feishu: { configured, url? }, lark: {...}, github: {...} }`（各第三方登录是否已配置） |
 | GET | `/api/auth/feishu/login` | 302 跳转飞书授权页（未配置 → 404） |
-| GET | `/api/auth/feishu/callback` | 飞书 OAuth 回调：union_id 命中→直接登录；否则建 users 账号；IdP 邮箱登记进 user_emails（verified）并按其认领「邀请外部资源」（回填 userId、转 internal、每邀请公司补 viewer 席位）→ 跳 `/issues`；失败跳 `/login?error=feishu` |
+| GET | `/api/auth/feishu/callback` | 飞书 OAuth 回调：union_id 命中→直接登录；否则 IdP 邮箱匹配已有账号（user_emails 主/备，其次用户名）→绑定身份；仍无匹配则建 users 账号；IdP 邮箱登记进 user_emails（verified）并按其认领「邀请外部资源」（回填 userId、转 internal、每邀请公司补 viewer 席位）→ 跳 `/issues`；失败跳 `/login?error=feishu` |
 | GET | `/api/auth/lark/login` | 302 跳转 Lark（国际版）授权页（未配置 → 404） |
 | GET | `/api/auth/lark/callback` | Lark OAuth 回调，逻辑同飞书 callback；失败跳 `/login?error=lark` |
 | GET | `/api/auth/github/login` | 302 跳转 GitHub 授权页（OAuth App，scope `read:user user:email`；未配置 → 404） |

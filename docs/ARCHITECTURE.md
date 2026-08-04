@@ -108,7 +108,7 @@ next-spms/
 1. 登录页按钮跳转各 provider 授权页：飞书/Lark → `<apiBase>/open-apis/authen/v1/authorize?app_id=...&redirect_uri=...`（飞书页面展示扫码）；GitHub → `https://github.com/login/oauth/authorize?client_id=...&scope=read:user user:email`
 2. 回调 `/api/auth/<provider>/callback?code=...`：
    - 飞书/Lark：`app_access_token`（tenant 凭证）→ 用 code 换 `user_access_token` → 拉 `user_info`；GitHub：code 换 `access_token` → 拉 `/user` + `/user/emails`（邮箱取 primary+verified 优先）
-   - 按稳定身份找 user（飞书/Lark → `larkUnionId`，GitHub → `githubId`，数字 id 转字符串）；不存在则自动创建 user（同名 member 懒绑定）
+   - 按稳定身份找 user（飞书/Lark → `larkUnionId`，GitHub → `githubId`，数字 id 转字符串）；不存在则**按 IdP 邮箱匹配已有账号**（user_emails 主/备优先，其次用户名恰为该邮箱——IdP 已证明邮箱归属），命中即把身份绑到该账号而非新建；仍无匹配才自动创建 user（同名 member 懒绑定）
    - IdP 邮箱经 `upsertVerifiedEmail` 登记进 `user_emails`（verified，首个邮箱自动成为主邮箱），并按该邮箱认领「邀请外部资源」预埋的 members 行
    - 写 session cookie，跳 `/issues`
 3. 某个 provider 的 env（`FEISHU_APP_ID/FEISHU_APP_SECRET`、`LARK_APP_ID/LARK_APP_SECRET`、`GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET`，均可选 `*_REDIRECT_URI` 覆盖）未配置时，登录页隐藏对应入口（前端通过 `/api/auth/oauth/config` 探测）

@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { users } from '@/db/schema';
-import { upsertVerifiedEmail } from '@/lib/emails';
+import { findUserByEmail, upsertVerifiedEmail } from '@/lib/emails';
 import { claimExternalInvites, ensureCurrentMember, syncMemberProjection } from '@/lib/identity';
 import { createSessionCookie, getSession } from '@/lib/session';
 import { defaultCompanyForUser } from '@/server/http';
@@ -47,8 +47,10 @@ async function pickUsername(preferred: string | undefined, fallback: string): Pr
      account, no re-login) → 302 /profile/security?oauth=bound|taken|failed.
    - otherwise (login mode):
      1) 身份命中 users.larkUnionId / githubId → 老用户直接登录;
-     2) 否则创建 users 账号（'!oauth' 禁用密码登录，可在 /profile 安全页补设
-        密码开通密码登录），IdP 邮箱登记进 user_emails（verified），并用该
+     2) 身份未命中但 IdP 邮箱匹配任一已有邮箱（user_emails 主/备，其次用户名）
+        → 把身份绑到该账号（IdP 已证明邮箱归属），邮箱升级 verified 并认领邀请;
+     3) 都无匹配则创建 users 账号（'!oauth' 禁用密码登录，可在 /profile 安全页
+        补设密码开通密码登录），IdP 邮箱登记进 user_emails（verified），并用该
         邮箱认领「邀请外部资源」预埋的 members 行 —— 回填 userId、转
         internal/active，为每个邀请公司自动分配 viewer 席位（见
         identity.claimExternalInvites）;
@@ -101,6 +103,20 @@ export async function GET(
     const idKey = identityKey(p);
 
     let [u] = await db.select().from(users).where(eq(users[idKey], profile.unionId)).limit(1);
+    let matchedByEmail = false;
+    if (!u && profile.email) {
+      // 邮箱匹配：IdP 已证明该邮箱归本人所有，命中任一已有账号（user_emails
+      // 主/备优先，其次用户名恰为该邮箱）就把身份绑到该账号，而不是新建重复账号。
+      const email = profile.email.trim().toLowerCase();
+      const uid = await findUserByEmail(email);
+      if (uid) [u] = await db.select().from(users).where(eq(users.id, uid)).limit(1);
+      if (!u) [u] = await db.select().from(users).where(eq(users.username, email)).limit(1);
+      if (u) {
+        await db.update(users).set({ [idKey]: profile.unionId }).where(eq(users.id, u.id));
+        matchedByEmail = true;
+        console.info(`[auth/${p}] bound identity to existing user ${u.username} via email ${email}`);
+      }
+    }
     if (!u) {
       const displayName =
         profile.name || `${providerLabel(p)}用户 ${profile.unionId.slice(0, 8)}`;
@@ -131,7 +147,16 @@ export async function GET(
     } else {
       // 老用户登录：name 只在首次建号时写入，之后不再覆盖（用户可自行修改）；
       // 仅头像跟随 OAuth 资料刷新并同步 member 投影。
-      if (profile.email) await upsertVerifiedEmail(u.id, profile.email);
+      if (profile.email) {
+        await upsertVerifiedEmail(u.id, profile.email);
+        // 邮箱匹配绑定视同一次验证事件：该邮箱升级为 verified 后立即认领邀请。
+        if (matchedByEmail) {
+          const claimed = await claimExternalInvites(u, profile.email);
+          if (claimed > 0) {
+            console.info(`[auth/${p}] ${u.username} claimed ${claimed} external invite(s)`);
+          }
+        }
+      }
       const avatarUrl = profile.avatarUrl ?? null;
       if (u.avatarUrl !== avatarUrl) {
         await db.update(users).set({ avatarUrl }).where(eq(users.id, u.id));
