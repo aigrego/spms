@@ -446,7 +446,7 @@ export const api = {
   syncNotion: () => request<NotionSyncResult>('/integrations/notion/sync', { method: 'POST' }),
 
   /* ---- 日报 (daily reports) ---- */
-  reports: (params?: { startDate?: string; endDate?: string; memberId?: string; projectId?: string }) => {
+  reports: (params?: { startDate?: string; endDate?: string; memberId?: string; productId?: string }) => {
     const q = new URLSearchParams(
       Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
     ).toString();

@@ -61,7 +61,7 @@ next-spms/
 │   ├── server/services/        # 业务服务层（API 与 MCP 共用）
 │   │   ├── issues.ts  requirements.ts  projects.ts  sprints.ts
 │   │   ├── catalog.ts resources.ts assignments.ts testcases.ts
-│   │   ├── reports.ts            # 日报（每人每天一份,按项目拆 entries,项目维度汇总）
+│   │   ├── reports.ts            # 日报（每人每天一份,按产品拆 entries,产品/人员/负责人三维度汇总）
 │   │   ├── platform.ts           # 平台管理（公司/成员/矩阵/MCP key）
 │   │   └── meta.ts             # bootstrap 聚合
 │   ├── mcp/server.ts           # McpServer + tools 注册
@@ -71,7 +71,7 @@ next-spms/
 │   │   │   ├── issues/  products/  requirements/  testcases/
 │   │   │   ├── projects/  projects/[id]/  resources/
 │   │   │   ├── roadmap/  backlog/  sprints/  sprints/[id]/
-│   │   │   ├── reports/          # 日报（写日报 + 项目维度汇总上报）
+│   │   │   ├── reports/          # 日报（写日报 + 产品/人员/负责人三维度汇总上报）
 │   │   │   ├── settings/         # 设置页（偏好 + 平台管理 Tab，平台管理仅平台管理员；旧 /platform 重定向至此）
 │   │   │   ├── agent-access/     # Agent 接入页（MCP 令牌自助管理，所有登录用户；member 仅自己的公司级 key）
 │   │   │   ├── profile/          # 个人资料页（资料/安全/已授权应用三 Tab）

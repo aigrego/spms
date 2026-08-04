@@ -145,9 +145,9 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/reports?startDate&endDate&memberId&projectId` | 日报列表（含按项目拆分的 entries），日期闭区间，上限 500 条 |
+| GET | `/reports?startDate&endDate&memberId&productId` | 日报列表（含按产品拆分的 entries），日期闭区间，上限 500 条 |
 | GET | `/reports/mine?date=YYYY-MM-DD` | 我某天的日报；无则 `ok(null)` |
-| PUT | `/reports/mine` | `{ date, entries: [{ projectId, content }] }` 覆盖提交：同日已有则全量替换 entries（同日唯一约束兜底）；entries 至少一条非空；项目须属本公司且未归档 |
+| PUT | `/reports/mine` | `{ date, entries: [{ productId, content }] }` 覆盖提交：同日已有则全量替换 entries（同日唯一约束兜底）；entries 至少一条非空；产品须属本公司且未归档 |
 | DELETE | `/reports/:id` | 删除；仅本人或 company_admin/平台管理员 |
 | GET | `/reports/stats?today=YYYY-MM-DD` | `{ totalReports, todayCount, memberCount, trend[7], unsubmitted[] }`；today 由客户端按本地时区给出（缺省回退服务器 UTC 日）；未提交名单只计 internal+active 的 human 成员 |
 

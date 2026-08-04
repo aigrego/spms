@@ -12,10 +12,11 @@ import { relativeTime } from '@/lib/time';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useDeleteReport, useMyReport, useReports, useReportStats, useSaveMyReport } from '@/store/reports';
-import type { DailyReport, DailyReportEntry, Member, Project } from '@/lib/types';
+import type { DailyReport, DailyReportEntry, Member, Product } from '@/lib/types';
 
 /* 日报视图 — 「写日报」+「日报汇总」两个页签。
-   汇总按 项目 → 人员 → 任务 上卷(对齐负责人统一上报的格式),支持一键复制。
+   汇总支持三种维度:按产品(产品 → 人员 → 任务,默认)、按人员(人员 → 产品 → 任务)、
+   按负责人(负责人 → 产品 → 人员 → 任务,TKT-10),支持一键复制。
    日期一律用客户端本地时区的 'YYYY-MM-DD'(服务端只做不透明 day key)。 */
 
 function localToday(d = new Date()): string {
@@ -25,11 +26,11 @@ function localToday(d = new Date()): string {
 const dateInputCls =
   'h-8 rounded-md border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
 
-function ProjectDot({ project, size = 8 }: { project?: Project; size?: number }) {
+function ProductDot({ product, size = 8 }: { product?: Product; size?: number }) {
   return (
     <span
       className="inline-block flex-none rounded-full"
-      style={{ width: size, height: size, background: project?.color ?? 'var(--fg-3)' }}
+      style={{ width: size, height: size, background: product?.color ?? 'var(--fg-3)' }}
     />
   );
 }
@@ -48,7 +49,7 @@ const LETTERS = 'abcdefghijklmnopqrstuvwxyz';
 /* 写日报                                                              */
 /* ------------------------------------------------------------------ */
 
-function WriteReport({ me, projects }: { me: Member | undefined; projects: Project[] }) {
+function WriteReport({ me, products }: { me: Member | undefined; products: Product[] }) {
   const t = useT();
   const [date, setDate] = React.useState(localToday);
   const { data: existing, isLoading } = useMyReport(me ? date : null);
@@ -72,7 +73,7 @@ function WriteReport({ me, projects }: { me: Member | undefined; projects: Proje
       {isLoading ? (
         <Skeleton rows={5} />
       ) : (
-        <ReportEditor key={date} date={date} initial={existing ?? null} projects={projects} />
+        <ReportEditor key={date} date={date} initial={existing ?? null} products={products} />
       )}
     </div>
   );
@@ -81,33 +82,34 @@ function WriteReport({ me, projects }: { me: Member | undefined; projects: Proje
 function ReportEditor({
   date,
   initial,
-  projects,
+  products,
 }: {
   date: string;
   initial: DailyReport | null;
-  projects: Project[];
+  products: Product[];
 }) {
-  const [blocks, setBlocks] = React.useState<{ projectId: string; content: string }[]>(() =>
-    initial ? initial.entries.map((e) => ({ projectId: e.projectId, content: e.content })) : [],
+  const t = useT();
+  const [blocks, setBlocks] = React.useState<{ productId: string; content: string }[]>(() =>
+    initial ? initial.entries.map((e) => ({ productId: e.productId, content: e.content })) : [],
   );
   // 保存后拿到的 report id(首存前 initial 为 null),用于删除与按钮文案。
   const [reportId, setReportId] = React.useState<string | null>(initial?.id ?? null);
   // 保存成功时的快照,用于 dirty 判断;不随服务端 refetch 漂移。
-  const snapshotOf = (bs: { projectId: string; content: string }[]) =>
-    JSON.stringify(bs.map((b) => ({ p: b.projectId, c: b.content.trim() })).filter((b) => b.c));
+  const snapshotOf = (bs: { productId: string; content: string }[]) =>
+    JSON.stringify(bs.map((b) => ({ p: b.productId, c: b.content.trim() })).filter((b) => b.c));
   const [savedSnapshot, setSavedSnapshot] = React.useState(() => snapshotOf(blocks));
   const [feedback, setFeedback] = React.useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const save = useSaveMyReport();
   const del = useDeleteReport();
 
-  const activeProjects = projects.filter((p) => !p.archivedAt);
-  const usedIds = new Set(blocks.map((b) => b.projectId));
-  const projectById = new Map(projects.map((p) => [p.id, p]));
+  const activeProducts = products.filter((p) => p.status !== 'archived');
+  const usedIds = new Set(blocks.map((b) => b.productId));
+  const productById = new Map(products.map((p) => [p.id, p]));
 
-  const toggleProject = (id: string) => {
+  const toggleProduct = (id: string) => {
     setBlocks((prev) =>
-      prev.some((b) => b.projectId === id) ? prev.filter((b) => b.projectId !== id) : [...prev, { projectId: id, content: '' }],
+      prev.some((b) => b.productId === id) ? prev.filter((b) => b.productId !== id) : [...prev, { productId: id, content: '' }],
     );
   };
 
@@ -116,7 +118,7 @@ function ReportEditor({
 
   const onSave = async () => {
     setFeedback(null);
-    const entries = blocks.map((b) => ({ projectId: b.projectId, content: b.content })).filter((b) => b.content.trim());
+    const entries = blocks.map((b) => ({ productId: b.productId, content: b.content })).filter((b) => b.content.trim());
     try {
       const saved = await save.mutateAsync({ date, entries });
       setReportId(saved.id);
@@ -166,14 +168,14 @@ function ReportEditor({
         </div>
       )}
 
-      {/* 项目选择 */}
+      {/* 产品选择 */}
       <div className="mb-3 flex flex-wrap gap-1.5">
-        {activeProjects.map((p) => {
+        {activeProducts.map((p) => {
           const used = usedIds.has(p.id);
           return (
             <button
               key={p.id}
-              onClick={() => toggleProject(p.id)}
+              onClick={() => toggleProduct(p.id)}
               className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px] font-medium transition-colors"
               style={{
                 borderColor: used ? 'var(--brand-blue)' : 'var(--border-strong)',
@@ -181,34 +183,34 @@ function ReportEditor({
                 color: used ? 'var(--brand-blue)' : 'var(--fg-2)',
               }}
             >
-              <ProjectDot project={p} />
+              <ProductDot product={p} />
               {p.name}
               {used ? <Check size={12} /> : <Plus size={12} className="text-fg-3" />}
             </button>
           );
         })}
-        {activeProjects.length === 0 && <span className="text-[12.5px] text-fg-3">暂无进行中的项目</span>}
+        {activeProducts.length === 0 && <span className="text-[12.5px] text-fg-3">{t('reports.form.noActiveProducts')}</span>}
       </div>
 
       {/* 内容块 */}
       {blocks.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border-strong py-14 text-center text-[13px] text-fg-3">
-          点击上方项目,为 {date} 添加工作内容
+          {t('reports.form.pickHint', { date })}
         </div>
       ) : (
         <div className="flex flex-col gap-3">
           {blocks.map((b) => {
-            const p = projectById.get(b.projectId);
+            const p = productById.get(b.productId);
             return (
-              <div key={b.projectId} className="rounded-lg border border-border bg-surface">
+              <div key={b.productId} className="rounded-lg border border-border bg-surface">
                 <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-                  <ProjectDot project={p} />
-                  <span className="text-[13px] font-semibold text-fg-1">{p?.name ?? '未知项目'}</span>
+                  <ProductDot product={p} />
+                  <span className="text-[13px] font-semibold text-fg-1">{p?.name ?? t('reports.form.unknownProduct')}</span>
                   <div className="flex-1" />
                   <button
-                    onClick={() => toggleProject(b.projectId)}
+                    onClick={() => toggleProduct(b.productId)}
                     className="rounded p-0.5 text-fg-3 hover:bg-surface-2 hover:text-fg-1"
-                    title="移除该项目"
+                    title={t('reports.form.removeProduct')}
                   >
                     <X size={14} />
                   </button>
@@ -217,9 +219,9 @@ function ReportEditor({
                   rows={4}
                   value={b.content}
                   onChange={(e) =>
-                    setBlocks((prev) => prev.map((x) => (x.projectId === b.projectId ? { ...x, content: e.target.value } : x)))
+                    setBlocks((prev) => prev.map((x) => (x.productId === b.productId ? { ...x, content: e.target.value } : x)))
                   }
-                  placeholder={'该项目当天做了什么…每行一条'}
+                  placeholder={t('reports.form.blockPlaceholder')}
                   className="px-3 py-2.5"
                 />
               </div>
@@ -232,10 +234,34 @@ function ReportEditor({
 }
 
 /* ------------------------------------------------------------------ */
-/* 日报汇总(项目 → 人员 → 任务)                                         */
+/* 日报汇总(按产品 / 按人员 / 按负责人 三种维度)                          */
 /* ------------------------------------------------------------------ */
 
 type FlatRow = { report: DailyReport; entry: DailyReportEntry };
+type SummaryMode = 'product' | 'member' | 'lead';
+
+/* 无负责人(leadId 为 null)产品的外层分组 key,不可能与 member id 冲突。 */
+const NO_LEAD = '__no-lead__';
+
+/* 分组结构:depth 2 = 外层 → 内层(行集合);depth 3 = 负责人 → 产品 → 人员(行集合)。 */
+type TaskBlock = { id: string; rows: FlatRow[] };
+type SummaryGroup =
+  | { id: string; depth: 2; subs: TaskBlock[] }
+  | { id: string; depth: 3; subs: { id: string; subs: TaskBlock[] }[] };
+
+function TaskList({ rows }: { rows: FlatRow[] }) {
+  const tasks = rows.flatMap((r) => toTaskLines(r.entry.content));
+  return (
+    <ul className="flex flex-col gap-1 pl-1">
+      {tasks.map((task, ti) => (
+        <li key={ti} className="flex gap-2 text-[13px] leading-relaxed text-fg-1">
+          <span className="flex-none text-fg-3">{LETTERS[ti % 26]}.</span>
+          <span>{task}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 function FilterMenu({
   label,
@@ -269,59 +295,69 @@ function FilterMenu({
   );
 }
 
-/* 汇总文本(对齐向上上报格式):
-   31/7/2026 工作总结:
-   OX:
-   1. SJZ:
-   a. xxx
-   b. xxx */
-function buildCopyText(date: string, rows: FlatRow[], projectName: (id: string) => string, memberName: (id: string) => string): string {
+/* 汇总文本(对齐向上上报格式),按当前分组维度生成:
+     按产品:   产品: / 1. 成员: / a. 任务
+     按人员:   成员: / 1. 产品: / a. 任务
+     按负责人: 负责人: / 1. 产品: / a. 成员: / - 任务 */
+function buildCopyText(
+  date: string,
+  groups: SummaryGroup[],
+  mode: SummaryMode,
+  productName: (id: string) => string,
+  memberName: (id: string) => string,
+  noLeadLabel: string,
+): string {
   const [y, m, d] = date.split('-').map(Number);
   const out: string[] = [`${d}/${m}/${y} 工作总结:`, ''];
-  const byProject = new Map<string, FlatRow[]>();
-  for (const r of rows) {
-    const list = byProject.get(r.entry.projectId) ?? [];
-    list.push(r);
-    byProject.set(r.entry.projectId, list);
-  }
-  for (const [pid, projectRows] of byProject) {
-    out.push(`${projectName(pid)}:`);
-    const byMember = new Map<string, FlatRow[]>();
-    for (const r of projectRows) {
-      const list = byMember.get(r.report.memberId) ?? [];
-      list.push(r);
-      byMember.set(r.report.memberId, list);
-    }
-    let mi = 0;
-    for (const [mid, memberRows] of byMember) {
-      mi += 1;
-      out.push(`${mi}. ${memberName(mid)}:`);
-      const tasks = memberRows.flatMap((r) => toTaskLines(r.entry.content));
-      tasks.forEach((task, ti) => out.push(`${LETTERS[ti % 26]}. ${task}`));
-      out.push('');
+  const outerName = (g: SummaryGroup) =>
+    mode === 'product' ? productName(g.id) : g.id === NO_LEAD ? noLeadLabel : memberName(g.id);
+  const pushTasks = (rows: FlatRow[], prefix: (i: number) => string) => {
+    rows
+      .flatMap((r) => toTaskLines(r.entry.content))
+      .forEach((task, i) => out.push(`${prefix(i)}${task}`));
+  };
+  for (const g of groups) {
+    out.push(`${outerName(g)}:`);
+    if (g.depth === 2) {
+      const innerName = (id: string) => (mode === 'product' ? memberName(id) : productName(id));
+      g.subs.forEach((s, si) => {
+        out.push(`${si + 1}. ${innerName(s.id)}:`);
+        pushTasks(s.rows, (i) => `${LETTERS[i % 26]}. `);
+        out.push('');
+      });
+    } else {
+      g.subs.forEach((p, pi) => {
+        out.push(`${pi + 1}. ${productName(p.id)}:`);
+        p.subs.forEach((s, si) => {
+          out.push(`${LETTERS[si % 26]}. ${memberName(s.id)}:`);
+          pushTasks(s.rows, () => '- ');
+          out.push('');
+        });
+      });
     }
   }
   return out.join('\n');
 }
 
-function ReportsSummary({ projects, humans }: { projects: Project[]; humans: Member[] }) {
+function ReportsSummary({ products, humans }: { products: Product[]; humans: Member[] }) {
+  const t = useT();
   const today = localToday();
   const [date, setDate] = React.useState(today);
-  const [projectId, setProjectId] = React.useState<string | null>(null);
+  const [productId, setProductId] = React.useState<string | null>(null);
   const [memberId, setMemberId] = React.useState<string | null>(null);
-  const [mode, setMode] = React.useState<'project' | 'member'>('project');
+  const [mode, setMode] = React.useState<SummaryMode>('product');
   const [copied, setCopied] = React.useState(false);
 
   const { data: stats } = useReportStats(today);
   const { data: reports, isLoading } = useReports({
     startDate: date,
     endDate: date,
-    projectId: projectId ?? undefined,
+    productId: productId ?? undefined,
     memberId: memberId ?? undefined,
   });
 
-  const { projectById, memberById } = useAppData();
-  const projectName = (id: string) => projectById(id)?.name ?? '未知项目';
+  const { productById, memberById } = useAppData();
+  const productName = (id: string) => productById(id)?.name ?? t('reports.form.unknownProduct');
   const memberName = (id: string) => memberById(id)?.name ?? '未知成员';
 
   const rows: FlatRow[] = React.useMemo(
@@ -329,8 +365,43 @@ function ReportsSummary({ projects, humans }: { projects: Project[]; humans: Mem
     [reports],
   );
 
+  /* 分组:按产品(产品 → 人 → 任务)/ 按人员(人 → 产品 → 任务)/ 按负责人(负责人 → 产品 → 人 → 任务)。
+     TKT-10 工单原文是「负责人维度的 项目 → 人」;因 TKT-7 已定条目粒度为产品,
+     统一实现为 负责人 → 产品 → 人。leadId 为空的产品归入「未指定负责人」组,排最后。 */
+  const groups = React.useMemo<SummaryGroup[]>(() => {
+    const bucket = (rs: FlatRow[], key: (r: FlatRow) => string) => {
+      const by = new Map<string, FlatRow[]>();
+      for (const r of rs) by.set(key(r), [...(by.get(key(r)) ?? []), r]);
+      return [...by.entries()];
+    };
+    if (mode === 'lead') {
+      return bucket(rows, (r) => productById(r.entry.productId)?.leadId ?? NO_LEAD)
+        .map(([leadId, lrs]) => ({
+          id: leadId,
+          depth: 3 as const,
+          subs: bucket(lrs, (r) => r.entry.productId).map(([pid, prs]) => ({
+            id: pid,
+            subs: bucket(prs, (r) => r.report.memberId).map(([mid, mrs]) => ({ id: mid, rows: mrs })),
+          })),
+        }))
+        .sort((a, b) =>
+          a.id === NO_LEAD ? 1 : b.id === NO_LEAD ? -1 : memberName(a.id).localeCompare(memberName(b.id), 'zh-CN'),
+        );
+    }
+    const outerKey = (r: FlatRow) => (mode === 'product' ? r.entry.productId : r.report.memberId);
+    const innerKey = (r: FlatRow) => (mode === 'product' ? r.report.memberId : r.entry.productId);
+    return bucket(rows, outerKey)
+      .map(([oid, ors]) => ({
+        id: oid,
+        depth: 2 as const,
+        subs: bucket(ors, innerKey).map(([iid, irs]) => ({ id: iid, rows: irs })),
+      }))
+      .sort((a, b) => (mode === 'product' ? productName(a.id).localeCompare(productName(b.id), 'zh-CN') : 0));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, mode]);
+
   const onCopy = async () => {
-    const text = buildCopyText(date, rows, projectName, memberName);
+    const text = buildCopyText(date, groups, mode, productName, memberName, t('reports.noLead'));
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -344,28 +415,6 @@ function ReportsSummary({ projects, humans }: { projects: Project[]; humans: Mem
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
-
-  /* 分组:按项目(项目 → 人员 → 任务) 或 按人员(人员 → 项目 → 任务)。 */
-  const groups = React.useMemo(() => {
-    const outerKey = (r: FlatRow) => (mode === 'project' ? r.entry.projectId : r.report.memberId);
-    const innerKey = (r: FlatRow) => (mode === 'project' ? r.report.memberId : r.entry.projectId);
-    const byOuter = new Map<string, FlatRow[]>();
-    for (const r of rows) {
-      const k = outerKey(r);
-      byOuter.set(k, [...(byOuter.get(k) ?? []), r]);
-    }
-    return [...byOuter.entries()]
-      .map(([oid, ors]) => {
-        const byInner = new Map<string, FlatRow[]>();
-        for (const r of ors) {
-          const k = innerKey(r);
-          byInner.set(k, [...(byInner.get(k) ?? []), r]);
-        }
-        return { id: oid, subs: [...byInner.entries()].map(([iid, irs]) => ({ id: iid, rows: irs })) };
-      })
-      .sort((a, b) => (mode === 'project' ? projectName(a.id).localeCompare(projectName(b.id), 'zh-CN') : 0));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, mode]);
 
   const maxTrend = Math.max(1, ...(stats?.trend.map((t) => t.count) ?? [1]));
 
@@ -413,12 +462,18 @@ function ReportsSummary({ projects, humans }: { projects: Project[]; humans: Mem
       {/* 过滤 + 视图切换 + 复制 */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={dateInputCls} />
-        <FilterMenu label="项目" options={projects.filter((p) => !p.archivedAt)} value={projectId} onChange={setProjectId} />
-        <FilterMenu label="成员" options={humans} value={memberId} onChange={setMemberId} />
+        <FilterMenu
+          label={t('reports.filter.product')}
+          options={products.filter((p) => p.status !== 'archived')}
+          value={productId}
+          onChange={setProductId}
+        />
+        <FilterMenu label={t('reports.filter.member')} options={humans} value={memberId} onChange={setMemberId} />
         <div className="flex-1" />
         <div className="flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
-          <SegBtn active={mode === 'project'} onClick={() => setMode('project')}>按项目</SegBtn>
-          <SegBtn active={mode === 'member'} onClick={() => setMode('member')}>按人员</SegBtn>
+          <SegBtn active={mode === 'product'} onClick={() => setMode('product')}>{t('reports.group.product')}</SegBtn>
+          <SegBtn active={mode === 'member'} onClick={() => setMode('member')}>{t('reports.group.member')}</SegBtn>
+          <SegBtn active={mode === 'lead'} onClick={() => setMode('lead')}>{t('reports.group.lead')}</SegBtn>
         </div>
         <Button variant="secondary" size="sm" onClick={onCopy} disabled={rows.length === 0}>
           {copied ? <Check size={13} /> : <ClipboardCopy size={13} />}
@@ -436,55 +491,64 @@ function ReportsSummary({ projects, humans }: { projects: Project[]; humans: Mem
       ) : (
         <div className="flex flex-col gap-3">
           {groups.map((g) => {
-            const outerProject = mode === 'project' ? projectById(g.id) : undefined;
-            const outerMember = mode === 'member' ? memberById(g.id) : undefined;
+            const outerProduct = mode === 'product' ? productById(g.id) : undefined;
+            const outerMember = mode !== 'product' && g.id !== NO_LEAD ? memberById(g.id) : undefined;
+            const outerLabel =
+              mode === 'product' ? productName(g.id) : g.id === NO_LEAD ? t('reports.noLead') : memberName(g.id);
             return (
               <div key={g.id} className="rounded-lg border border-border bg-surface">
                 <div className="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
-                  {mode === 'project' ? (
-                    <>
-                      <ProjectDot project={outerProject} size={9} />
-                      <span className="text-[13.5px] font-semibold text-fg-1">{projectName(g.id)}</span>
-                    </>
+                  {mode === 'product' ? (
+                    <ProductDot product={outerProduct} size={9} />
                   ) : (
-                    <>
-                      <Avatar person={outerMember ?? null} size={20} />
-                      <span className="text-[13.5px] font-semibold text-fg-1">{memberName(g.id)}</span>
-                    </>
+                    <Avatar person={outerMember ?? null} size={20} />
                   )}
-                  <span className="text-[12px] text-fg-3">{g.subs.length} {mode === 'project' ? '人' : '个项目'}</span>
+                  <span className="text-[13.5px] font-semibold text-fg-1">{outerLabel}</span>
+                  <span className="text-[12px] text-fg-3">
+                    {mode === 'product'
+                      ? t('reports.countMembers', { n: g.subs.length })
+                      : t('reports.countProducts', { n: g.subs.length })}
+                  </span>
                 </div>
                 <div className="px-3.5 py-2.5">
-                  {g.subs.map((s, si) => {
-                    const subMember = mode === 'project' ? memberById(s.id) : undefined;
-                    const subProject = mode === 'member' ? projectById(s.id) : undefined;
-                    const tasks = s.rows.flatMap((r) => toTaskLines(r.entry.content));
-                    return (
-                      <div key={s.id} className={si > 0 ? 'mt-3 border-t border-border pt-3' : ''}>
-                        <div className="mb-1.5 flex items-center gap-2">
-                          {mode === 'project' ? (
-                            <>
-                              <Avatar person={subMember ?? null} size={18} />
-                              <span className="text-[12.5px] font-semibold text-fg-2">{memberName(s.id)}</span>
-                            </>
-                          ) : (
-                            <>
-                              <ProjectDot project={subProject} />
-                              <span className="text-[12.5px] font-semibold text-fg-2">{projectName(s.id)}</span>
-                            </>
-                          )}
+                  {g.depth === 2
+                    ? g.subs.map((s, si) => (
+                        <div key={s.id} className={si > 0 ? 'mt-3 border-t border-border pt-3' : ''}>
+                          <div className="mb-1.5 flex items-center gap-2">
+                            {mode === 'product' ? (
+                              <>
+                                <Avatar person={memberById(s.id) ?? null} size={18} />
+                                <span className="text-[12.5px] font-semibold text-fg-2">{memberName(s.id)}</span>
+                              </>
+                            ) : (
+                              <>
+                                <ProductDot product={productById(s.id)} />
+                                <span className="text-[12.5px] font-semibold text-fg-2">{productName(s.id)}</span>
+                              </>
+                            )}
+                          </div>
+                          <TaskList rows={s.rows} />
                         </div>
-                        <ul className="flex flex-col gap-1 pl-1">
-                          {tasks.map((task, ti) => (
-                            <li key={ti} className="flex gap-2 text-[13px] leading-relaxed text-fg-1">
-                              <span className="flex-none text-fg-3">{LETTERS[ti % 26]}.</span>
-                              <span>{task}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    );
-                  })}
+                      ))
+                    : g.subs.map((p, pi) => (
+                        <div key={p.id} className={pi > 0 ? 'mt-3 border-t border-border pt-3' : ''}>
+                          <div className="mb-1.5 flex items-center gap-2">
+                            <ProductDot product={productById(p.id)} />
+                            <span className="text-[12.5px] font-semibold text-fg-2">{productName(p.id)}</span>
+                          </div>
+                          <div className="flex flex-col gap-2.5 pl-2.5">
+                            {p.subs.map((s) => (
+                              <div key={s.id}>
+                                <div className="mb-1.5 flex items-center gap-2">
+                                  <Avatar person={memberById(s.id) ?? null} size={18} />
+                                  <span className="text-[12.5px] font-semibold text-fg-2">{memberName(s.id)}</span>
+                                </div>
+                                <TaskList rows={s.rows} />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                 </div>
               </div>
             );
@@ -498,7 +562,8 @@ function ReportsSummary({ projects, humans }: { projects: Project[]; humans: Mem
 /* ------------------------------------------------------------------ */
 
 export function ReportsView() {
-  const { can, me, projects, humans } = useAppData();
+  const { can, me, products, humans } = useAppData();
+  const t = useT();
   const canWrite = can('reports', 'write');
   const [tab, setTab] = React.useState<'write' | 'summary'>(canWrite ? 'write' : 'summary');
 
@@ -507,7 +572,7 @@ export function ReportsView() {
       <div className="flex-none px-6 pt-5">
         <div className="mx-auto max-w-[860px]">
           <h1 className="text-[17px] font-bold text-fg-1">日报</h1>
-          <p className="mb-3 mt-0.5 text-[12.5px] text-fg-3">按项目记录每日工作,自动汇总上报</p>
+          <p className="mb-3 mt-0.5 text-[12.5px] text-fg-3">{t('reports.subtitle')}</p>
           <div className="flex gap-4 border-b border-border">
             {canWrite && <TabBtn active={tab === 'write'} onClick={() => setTab('write')}>写日报</TabBtn>}
             <TabBtn active={tab === 'summary'} onClick={() => setTab('summary')}>日报汇总</TabBtn>
@@ -516,9 +581,9 @@ export function ReportsView() {
       </div>
       <div className="flex-1 px-6 py-5">
         {tab === 'write' && canWrite ? (
-          <WriteReport me={me} projects={projects} />
+          <WriteReport me={me} products={products} />
         ) : (
-          <ReportsSummary projects={projects} humans={humans.filter((m) => m.status === 'active')} />
+          <ReportsSummary products={products} humans={humans.filter((m) => m.status === 'active')} />
         )}
       </div>
     </div>

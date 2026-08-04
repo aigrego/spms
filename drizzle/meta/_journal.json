@@ -134,6 +134,13 @@
       "when": 1785817481195,
       "tag": "0018_kind_fenris",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785825480764,
+      "tag": "0019_petite_puck",
+      "breakpoints": true
     }
   ]
 }

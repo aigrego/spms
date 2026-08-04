@@ -1,13 +1,13 @@
 import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { dailyReportEntries, dailyReports, members, projects } from '@/db/schema';
+import { dailyReportEntries, dailyReports, members, products } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import { requirePerm } from '@/lib/permissions';
 import type { Actor } from './types';
 
 /* Daily report service (日报模块).
 
-   每人每天一份日报,内容按项目拆成 entries —— 汇总视图按 项目 → 人员 → 任务
+   每人每天一份日报,内容按产品拆成 entries —— 汇总视图按 产品 → 人员 → 任务
    上卷,供负责人统一上报。日期是客户端本地时区的 'YYYY-MM-DD' 日历日,服务端
    把它当作不透明的 day key,绝不自行推导「今天」(避免 UTC 偏移 bug)。
 
@@ -23,13 +23,13 @@ function assertDay(date: string): void {
 }
 
 export interface ReportEntryInput {
-  projectId: string;
+  productId: string;
   content: string;
 }
 
 export interface ReportEntryView {
   id: string;
-  projectId: string;
+  productId: string;
   content: string;
   position: number;
 }
@@ -50,7 +50,7 @@ function groupEntries(
   const byReport = new Map<string, ReportEntryView[]>();
   for (const e of entryRows) {
     const list = byReport.get(e.reportId) ?? [];
-    list.push({ id: e.id, projectId: e.projectId, content: e.content, position: e.position });
+    list.push({ id: e.id, productId: e.productId, content: e.content, position: e.position });
     byReport.set(e.reportId, list);
   }
   return reportRows.map((r) => ({
@@ -68,7 +68,7 @@ export interface ListReportsFilter {
   startDate?: string;
   endDate?: string;
   memberId?: string;
-  projectId?: string;
+  productId?: string;
 }
 
 export async function listReports(actor: Actor, filter: ListReportsFilter = {}): Promise<ReportView[]> {
@@ -83,11 +83,11 @@ export async function listReports(actor: Actor, filter: ListReportsFilter = {}):
     conds.push(lte(dailyReports.date, filter.endDate));
   }
   if (filter.memberId) conds.push(eq(dailyReports.memberId, filter.memberId));
-  if (filter.projectId) {
+  if (filter.productId) {
     const hits = await db
       .select({ reportId: dailyReportEntries.reportId })
       .from(dailyReportEntries)
-      .where(and(eq(dailyReportEntries.companyId, actor.companyId), eq(dailyReportEntries.projectId, filter.projectId)));
+      .where(and(eq(dailyReportEntries.companyId, actor.companyId), eq(dailyReportEntries.productId, filter.productId)));
     if (hits.length === 0) return [];
     conds.push(inArray(dailyReports.id, hits.map((h) => h.reportId)));
   }
@@ -136,35 +136,35 @@ export async function upsertMyReport(
   assertDay(input.date);
   if (!Array.isArray(input.entries)) throw new ApiException('VALIDATION_FAILED', '缺少日报内容');
 
-  // 清洗:去掉空内容块、按项目去重、限制长度。
+  // 清洗:去掉空内容块、按产品去重、限制长度。
   const seen = new Set<string>();
   const entries: ReportEntryInput[] = [];
   for (const e of input.entries) {
     const content = (e?.content ?? '').trim();
     if (!content) continue;
-    if (typeof e.projectId !== 'string' || !e.projectId) throw new ApiException('VALIDATION_FAILED', '缺少项目');
+    if (typeof e.productId !== 'string' || !e.productId) throw new ApiException('VALIDATION_FAILED', '缺少产品');
     if (content.length > MAX_CONTENT_LEN) {
-      throw new ApiException('VALIDATION_FAILED', `单项目内容不能超过 ${MAX_CONTENT_LEN} 字`);
+      throw new ApiException('VALIDATION_FAILED', `单产品内容不能超过 ${MAX_CONTENT_LEN} 字`);
     }
-    if (seen.has(e.projectId)) throw new ApiException('VALIDATION_FAILED', '同一项目只能填写一段内容');
-    seen.add(e.projectId);
-    entries.push({ projectId: e.projectId, content });
+    if (seen.has(e.productId)) throw new ApiException('VALIDATION_FAILED', '同一产品只能填写一段内容');
+    seen.add(e.productId);
+    entries.push({ productId: e.productId, content });
   }
-  if (entries.length === 0) throw new ApiException('VALIDATION_FAILED', '至少填写一个项目的内容');
+  if (entries.length === 0) throw new ApiException('VALIDATION_FAILED', '至少填写一个产品的内容');
 
-  // 项目必须属于本公司且未归档。
-  const projRows = await db
-    .select({ id: projects.id, archivedAt: projects.archivedAt })
-    .from(projects)
+  // 产品必须属于本公司且未归档。
+  const prodRows = await db
+    .select({ id: products.id, status: products.status })
+    .from(products)
     .where(
       and(
-        eq(projects.companyId, actor.companyId),
-        inArray(projects.id, entries.map((e) => e.projectId)),
+        eq(products.companyId, actor.companyId),
+        inArray(products.id, entries.map((e) => e.productId)),
       ),
     );
-  const writableIds = new Set(projRows.filter((p) => !p.archivedAt).map((p) => p.id));
+  const writableIds = new Set(prodRows.filter((p) => p.status !== 'archived').map((p) => p.id));
   for (const e of entries) {
-    if (!writableIds.has(e.projectId)) throw new ApiException('PROJECT_NOT_FOUND');
+    if (!writableIds.has(e.productId)) throw new ApiException('PRODUCT_NOT_FOUND');
   }
 
   const reportId = await db.transaction(async (tx) => {
@@ -195,7 +195,7 @@ export async function upsertMyReport(
         id: crypto.randomUUID(),
         reportId: id,
         companyId: actor.companyId,
-        projectId: e.projectId,
+        productId: e.productId,
         content: e.content,
         position: i,
       })),

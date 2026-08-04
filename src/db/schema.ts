@@ -761,8 +761,8 @@ export const notionIssueLinks = pgTable(
 /* ------------------------------------------------------------------ */
 /* Daily reports (日报)                                                 */
 /* One report per member per calendar day; content is split into       */
-/* per-project entries so the aggregate view can roll up               */
-/* 项目 → 人员 → 任务. `date` is a plain calendar day ('YYYY-MM-DD',    */
+/* per-product entries so the aggregate view can roll up               */
+/* 产品 → 人员 → 任务. `date` is a plain calendar day ('YYYY-MM-DD',    */
 /* string mode): the client owns the local timezone, the server        */
 /* treats it as an opaque day key (no UTC-shift bugs).                 */
 /* ------------------------------------------------------------------ */
@@ -788,8 +788,8 @@ export const dailyReports = pgTable(
   ],
 );
 
-/* Daily report entries — 一份日报按项目拆分的内容块（每项目一段）。
-   companyId 冗余存储,便于按公司/项目直接过滤汇总。 */
+/* Daily report entries — 一份日报按产品拆分的内容块（每产品一段）。
+   companyId 冗余存储,便于按公司/产品直接过滤汇总。 */
 export const dailyReportEntries = pgTable(
   'daily_report_entries',
   {
@@ -800,15 +800,15 @@ export const dailyReportEntries = pgTable(
     companyId: text('company_id')
       .references(() => companies.id, { onDelete: 'cascade' })
       .notNull(),
-    projectId: text('project_id')
-      .references(() => projects.id, { onDelete: 'cascade' })
+    productId: text('product_id')
+      .references(() => products.id, { onDelete: 'cascade' })
       .notNull(),
     content: text('content').notNull(),
     position: integer('position').notNull().default(0),
   },
   (t) => [
-    uniqueIndex('daily_report_entries_report_project_uidx').on(t.reportId, t.projectId),
-    index('daily_report_entries_company_project_idx').on(t.companyId, t.projectId),
+    uniqueIndex('daily_report_entries_report_product_uidx').on(t.reportId, t.productId),
+    index('daily_report_entries_company_product_idx').on(t.companyId, t.productId),
   ],
 );
 
@@ -915,5 +915,5 @@ export const dailyReportsRelations = relations(dailyReports, ({ one, many }) => 
 
 export const dailyReportEntriesRelations = relations(dailyReportEntries, ({ one }) => ({
   report: one(dailyReports, { fields: [dailyReportEntries.reportId], references: [dailyReports.id] }),
-  project: one(projects, { fields: [dailyReportEntries.projectId], references: [projects.id] }),
+  product: one(products, { fields: [dailyReportEntries.productId], references: [products.id] }),
 }));

@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
    ['reports', params] 汇总列表;['my-report', date] 我某天的日报;
    ['report-stats', today] 统计。 */
 
-export function useReports(params?: { startDate?: string; endDate?: string; memberId?: string; projectId?: string }) {
+export function useReports(params?: { startDate?: string; endDate?: string; memberId?: string; productId?: string }) {
   return useQuery({
     queryKey: ['reports', params ?? {}],
     queryFn: () => api.reports(params),
