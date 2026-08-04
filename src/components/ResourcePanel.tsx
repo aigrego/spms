@@ -49,6 +49,8 @@ function Assigner({
   const { data } = useAssignCandidates(nodeType, nodeId, open);
   const assign = useAssign();
   const unassign = useUnassign();
+  const setRole = useSetAssignmentRole();
+  const busy = assign.isPending || unassign.isPending || setRole.isPending;
 
   const candidates = (data?.candidates ?? []).filter((c) =>
     q ? c.name.toLowerCase().includes(q.toLowerCase()) : true,
@@ -71,18 +73,32 @@ function Assigner({
     const row = assignedById.get(c.id);
     const propagated = c.assignedHere && row?.source === 'propagated';
     return (
-      <button
-        onClick={() => toggle(c)}
-        disabled={propagated}
+      <div
+        onClick={() => !propagated && toggle(c)}
         className={cn(
           'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px]',
-          propagated ? 'cursor-default opacity-55' : 'hover:bg-surface-2',
+          propagated ? 'cursor-default opacity-55' : 'cursor-pointer hover:bg-surface-2',
         )}
       >
         <Avatar person={c} size={22} />
         <span className="min-w-0 flex-1 truncate text-fg-1">{c.name}</span>
         {c.status === 'invited' && <span className="text-[10.5px] text-fg-3">{t('status.invited')}</span>}
         {propagated && <span className="text-[10.5px] text-fg-3">{t('team.propagated')}</span>}
+        {row && !propagated && (
+          <button
+            title={row.role === 'lead' ? t('team.unsetLead') : t('team.setLead')}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!busy) setRole.mutate({ id: row.id, role: row.role === 'lead' ? 'member' : 'lead' });
+            }}
+            className={cn(
+              'grid h-5 w-5 place-items-center rounded',
+              row.role === 'lead' ? 'text-brand-orange' : 'text-fg-3 hover:text-brand-orange',
+            )}
+          >
+            <Crown size={13} />
+          </button>
+        )}
         {c.assignedHere ? (
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12" />
@@ -90,7 +106,7 @@ function Assigner({
         ) : (
           <Plus size={13} className="text-fg-3" />
         )}
-      </button>
+      </div>
     );
   };
 

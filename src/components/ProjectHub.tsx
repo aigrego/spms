@@ -10,6 +10,7 @@ import { ProjectIcon } from '@/components/glyphs/misc';
 import { StatusIcon } from '@/components/glyphs/StatusIcon';
 import { PriorityIcon } from '@/components/glyphs/PriorityIcon';
 import { ResourcePanel } from '@/components/ResourcePanel';
+import { ResourcePanelCompact } from '@/components/ResourcePanelCompact';
 import { TabBtn } from '@/components/ui/segmented';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
 import { PROJECT_STATUS, PROJECT_PHASE, REQUIREMENT_TYPE, REQUIREMENT_STATUS, TEST_RESULT, SPRINT_STATUS } from '@/lib/constants';
@@ -268,7 +269,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
                   </div>
                   {/* stop propagation so interacting with the resource panel doesn't navigate */}
                   <div onClick={(e) => e.stopPropagation()}>
-                    <ResourcePanel nodeType="sprint" nodeId={s.id} variant="compact" />
+                    <ResourcePanelCompact nodeType="sprint" nodeId={s.id} variant="compact" />
                   </div>
                   <ChevronRight size={15} className="flex-none text-fg-3 opacity-0 transition-opacity group-hover:opacity-100" />
                 </div>

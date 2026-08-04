@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { ProjectIcon } from '@/components/glyphs/misc';
 import { PRODUCT_STATUS, RELEASE_STATUS, PROJECT_PHASE_ORDER } from '@/lib/constants';
 import { ConfirmDestructive } from '@/components/ConfirmDestructive';
-import { ResourcePanel } from '@/components/ResourcePanel';
+import { ResourcePanelCompact } from '@/components/ResourcePanelCompact';
 import { RowActions } from '@/components/RowActions';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
@@ -511,7 +511,7 @@ export function ProductsView() {
 
                           {/* footer: virtual team + delivery counts */}
                           <div className="mt-3 flex items-center gap-2.5 border-t border-border pt-2.5">
-                            <ResourcePanel nodeType="product" nodeId={product.id} variant="compact" />
+                            <ResourcePanelCompact nodeType="product" nodeId={product.id} variant="compact" />
                             <div className="flex-1" />
                             <span className="inline-flex items-center gap-1 text-[12px] text-fg-3">
                               <Box size={13} /> {projectCountForReleases(relIds)}

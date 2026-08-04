@@ -1,6 +1,6 @@
 import { and, asc, eq, ne } from 'drizzle-orm';
 import { db } from '@/db';
-import { resourceAssignments, members, issues } from '@/db/schema';
+import { resourceAssignments, members, issues, products, projects } from '@/db/schema';
 import { ApiException, type ErrorCode } from '@/lib/envelope';
 import { serializeMember } from './resources';
 import {
@@ -167,16 +167,75 @@ export async function assign(actor: Actor, input: AssignInput) {
   return listNode(companyId, input.nodeType, input.nodeId);
 }
 
-/* ---- change an assignment's role (set/clear lead) ---- */
+/* ---- change an assignment's role (set/clear lead) ----
+   Single-lead semantics: crowning a member demotes the node's other leads to
+   'member' (propagated rows are always 'member', so in practice these are the
+   other direct leads). For product/project nodes the legacy single-value
+   leadId column is kept in sync — crown writes it, uncrown nulls it only when
+   it still points at this member — so report visibility / lead grouping follow
+   the crown. The sync touches only the node itself: role changes never
+   propagate to ancestors/descendants (mirrors assignMember, which propagates
+   membership but never roles). */
 export async function updateRole(actor: Actor, id: string, role: AssignmentRole) {
   await requirePerm(actor, 'resources', 'write');
   const [row] = await db
-    .select({ id: resourceAssignments.id })
+    .select({
+      id: resourceAssignments.id,
+      nodeType: resourceAssignments.nodeType,
+      nodeId: resourceAssignments.nodeId,
+      memberId: resourceAssignments.memberId,
+    })
     .from(resourceAssignments)
     .where(and(eq(resourceAssignments.companyId, actor.companyId), eq(resourceAssignments.id, id)))
     .limit(1);
   if (!row) throw new ApiException('RESOURCE_NOT_FOUND');
   await db.update(resourceAssignments).set({ role }).where(eq(resourceAssignments.id, id));
+
+  if (role === 'lead') {
+    await db
+      .update(resourceAssignments)
+      .set({ role: 'member' })
+      .where(
+        and(
+          eq(resourceAssignments.companyId, actor.companyId),
+          eq(resourceAssignments.nodeType, row.nodeType),
+          eq(resourceAssignments.nodeId, row.nodeId),
+          eq(resourceAssignments.role, 'lead'),
+          ne(resourceAssignments.id, id),
+        ),
+      );
+  }
+
+  // sprint/release have no leadId column — the demotion above is all they get.
+  if (row.nodeType === 'product') {
+    if (role === 'lead') {
+      await db
+        .update(products)
+        .set({ leadId: row.memberId })
+        .where(and(eq(products.companyId, actor.companyId), eq(products.id, row.nodeId)));
+    } else {
+      await db
+        .update(products)
+        .set({ leadId: null })
+        .where(
+          and(eq(products.companyId, actor.companyId), eq(products.id, row.nodeId), eq(products.leadId, row.memberId)),
+        );
+    }
+  } else if (row.nodeType === 'project') {
+    if (role === 'lead') {
+      await db
+        .update(projects)
+        .set({ leadId: row.memberId })
+        .where(and(eq(projects.companyId, actor.companyId), eq(projects.id, row.nodeId)));
+    } else {
+      await db
+        .update(projects)
+        .set({ leadId: null })
+        .where(
+          and(eq(projects.companyId, actor.companyId), eq(projects.id, row.nodeId), eq(projects.leadId, row.memberId)),
+        );
+    }
+  }
   return { id, role };
 }
 

@@ -160,7 +160,7 @@ next-spms/
 - `assignMember(N, member, role)`：N 上 upsert direct → 祖先链补 propagated（不动已有 direct）
 - `unassignMember(N, member)`：删 N + 全部后代的行 → 由近及远 GC 祖先 propagated（后代无 direct 才删）
 - 删节点前必须先 `clearSubtreeAssignments`（要读还在的子节点）
-- lead 双写：product/project 的 `leadId`/`aiLeadId` 列与 assignments 表同步
+- lead 双写：product/project 的 `leadId`/`aiLeadId` 列与 assignments 表同步（编辑弹窗 select 写列 + `assignMember` lead）；反向——产品/项目/迭代的资源选择弹框统一为皇冠选择框（`ResourcePanelCompact`：皇冠=负责人、勾选=普通成员），皇冠（`updateRole`）保持单 lead 语义并与 `products.leadId`/`projects.leadId` 联动：设为 lead 时同节点其他 lead 降级 member 并回写 leadId，取消 lead 且 leadId 仍指向该成员时置 null；sprint/release 无 leadId 列只降级。role 变更不传播
 
 ## 进度派生（rollup）
 
