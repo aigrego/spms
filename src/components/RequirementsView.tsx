@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, X, Trash2, GitBranch, Sparkles, FileText, Search } from 'lucide-react';
+import { Plus, X, Trash2, GitBranch, Sparkles, FileText, Search, ListTree } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
@@ -32,8 +32,11 @@ import {
   useCreateRequirement,
   useUpdateRequirement,
   useDeleteRequirement,
+  useDecomposeRequirement,
 } from '@/store/requirements';
 import { ApiError } from '@/lib/api';
+import { usePersistentState } from '@/lib/prefs';
+import { decompositionItemsFor } from '@/lib/decompose';
 import type {
   Requirement,
   RequirementType,
@@ -44,6 +47,13 @@ import type {
 } from '@/lib/types';
 
 const TYPE_ORDER: RequirementType[] = ['functional', 'non_functional'];
+
+/* Validators for the persisted toolbar prefs (browser memory) — reject values
+   written by older versions or foreign code so the view never breaks. */
+type StatusFilter = RequirementStatus | '';
+const isTypeTab = (v: unknown): v is RequirementType => TYPE_ORDER.includes(v as RequirementType);
+const isStatusFilter = (v: unknown): v is StatusFilter =>
+  v === '' || (REQUIREMENT_STATUS_ORDER as RequirementStatus[]).includes(v as RequirementStatus);
 
 const inputCls =
   'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
@@ -328,6 +338,111 @@ const propBtn =
 const selCls =
   'w-full rounded-[7px] border border-transparent bg-transparent px-2 py-1 text-[13px] text-fg-1 hover:bg-surface-2 focus:border-brand-blue focus:bg-surface outline-none';
 
+/* Confirm + result dialog for "decompose into issues". The preview mirrors the
+   server-side split (src/lib/decompose.ts); on success the created issue keys
+   are shown and the linked-issue list refreshes via the mutation's
+   invalidation. */
+function DecomposeDialog({
+  req,
+  open,
+  onOpenChange,
+}: {
+  req: Requirement;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const t = useT();
+  const decompose = useDecomposeRequirement();
+  const [error, setError] = React.useState<string | null>(null);
+  const [createdKeys, setCreatedKeys] = React.useState<string[] | null>(null);
+  const items = decompositionItemsFor(req);
+  const preview = items.slice(0, 5);
+
+  // Reset the result/error on close so the next open starts from the preview.
+  const handleOpenChange = (o: boolean) => {
+    if (!o) {
+      setError(null);
+      setCreatedKeys(null);
+    }
+    onOpenChange(o);
+  };
+
+  const submit = async () => {
+    if (decompose.isPending) return;
+    setError(null);
+    try {
+      const issues = await decompose.mutateAsync(req.id);
+      setCreatedKeys(issues.map((i) => i.id));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '拆分失败，请重试');
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent aria-describedby={undefined}>
+        <DialogPrimitive.Title className="px-[18px] pb-1 pt-4 text-[15px] font-semibold text-fg-1">
+          {t('requirements.decompose')}
+        </DialogPrimitive.Title>
+        <div className="flex flex-col gap-2 px-[18px] py-3">
+          {createdKeys ? (
+            <>
+              <div className="text-[13px] text-fg-1">{t('requirements.decomposeDone', { n: createdKeys.length })}</div>
+              <div className="flex flex-wrap gap-1.5">
+                {createdKeys.map((k) => (
+                  <span key={k} className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-[12px] text-fg-2">
+                    {k}
+                  </span>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-[13px] text-fg-1">{t('requirements.decomposeBody', { n: items.length })}</div>
+              <ul className="flex flex-col gap-1">
+                {preview.map((item, i) => (
+                  <li key={i} className="flex gap-2 text-[13px] leading-normal text-fg-1">
+                    <span className="mt-[7px] h-1.5 w-1.5 flex-none rounded-full bg-brand-blue" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              {items.length > preview.length && (
+                <div className="text-[12px] text-fg-3">{t('requirements.decomposeMore', { n: items.length })}</div>
+              )}
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-2 border-t border-border px-[18px] py-3">
+          {error && (
+            <span
+              className="truncate rounded-md px-2 py-1 text-[12px]"
+              style={{ background: 'var(--danger-50)', color: '#8C1B28' }}
+            >
+              {error}
+            </span>
+          )}
+          <div className="flex-1" />
+          {createdKeys ? (
+            <Button variant="primary" size="md" onClick={() => handleOpenChange(false)}>
+              {t('common.ok')}
+            </Button>
+          ) : (
+            <>
+              <Button variant="ghost" size="md" onClick={() => handleOpenChange(false)}>
+                {t('common.cancel')}
+              </Button>
+              <Button variant="primary" size="md" onClick={submit} disabled={decompose.isPending}>
+                {t('requirements.decomposeConfirm')}
+              </Button>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function RequirementDetail({
   id,
   onClose,
@@ -343,6 +458,7 @@ function RequirementDetail({
   const { data: allIssues = [] } = useAllIssues();
   const update = useUpdateRequirement();
   const del = useDeleteRequirement();
+  const [decompOpen, setDecompOpen] = React.useState(false);
 
   const [title, setTitle] = React.useState('');
   const [desc, setDesc] = React.useState('');
@@ -390,6 +506,16 @@ function RequirementDetail({
           {req.category && <Badge tone="neutral">{t(`reqCategory.${req.category}`)}</Badge>
           }
           <div className="flex-1" />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setDecompOpen(true)}
+            disabled={decompositionItemsFor(req).length === 0}
+            aria-label="decompose"
+            title={t('requirements.decompose')}
+          >
+            <ListTree size={15} />
+          </Button>
           <Button variant="ghost" size="icon" onClick={() => del.mutate(req.id, { onSuccess: onClose })} aria-label="delete">
             <Trash2 size={15} />
           </Button>
@@ -601,6 +727,7 @@ function RequirementDetail({
           </div>
         </div>
       </div>
+      <DecomposeDialog req={req} open={decompOpen} onOpenChange={setDecompOpen} />
     </>
   );
 }
@@ -680,8 +807,8 @@ export function RequirementsView({
   React.useEffect(() => {
     if (project != null) setProjectFilter(project);
   }, [project]);
-  const [typeTab, setTypeTab] = React.useState<RequirementType>('functional');
-  const [statusFilter, setStatusFilter] = React.useState<RequirementStatus | ''>('draft');
+  const [typeTab, setTypeTab] = usePersistentState<RequirementType>('requirements.typeTab', 'functional', isTypeTab);
+  const [statusFilter, setStatusFilter] = usePersistentState<StatusFilter>('requirements.statusFilter', 'draft', isStatusFilter);
   const [q, setQ] = React.useState('');
   const { data: requirements = [] } = useRequirements(projectFilter ? { project: projectFilter } : undefined);
   const create = useCreateRequirement();

@@ -62,3 +62,15 @@ export function useDeleteRequirement() {
     },
   });
 }
+
+export function useDecomposeRequirement() {
+  const invalidate = useInvalidateRequirements();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.decomposeRequirement(id),
+    onSuccess: (_d, id) => {
+      invalidate(id);
+      qc.invalidateQueries({ queryKey: ['issues'] });
+    },
+  });
+}

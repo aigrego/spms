@@ -17,6 +17,7 @@ import * as resourceSvc from '@/server/services/resources';
 import * as sprintSvc from '@/server/services/sprints';
 import * as testCaseSvc from '@/server/services/testcases';
 import type { Actor } from '@/server/services/types';
+import { reviewWithWorkflow, updateIssueWithWorkflow } from './workflow';
 
 /* MCP server (Phase D) — a thin adapter over src/server/services/*. Tools share
    the exact business rules of the REST API; this file only does zod validation,
@@ -599,11 +600,41 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   );
 
   reg(
+    'spms_review_issue',
+    {
+      description:
+        `功能审查（工作流入口）：处理任何 issue/需求前必须先调用本工具完成审查——工单审查是否已实现，BUG 审查是否可复现。` +
+        `对 issue（TKT/BUG/BLG key）：verdict='passed'（工单未实现需开发 / BUG 可复现需修复）→ 状态自动置 in_progress；` +
+        `verdict='already_done'（工单已实现 / 无需修改）→ 状态自动置 testing 并自动指派测试人员` +
+        `（agent 成员中 role='test' 者，内置为 Sentry；找不到则不指派并在返回中说明）；` +
+        `verdict='failed'（BUG 不可复现等）→ 只写评论、状态不变，返回的 suggestion 给出后续建议。` +
+        `对需求（FR/NFR key）：verdict='passed' → 状态自动置 in_dev；其余 verdict 状态不变（需求无评论能力，note 不落库）。` +
+        `note 会写为 issue 评论。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        key: z.string().describe("Issue 或需求展示 key，如 'TKT-6'、'BUG-3'、'FR-2'"),
+        verdict: z
+          .enum(['passed', 'failed', 'already_done'])
+          .describe('审查结论：passed=工单未实现需开发/BUG 可复现需修复；already_done=已实现/无需修改；failed=不可复现/未通过'),
+        note: z.string().optional().describe('审查备注，写为 issue 评论（需求无评论能力，不落库）'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return reviewWithWorkflow(actor, args.key, args.verdict, args.note);
+      }),
+  );
+
+  reg(
     'spms_update_issue',
     {
       description:
         `更新 Issue（按展示 key，如 BUG-3）：可改 status/priority/importance/title/description/assigneeId/projectId/` +
-        `requirementId（展示 key）/sprintId/estimate/storyPoints/labels（全量替换）。只传要改的字段；显式传 null 可清空可空字段。${CONCEPTS}`,
+        `requirementId（展示 key）/sprintId/estimate/storyPoints/labels（全量替换）。只传要改的字段；显式传 null 可清空可空字段。` +
+        `工作流自动化：status 传 'done' 会被拦截并实际落库为 'testing'（开发完成需测试验证，不直接关单），此时若未显式传 assigneeId ` +
+        `会自动指派测试人员（agent 成员中 role='test' 者，内置为 Sentry）并自动写一条说明评论；` +
+        `status 传 'testing' 且未传 assigneeId 时同样自动指派测试人员。处理 issue 前请先调用 spms_review_issue 完成功能审查。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         key: z.string().describe("Issue 展示 key，如 'BUG-3'"),
@@ -626,7 +657,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       run(async () => {
         const actor = await actorFor(args.companyId);
         const { companyId: _companyId, key, ...input } = args;
-        return issueSvc.updateIssue(actor, key, input);
+        return updateIssueWithWorkflow(actor, key, input);
       }),
   );
 
@@ -653,7 +684,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       description:
         `上传图片附件到 Issue（按展示 key，如 BUG-3）。data 传图片二进制的 base64 编码；支持 jpeg/png/gif/webp/avif，单个 ≤10MB` +
         `（MCP 调用走 HTTP 请求体，部署平台对请求体大小有限制，过大的图片可能在到达服务前被网关拒绝）。` +
-        `典型用法：Agent 完成任务后先调用本工具上传结果截图，再调用 spms_update_issue 把 status 置为 'done' 关闭 Issue。${CONCEPTS}`,
+        `典型用法：Agent 完成任务后先调用本工具上传结果截图，再调用 spms_update_issue 把 status 置为 'done'（自动流转为 testing 并指派测试人员）。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         key: z.string().describe("Issue 展示 key，如 'BUG-3'"),

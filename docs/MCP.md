@@ -11,7 +11,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ### key 能力、有效期与使用记录
 
-- **能力上限**（`capabilities`，逗号分隔）：`read` = 11 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`）；`write` = 10 个写工具；`delete` 预留（当前无删除类工具）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
+- **能力上限**（`capabilities`，逗号分隔）：`read` = 11 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`）；`write` = 11 个写工具；`delete` 预留（当前无删除类工具）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
 - **有效期**（`expiresAt`，NULL = 永久）：到期后鉴权直接 401，无需吊销。
 - **最近使用**（`lastUsedAt`）：每次通过 MCP 鉴权时刷新（60s 节流），在令牌列表展示。
   2. **env 兜底**：未命中 DB 时回退到 env `MCP_API_KEY`（逗号分隔多个），一律视为**平台级** key（开发兼容）。
@@ -49,7 +49,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## Tools
 
-共 **21 个**（读 11 + 写 10）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
+共 **22 个**（读 11 + 写 11）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
 
 ### 读
 
@@ -72,7 +72,8 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | Tool | 参数 | 说明 |
 |---|---|---|
 | `spms_create_issue` | `title, type?, status?, priority?, importance?, description?, assigneeId?, projectId?, requirementId?, sprintId?, estimate?, storyPoints?, labels?` | 创建 issue（缺陷传 type='bug'）；返回展示 key |
-| `spms_update_issue` | `key, ...任意可更新字段` | 改状态/指派/优先级/标题/描述等 |
+| `spms_review_issue` | `key, verdict, note?` | **新增**：功能审查（工作流入口，处理任何 issue/需求前必须先调用）。`verdict='passed'` → issue 自动置 `in_progress`（需求置 `in_dev`）；`'already_done'` → 自动置 `testing` 并指派测试人员；`'failed'` → 只写评论、状态不变，返回 `suggestion` 后续建议 |
+| `spms_update_issue` | `key, ...任意可更新字段` | 改状态/指派/优先级/标题/描述等。`status='done'` 会被拦截并实际落库 `testing`，未显式传 `assigneeId` 时自动指派测试人员并写说明评论 |
 | `spms_add_comment` | `key, body` | 给 issue 加评论 |
 | `spms_upload_issue_attachment` | `key, filename, data, contentType?` | 上传图片附件（data 为 base64；≤10MB，jpeg/png/gif/webp/avif）。配合 `spms_update_issue`（status='done'）实现"传图并关单" |
 | `spms_create_requirement` | `projectId, title, type?, category?, priority?, importance?, description?, acceptanceCriteria?, releaseId?` | 创建需求（自动分配 FR/NFR key） |
@@ -86,6 +87,16 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_update_release` | `id, name?, description?, status?, phase?, targetDate?, progress?, position?` | 更新版本；`phase` 为产品生命周期段（concept→development→release→maintenance→retired），项目卡片生命周期进度条读它 |
 
 写工具与 REST API 复用同一套 `src/server/services/*`，业务规则一致（如 sprint-project 一致性校验、REQUIREMENT_NOT_FOUND 等错误码原样抛出）。
+
+## 工作流自动化（内置，无需显式提示词）
+
+实现于 `src/mcp/workflow.ts`，状态/评论落库全部走 service 层，活动流记录与 REST/UI 一致。
+
+- **处理前审查**：处理任何 issue/需求前必须先调 `spms_review_issue`——工单审查是否已实现，BUG 审查是否可复现。
+  - issue（TKT/BUG/BLG key）：`passed` → 自动置 `in_progress`；`already_done` → 自动置 `testing` 并自动指派测试人员；`failed` → 只写评论、状态不变，返回 `suggestion` 给出后续建议。
+  - 需求（FR/NFR key）：`passed` → 自动置 `in_dev`；其余 verdict 状态不变（需求无评论能力，`note` 不落库）。
+- **完成即流转**：`spms_update_issue` 传 `status='done'` 会被拦截，实际落库为 `testing`（开发完成需测试验证，不直接关单）；未显式传 `assigneeId` 时自动指派测试人员，并自动写一条说明评论。`status='testing'` 且未传 `assigneeId` 时同样自动指派。
+- **测试人员**：本公司 `type='agent'`、`role='test'`、`status='active'` 的第一个成员（内置即 Sentry）；找不到则不指派，在返回结果与评论中说明。
 
 ## 操作者身份
 
