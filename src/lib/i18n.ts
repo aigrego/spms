@@ -25,6 +25,7 @@ const zhCN: Dict = {
   'loading': '正在加载 AI Grego Track…',
 
   'common.cancel': '取消',
+  'common.ok': '好的',
   'common.searchJump': '搜索或跳转…',
   'common.settings': '设置',
 
@@ -62,6 +63,7 @@ const zhCN: Dict = {
   'nav.profile': '个人资料',
   'nav.agentAccess': 'Agent 接入',
   'nav.notionIntegration': 'Notion 集成',
+  'nav.reports': '日报',
 
   'profile.title': '个人资料',
   'profile.subtitle': '管理你的资料、安全与应用授权',
@@ -438,6 +440,11 @@ const zhCN: Dict = {
   'requirements.prd': 'PRD 描述',
   'requirements.linkedIssues': '关联 Issue',
   'requirements.noLinked': '暂无关联 Issue',
+  'requirements.decompose': '分解成 Issues',
+  'requirements.decomposeBody': '将按验收标准（为空时按描述）拆出 {n} 个工单 Issue，前几条预览：',
+  'requirements.decomposeMore': '… 等共 {n} 条',
+  'requirements.decomposeConfirm': '确认拆分',
+  'requirements.decomposeDone': '已创建 {n} 个 Issue：',
   'requirements.author': '创建人',
   'requirements.aiOwner': 'AI 负责人',
   'requirements.maintainedByAI': '由 {name} 维护 · PRD',
@@ -632,6 +639,7 @@ const en: Dict = {
   'loading': 'Loading AI Grego Track…',
 
   'common.cancel': 'Cancel',
+  'common.ok': 'OK',
   'common.searchJump': 'Search or jump to…',
   'common.settings': 'Settings',
 
@@ -668,6 +676,7 @@ const en: Dict = {
   'nav.profile': 'Profile',
   'nav.agentAccess': 'Agent access',
   'nav.notionIntegration': 'Notion integration',
+  'nav.reports': 'Daily reports',
 
   'profile.title': 'Profile',
   'profile.subtitle': 'Manage your profile, security and app authorizations',
@@ -1027,6 +1036,11 @@ const en: Dict = {
   'requirements.prd': 'PRD description',
   'requirements.linkedIssues': 'Linked issues',
   'requirements.noLinked': 'No linked issues',
+  'requirements.decompose': 'Decompose into issues',
+  'requirements.decomposeBody': 'This will create {n} ticket issues from the acceptance criteria (or description). Preview:',
+  'requirements.decomposeMore': '… {n} items in total',
+  'requirements.decomposeConfirm': 'Decompose',
+  'requirements.decomposeDone': 'Created {n} issues:',
   'requirements.author': 'Author',
   'requirements.aiOwner': 'AI owner',
   'requirements.maintainedByAI': 'Maintained by {name} · PRD',
@@ -1206,6 +1220,7 @@ const zhTW: Dict = {
   'loading': '正在載入 AI Grego Track…',
 
   'common.cancel': '取消',
+  'common.ok': '好的',
   'common.searchJump': '搜尋或跳轉…',
   'common.settings': '設定',
 
@@ -1242,6 +1257,7 @@ const zhTW: Dict = {
   'nav.profile': '個人資料',
   'nav.agentAccess': 'Agent 接入',
   'nav.notionIntegration': 'Notion 集成',
+  'nav.reports': '日報',
 
   'profile.title': '個人資料',
   'profile.subtitle': '管理你的資料、安全與應用授權',
@@ -1601,6 +1617,11 @@ const zhTW: Dict = {
   'requirements.prd': 'PRD 描述',
   'requirements.linkedIssues': '關聯 Issue',
   'requirements.noLinked': '尚無關聯 Issue',
+  'requirements.decompose': '分解成 Issues',
+  'requirements.decomposeBody': '將按驗收標準（為空時按描述）拆出 {n} 個工單 Issue，前幾條預覽：',
+  'requirements.decomposeMore': '… 等共 {n} 條',
+  'requirements.decomposeConfirm': '確認拆分',
+  'requirements.decomposeDone': '已建立 {n} 個 Issue：',
   'requirements.author': '建立人',
   'requirements.aiOwner': 'AI 負責人',
   'requirements.maintainedByAI': '由 {name} 維護 · PRD',

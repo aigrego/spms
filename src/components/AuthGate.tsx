@@ -26,6 +26,7 @@ const PATH_MODULE: [string, ModuleKey][] = [
   ['/roadmap', 'roadmap'],
   ['/backlog', 'backlog'],
   ['/sprints', 'sprints'],
+  ['/reports', 'reports'],
 ];
 
 // Redirect preference order when the current module is not readable.
@@ -39,6 +40,7 @@ const MODULE_ORDER: { key: ModuleKey; path: string }[] = [
   { key: 'roadmap', path: '/roadmap' },
   { key: 'backlog', path: '/backlog' },
   { key: 'sprints', path: '/sprints' },
+  { key: 'reports', path: '/reports' },
 ];
 
 function GateSkeleton() {

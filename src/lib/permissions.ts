@@ -26,6 +26,7 @@ export const MODULES = [
   'backlog',
   'sprints',
   'agents',
+  'reports',
 ] as const;
 export type Module = (typeof MODULES)[number];
 

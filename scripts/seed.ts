@@ -51,6 +51,11 @@ const ROLE_PERMISSION_MATRIX: { role: string; module: string; level: string }[] 
   ...['issues', 'products', 'requirements', 'projects', 'resources', 'roadmap', 'backlog', 'testcases', 'sprints', 'agents'].map(
     (module) => ({ role: 'viewer', module, level: 'read' }),
   ),
+  // 日报:团队内公开阅读,写权限 = 可提交/编辑自己的日报;viewer 只读。
+  { role: 'product_manager', module: 'reports', level: 'write' },
+  { role: 'developer', module: 'reports', level: 'write' },
+  { role: 'tester', module: 'reports', level: 'write' },
+  { role: 'viewer', module: 'reports', level: 'read' },
 ];
 
 async function main() {

@@ -6,7 +6,7 @@
 ## 权限门（RBAC）
 
 - 每个 service 入口按「路由 → 模块」映射做 `requirePerm(actor, module, read|write)`，不足 → **403 FORBIDDEN**（真实状态码）。
-- 模块映射：`/issues*`→issues · `/requirements*`→requirements · `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases。
+- 模块映射：`/issues*`→issues · `/requirements*`→requirements · `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases · `/reports*`→reports。
 - `company_admin` 与平台管理员恒过；`viewer` 类只读角色调写接口同样 403。
 - **项目创建/删除**额外要求 `company_admin` 或平台管理员（矩阵 projects=write 不够）。
 - bootstrap 无模块门（登录即可），返回里的 `permissions` 供前端过滤 UI。
@@ -140,6 +140,18 @@
 | POST | `/test-cases` | 项目必须存在；分配 TC-N；authorId=当前成员 |
 | PATCH | `/test-cases/:key` | 部分更新 |
 | DELETE | `/test-cases/:key` | 硬删 |
+
+## Daily Reports 日报（`/reports*`，模块门 reports；read=查看全公司,write=提交/编辑自己的）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/reports?startDate&endDate&memberId&projectId` | 日报列表（含按项目拆分的 entries），日期闭区间，上限 500 条 |
+| GET | `/reports/mine?date=YYYY-MM-DD` | 我某天的日报；无则 `ok(null)` |
+| PUT | `/reports/mine` | `{ date, entries: [{ projectId, content }] }` 覆盖提交：同日已有则全量替换 entries（同日唯一约束兜底）；entries 至少一条非空；项目须属本公司且未归档 |
+| DELETE | `/reports/:id` | 删除；仅本人或 company_admin/平台管理员 |
+| GET | `/reports/stats?today=YYYY-MM-DD` | `{ totalReports, todayCount, memberCount, trend[7], unsubmitted[] }`；today 由客户端按本地时区给出（缺省回退服务器 UTC 日）；未提交名单只计 internal+active 的 human 成员 |
+
+日期一律为 'YYYY-MM-DD' 日历日字符串（date 列），服务端不做时区换算。
 
 ## Integrations 集成（Notion，均需 issues=write）
 

@@ -34,6 +34,9 @@ import type {
   TestCase,
   TestCaseStatus,
   TestResult,
+  DailyReport,
+  SaveMyReportInput,
+  ReportStats,
 } from './types';
 import type { NotionStatusRule } from './notionStatusMap';
 import type { PermissionsMatrix } from './platformApi';
@@ -377,6 +380,8 @@ export const api = {
   updateRequirement: (id: string, input: UpdateRequirementInput) =>
     request<Requirement>(`/requirements/${id}`, json('PATCH', input)),
   deleteRequirement: (id: string) => request<{ id: string }>(`/requirements/${id}`, { method: 'DELETE' }),
+  decomposeRequirement: (id: string) =>
+    request<IssueDetail[]>(`/requirements/${id}/decompose`, { method: 'POST' }),
 
   /* ---- 测试用例 ---- */
   testCases: (params?: { project?: string; requirement?: string; status?: TestCaseStatus; result?: TestResult }) => {
@@ -439,6 +444,18 @@ export const api = {
   disconnectNotion: () => request<{ disconnected: boolean }>('/integrations/notion', { method: 'DELETE' }),
   notionPreview: () => request<{ page: unknown }>('/integrations/notion/preview'),
   syncNotion: () => request<NotionSyncResult>('/integrations/notion/sync', { method: 'POST' }),
+
+  /* ---- 日报 (daily reports) ---- */
+  reports: (params?: { startDate?: string; endDate?: string; memberId?: string; projectId?: string }) => {
+    const q = new URLSearchParams(
+      Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
+    ).toString();
+    return request<DailyReport[]>(`/reports${q ? `?${q}` : ''}`);
+  },
+  myReport: (date: string) => request<DailyReport | null>(`/reports/mine?date=${date}`),
+  saveMyReport: (input: SaveMyReportInput) => request<DailyReport>('/reports/mine', json('PUT', input)),
+  deleteReport: (id: string) => request<{ id: string }>(`/reports/${id}`, { method: 'DELETE' }),
+  reportStats: (today: string) => request<ReportStats>(`/reports/stats?today=${today}`),
 };
 
 export type Api = typeof api;
@@ -486,7 +503,7 @@ export type OAuthEntry = { configured: true; url?: string } | null;
    fields are missing. */
 export type CompanyRole = 'company_admin' | 'product_manager' | 'developer' | 'tester' | 'viewer';
 export type PermLevel = 'none' | 'read' | 'write';
-// The 10 RBAC modules; values are 'none' | 'read' | 'write'.
+// The 11 RBAC modules; values are 'none' | 'read' | 'write'.
 export type ModuleKey =
   | 'issues'
   | 'products'
@@ -497,7 +514,8 @@ export type ModuleKey =
   | 'roadmap'
   | 'backlog'
   | 'sprints'
-  | 'agents';
+  | 'agents'
+  | 'reports';
 
 export interface SessionCompany {
   id: string;

@@ -40,6 +40,8 @@ export const ERROR_CODES = [
   'TEST_CASE_NOT_FOUND',
   // issue attachments
   'ATTACHMENT_NOT_FOUND',
+  // daily reports (日报)
+  'REPORT_NOT_FOUND',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
@@ -70,6 +72,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INVITE_FAILED: '邀请失败',
   TEST_CASE_NOT_FOUND: '测试用例不存在',
   ATTACHMENT_NOT_FOUND: '附件不存在',
+  REPORT_NOT_FOUND: '日报不存在',
 };
 
 export interface OkEnvelope<T> {

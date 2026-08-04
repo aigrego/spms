@@ -14,6 +14,7 @@ const APP_PREFIXES = [
   '/roadmap',
   '/backlog',
   '/sprints',
+  '/reports',
   '/integrations',
 ];
 
@@ -48,6 +49,7 @@ export const config = {
     '/roadmap/:path*',
     '/backlog/:path*',
     '/sprints/:path*',
+    '/reports/:path*',
     '/integrations/:path*',
   ],
 };

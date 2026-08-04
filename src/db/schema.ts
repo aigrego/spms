@@ -5,6 +5,7 @@ import {
   real,
   boolean,
   timestamp,
+  date,
   primaryKey,
   pgEnum,
   uniqueIndex,
@@ -758,6 +759,60 @@ export const notionIssueLinks = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Daily reports (日报)                                                 */
+/* One report per member per calendar day; content is split into       */
+/* per-project entries so the aggregate view can roll up               */
+/* 项目 → 人员 → 任务. `date` is a plain calendar day ('YYYY-MM-DD',    */
+/* string mode): the client owns the local timezone, the server        */
+/* treats it as an opaque day key (no UTC-shift bugs).                 */
+/* ------------------------------------------------------------------ */
+export const dailyReports = pgTable(
+  'daily_reports',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    // 作者：公司资源池中的 human member。member 被删时其日报级联删除。
+    memberId: text('member_id')
+      .references(() => members.id, { onDelete: 'cascade' })
+      .notNull(),
+    date: date('date', { mode: 'string' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // 每人每天一份（公司内唯一）——覆盖提交走 upsert。
+    uniqueIndex('daily_reports_member_day_uidx').on(t.companyId, t.memberId, t.date),
+    index('daily_reports_company_date_idx').on(t.companyId, t.date),
+  ],
+);
+
+/* Daily report entries — 一份日报按项目拆分的内容块（每项目一段）。
+   companyId 冗余存储,便于按公司/项目直接过滤汇总。 */
+export const dailyReportEntries = pgTable(
+  'daily_report_entries',
+  {
+    id: text('id').primaryKey(),
+    reportId: text('report_id')
+      .references(() => dailyReports.id, { onDelete: 'cascade' })
+      .notNull(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    projectId: text('project_id')
+      .references(() => projects.id, { onDelete: 'cascade' })
+      .notNull(),
+    content: text('content').notNull(),
+    position: integer('position').notNull().default(0),
+  },
+  (t) => [
+    uniqueIndex('daily_report_entries_report_project_uidx').on(t.reportId, t.projectId),
+    index('daily_report_entries_company_project_idx').on(t.companyId, t.projectId),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
 /* Relations                                                           */
 /* ------------------------------------------------------------------ */
 export const issuesRelations = relations(issues, ({ one, many }) => ({
@@ -851,4 +906,14 @@ export const resourceAssignmentsRelations = relations(resourceAssignments, ({ on
 export const testCasesRelations = relations(testCases, ({ one }) => ({
   project: one(projects, { fields: [testCases.projectId], references: [projects.id] }),
   requirement: one(requirements, { fields: [testCases.requirementId], references: [requirements.id] }),
+}));
+
+export const dailyReportsRelations = relations(dailyReports, ({ one, many }) => ({
+  member: one(members, { fields: [dailyReports.memberId], references: [members.id] }),
+  entries: many(dailyReportEntries),
+}));
+
+export const dailyReportEntriesRelations = relations(dailyReportEntries, ({ one }) => ({
+  report: one(dailyReports, { fields: [dailyReportEntries.reportId], references: [dailyReports.id] }),
+  project: one(projects, { fields: [dailyReportEntries.projectId], references: [projects.id] }),
 }));

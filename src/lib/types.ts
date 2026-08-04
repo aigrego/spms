@@ -351,3 +351,34 @@ export interface Bootstrap {
   products: Product[];
   releases: Release[];
 }
+
+/* Daily reports (日报) — 每人每天一份,内容按项目拆分(entries)。
+   `date` 是客户端本地时区的日历日 'YYYY-MM-DD'。 */
+export interface DailyReportEntry {
+  id: string;
+  projectId: string;
+  content: string;
+  position: number;
+}
+
+export interface DailyReport {
+  id: string;
+  memberId: string;
+  date: string;
+  entries: DailyReportEntry[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaveMyReportInput {
+  date: string;
+  entries: { projectId: string; content: string }[];
+}
+
+export interface ReportStats {
+  totalReports: number;
+  todayCount: number;
+  memberCount: number;
+  trend: { date: string; count: number }[];
+  unsubmitted: { id: string; name: string }[];
+}
