@@ -15,7 +15,7 @@ import type { Actor } from './types';
    日报;删除他人日报需 company_admin / 平台管理员。 */
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-const MAX_CONTENT_LEN = 4000;
+export const MAX_CONTENT_LEN = 4000;
 const LIST_LIMIT = 500;
 
 function assertDay(date: string): void {

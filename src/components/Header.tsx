@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, LogOut, Search, Settings, Shield, Sun } from 'lucide-react';
+import { Check, ChevronDown, LogOut, NotebookPen, Search, Settings, Shield, Sun } from 'lucide-react';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { Logo } from '@/components/Logo';
 import { Badge } from '@/components/ui/badge';
@@ -181,7 +181,7 @@ function UserMenu() {
   const t = useT();
   const router = useRouter();
   const qc = useQueryClient();
-  const { session, companyRole, me } = useAppData();
+  const { session, companyRole, me, can } = useAppData();
   // Lazy init is safe here: the user menu only renders after the client-side
   // session query resolves (never during SSR), and the anti-flash inline
   // script has already applied the persisted theme by then.
@@ -247,6 +247,12 @@ function UserMenu() {
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
+          {can('reports', 'read') && (
+            <DropdownMenuItem onSelect={() => router.push('/reports')}>
+              <NotebookPen size={15} className="flex-none text-fg-3" />
+              {t('nav.reports')}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onSelect={() => router.push('/profile')}>
             <Settings size={15} className="flex-none text-fg-3" />
             {t('header.settings')}

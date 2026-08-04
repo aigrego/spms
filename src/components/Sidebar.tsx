@@ -11,7 +11,6 @@ import {
   Target,
   Layers,
   FileText,
-  NotebookPen,
   Users,
   FlaskConical,
   Inbox,
@@ -94,7 +93,6 @@ export function Sidebar({ myCount }: { myCount: number }) {
   const showRoadmap = can('roadmap', 'read');
   const showBacklog = can('backlog', 'read');
   const showSprints = can('sprints', 'read');
-  const showReports = can('reports', 'read');
 
   const showLifecycle = showProducts || showRequirements || showTestcases;
   const showWorkspace = showProjects || showResources || showRoadmap;
@@ -117,17 +115,6 @@ export function Sidebar({ myCount }: { myCount: number }) {
               label={t('nav.allIssues')}
               active={isAllIssues}
               href="/issues"
-            />
-          </div>
-        )}
-
-        {showReports && (
-          <div className="mt-1 flex flex-col gap-px">
-            <NavItem
-              icon={<NotebookPen size={16} />}
-              label={t('nav.reports')}
-              active={pathname.startsWith('/reports')}
-              href="/reports"
             />
           </div>
         )}

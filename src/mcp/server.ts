@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { put } from '@vercel/blob';
 import { z } from 'zod';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray, or } from 'drizzle-orm';
 import { db } from '@/db';
 import { companies, companyMemberships, labels, members, productLines, products, projects, releases, sprints, sprintProjects, teams, users } from '@/db/schema';
 import { ApiException, type ErrorCode } from '@/lib/envelope';
@@ -13,6 +13,7 @@ import * as attachmentSvc from '@/server/services/attachments';
 import * as catalogSvc from '@/server/services/catalog';
 import * as projectSvc from '@/server/services/projects';
 import * as requirementSvc from '@/server/services/requirements';
+import * as reportSvc from '@/server/services/reports';
 import * as resourceSvc from '@/server/services/resources';
 import * as sprintSvc from '@/server/services/sprints';
 import * as testCaseSvc from '@/server/services/testcases';
@@ -901,6 +902,59 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         const actor = await actorFor(args.companyId);
         const { companyId: _companyId, id, ...input } = args;
         return catalogSvc.updateRelease(actor, id, input);
+      }),
+  );
+
+  reg(
+    'spms_submit_report',
+    {
+      description:
+        `提交本人日报（覆盖式 upsert：同日重复提交会全量替换 entries，返回的 overwritten 标明是新建还是覆盖）。` +
+        `典型场景：Agent 按 git 提交记录按项目汇总出条目后，直接上报到项目对应的产品和令牌所属人名下。` +
+        `entries 的 product 接受产品 key（如 'SPMS'）或产品 id（spms_get_bootstrap 的 products 可查）；` +
+        `作者固定为令牌所属人（所属人无公司席位则报错），不接受任何 memberId 参数，不能代他人提交。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        date: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式应为 YYYY-MM-DD')
+          .describe('日报日期（客户端本地日历日，YYYY-MM-DD）'),
+        entries: z
+          .array(
+            z.object({
+              product: z.string().min(1).describe("产品 key（如 'SPMS'）或产品 id"),
+              content: z.string().min(1).max(reportSvc.MAX_CONTENT_LEN).describe(`该产品下的日报内容（≤${reportSvc.MAX_CONTENT_LEN} 字）`),
+            }),
+          )
+          .min(1)
+          .describe('按产品拆分的日报条目（同一产品只能出现一次）'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        // 产品解析：key / id 都接受（产品 key 在公司内唯一）；公司归属与
+        // 未归档校验由 service 层兜底（PRODUCT_NOT_FOUND）。
+        const wanted = [...new Set(args.entries.map((e) => e.product))];
+        const rows = await db
+          .select({ id: products.id, key: products.key })
+          .from(products)
+          .where(and(eq(products.companyId, actor.companyId), or(inArray(products.key, wanted), inArray(products.id, wanted))));
+        const byKey = new Map(rows.map((r) => [r.key, r.id]));
+        const byId = new Map(rows.map((r) => [r.id, r.id]));
+        const entries = args.entries.map((e) => {
+          const productId = byKey.get(e.product) ?? byId.get(e.product);
+          if (!productId) throw new ApiException('PRODUCT_NOT_FOUND', `产品 ${e.product} 不存在`);
+          return { productId, content: e.content };
+        });
+        // 先查再写，便于在返回中明确告知是新建还是覆盖（upsert 为覆盖式）。
+        const existing = await reportSvc.getMyReport(actor, args.date);
+        const report = await reportSvc.upsertMyReport(actor, { date: args.date, entries });
+        return {
+          ...report,
+          overwritten: existing != null,
+          note: existing ? '已覆盖同日原日报（entries 全量替换）' : '已新建当日日报；同日重复提交将覆盖原有内容',
+        };
       }),
   );
 
