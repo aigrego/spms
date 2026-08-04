@@ -10,6 +10,7 @@ import { Avatar } from '@/components/glyphs/Avatar';
 import { Markdown } from '@/components/Markdown';
 import { Skeleton } from '@/components/StateBlock';
 import { relativeTime } from '@/lib/time';
+import { contentToHtmlList, inlineToHtml } from '@/lib/reportHtml';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useDeleteReport, useMyReport, useReports, useReportStats, useSaveMyReport } from '@/store/reports';
@@ -336,6 +337,46 @@ function buildCopyText(
   return out.join('\n');
 }
 
+/* 与 buildCopyText 同结构的 HTML 版本:粘贴进飞书/Lark 时,
+   嵌套 <ol> 渲染为 1. / a. / i. 富文本序号,<b>/<code> 同步生效。 */
+function buildCopyHtml(
+  date: string,
+  groups: SummaryGroup[],
+  mode: SummaryMode,
+  productName: (id: string) => string,
+  memberName: (id: string) => string,
+  noLeadLabel: string,
+): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const out: string[] = [`<p><b>${d}/${m}/${y} 工作总结:</b></p>`];
+  const outerName = (g: SummaryGroup) =>
+    mode === 'product' ? productName(g.id) : g.id === NO_LEAD ? noLeadLabel : memberName(g.id);
+  const tasksHtml = (rows: FlatRow[]) => contentToHtmlList(rows.map((r) => r.entry.content).join('\n'));
+  for (const g of groups) {
+    out.push(`<p><b>${inlineToHtml(outerName(g))}:</b></p>`);
+    if (g.depth === 2) {
+      const innerName = (id: string) => (mode === 'product' ? memberName(id) : productName(id));
+      out.push(
+        `<ol>${g.subs
+          .map((s) => `<li><b>${inlineToHtml(innerName(s.id))}:</b>${tasksHtml(s.rows)}</li>`)
+          .join('')}</ol>`,
+      );
+    } else {
+      out.push(
+        `<ol>${g.subs
+          .map(
+            (p) =>
+              `<li><b>${inlineToHtml(productName(p.id))}:</b><ol>${p.subs
+                .map((s) => `<li><b>${inlineToHtml(memberName(s.id))}:</b>${tasksHtml(s.rows)}</li>`)
+                .join('')}</ol></li>`,
+          )
+          .join('')}</ol>`,
+      );
+    }
+  }
+  return out.join('');
+}
+
 function ReportsSummary({ products, humans }: { products: Product[]; humans: Member[] }) {
   const t = useT();
   const today = localToday();
@@ -399,15 +440,26 @@ function ReportsSummary({ products, humans }: { products: Product[]; humans: Mem
 
   const onCopy = async () => {
     const text = buildCopyText(date, groups, mode, productName, memberName, t('reports.noLead'));
+    const html = buildCopyHtml(date, groups, mode, productName, memberName, t('reports.noLead'));
     try {
-      await navigator.clipboard.writeText(text);
+      /* 同时写 text/html + text/plain:飞书/Lark 取 HTML 得富文本列表,其余目标拿到 markdown 纯文本。 */
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+        }),
+      ]);
     } catch {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
