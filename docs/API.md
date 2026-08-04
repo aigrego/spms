@@ -141,7 +141,9 @@
 | PATCH | `/test-cases/:key` | 部分更新 |
 | DELETE | `/test-cases/:key` | 硬删 |
 
-## Daily Reports 日报（`/reports*`，模块门 reports；read=查看全公司,write=提交/编辑自己的）
+## Daily Reports 日报（`/reports*`，模块门 reports；read=查看(行级可见),write=提交/编辑自己的）
+
+行级可见性：company_admin/平台管理员全公司可见；其他成员可见本人日报的全部条目，以及他人日报中属于自己负责产品（`products.leadId` = 我）的条目——过滤后无可见条目的他人日报不出现在结果中；无席位（memberId 为 null）的非管理员看不到任何日报。汇总、复制汇总在前端消费列表数据，同一规则自然生效。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -149,7 +151,7 @@
 | GET | `/reports/mine?date=YYYY-MM-DD` | 我某天的日报；无则 `ok(null)` |
 | PUT | `/reports/mine` | `{ date, entries: [{ productId, content }] }` 覆盖提交：同日已有则全量替换 entries（同日唯一约束兜底）；entries 至少一条非空；产品须属本公司且未归档 |
 | DELETE | `/reports/:id` | 删除；仅本人或 company_admin/平台管理员 |
-| GET | `/reports/stats?today=YYYY-MM-DD` | `{ totalReports, todayCount, memberCount, trend[7], unsubmitted[] }`；today 由客户端按本地时区给出（缺省回退服务器 UTC 日）；未提交名单只计 internal+active 的 human 成员 |
+| GET | `/reports/stats?today=YYYY-MM-DD` | `{ totalReports, todayCount, memberCount, trend[7], unsubmitted[] }`；today 由客户端按本地时区给出（缺省回退服务器 UTC 日）；未提交名单只计 internal+active 的 human 成员，且仅对管理员返回（非管理员恒为空数组）；totalReports/todayCount/trend 对非管理员按行级可见性口径统计 |
 
 日期一律为 'YYYY-MM-DD' 日历日字符串（date 列），服务端不做时区换算。
 

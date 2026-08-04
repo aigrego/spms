@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '@/db';
 import { dailyReportEntries, dailyReports, members, products } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
@@ -11,7 +11,7 @@ import type { Actor } from './types';
    上卷,供负责人统一上报。日期是客户端本地时区的 'YYYY-MM-DD' 日历日,服务端
    把它当作不透明的 day key,绝不自行推导「今天」(避免 UTC 偏移 bug)。
 
-   模块门:'reports'。read = 查看全公司日报(团队内公开);write = 提交/编辑自己的
+   模块门:'reports'。read = 查看日报(行级可见,见 canViewAll);write = 提交/编辑自己的
    日报;删除他人日报需 company_admin / 平台管理员。 */
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -20,6 +20,32 @@ const LIST_LIMIT = 500;
 
 function assertDay(date: string): void {
   if (!DAY_RE.test(date)) throw new ApiException('VALIDATION_FAILED', '日期格式应为 YYYY-MM-DD');
+}
+
+/* 行级可见性(日报读):
+     - company_admin / 平台管理员:全公司可见;
+     - 其他成员:本人日报的全部条目 + 他人日报中属于自己负责产品
+       (products.leadId = 我)的条目;过滤后无可见条目的他人日报不返回;
+     - memberId 为 null(无席位)且非管理员:空集。
+   list / stats 共用同一谓词;汇总、复制汇总在前端消费 list,自然生效。 */
+function canViewAll(actor: Actor): boolean {
+  return actor.isPlatformAdmin || actor.companyRole === 'company_admin';
+}
+
+/* 非管理员可见的日报 id 子查询:本人日报,或含我负责产品条目的日报。
+   调用前须保证 actor.memberId 非空。 */
+function visibleReportIdsSubquery(actor: Actor) {
+  return db
+    .selectDistinct({ id: dailyReports.id })
+    .from(dailyReports)
+    .leftJoin(dailyReportEntries, eq(dailyReportEntries.reportId, dailyReports.id))
+    .leftJoin(products, eq(products.id, dailyReportEntries.productId))
+    .where(
+      and(
+        eq(dailyReports.companyId, actor.companyId),
+        or(eq(dailyReports.memberId, actor.memberId!), eq(products.leadId, actor.memberId!)),
+      ),
+    );
 }
 
 export interface ReportEntryInput {
@@ -73,7 +99,10 @@ export interface ListReportsFilter {
 
 export async function listReports(actor: Actor, filter: ListReportsFilter = {}): Promise<ReportView[]> {
   await requirePerm(actor, 'reports', 'read');
+  const viewAll = canViewAll(actor);
+  if (!viewAll && !actor.memberId) return []; // 无席位且非管理员 → 看不到任何日报
   const conds = [eq(dailyReports.companyId, actor.companyId)];
+  if (!viewAll) conds.push(inArray(dailyReports.id, visibleReportIdsSubquery(actor)));
   if (filter.startDate) {
     assertDay(filter.startDate);
     conds.push(gte(dailyReports.date, filter.startDate));
@@ -98,11 +127,28 @@ export async function listReports(actor: Actor, filter: ListReportsFilter = {}):
     .orderBy(desc(dailyReports.date), desc(dailyReports.createdAt))
     .limit(LIST_LIMIT);
   if (reportRows.length === 0) return [];
+  if (viewAll) {
+    const entryRows = await db
+      .select()
+      .from(dailyReportEntries)
+      .where(inArray(dailyReportEntries.reportId, reportRows.map((r) => r.id)));
+    return groupEntries(reportRows, entryRows);
+  }
+  // 非管理员:entry 级过滤 —— 本人日报全条目可见;他人日报仅保留我负责产品的条目,
+  // 过滤后无可见条目的日报整体剔除。
+  const authorById = new Map(reportRows.map((r) => [r.id, r.memberId]));
   const entryRows = await db
-    .select()
+    .select({ entry: dailyReportEntries, leadId: products.leadId })
     .from(dailyReportEntries)
+    .leftJoin(products, eq(products.id, dailyReportEntries.productId))
     .where(inArray(dailyReportEntries.reportId, reportRows.map((r) => r.id)));
-  return groupEntries(reportRows, entryRows);
+  const visible = groupEntries(
+    reportRows,
+    entryRows
+      .filter((e) => authorById.get(e.entry.reportId) === actor.memberId || e.leadId === actor.memberId)
+      .map((e) => e.entry),
+  );
+  return visible.filter((r) => r.entries.length > 0);
 }
 
 /* ---- my report for a day (写日报页数据源) ---- */
@@ -239,6 +285,15 @@ export async function reportStats(actor: Actor, today: string) {
   };
   const weekAgo = shift(-6);
 
+  // 行级可见性:非管理员只统计自己可见的日报(谓词同 listReports);
+  // 无席位 → 看不到任何日报;未提交名单仅对管理员返回。
+  const viewAll = canViewAll(actor);
+  const scopeCond: SQL | null = viewAll
+    ? null
+    : actor.memberId
+      ? inArray(dailyReports.id, visibleReportIdsSubquery(actor))
+      : sql`false`;
+
   const [trendRows, todayRows, humanRows, totalRows] = await Promise.all([
     db
       .select({ date: dailyReports.date, count: sql<number>`count(*)::int` })
@@ -248,13 +303,14 @@ export async function reportStats(actor: Actor, today: string) {
           eq(dailyReports.companyId, actor.companyId),
           gte(dailyReports.date, weekAgo),
           lte(dailyReports.date, today),
+          ...(scopeCond ? [scopeCond] : []),
         ),
       )
       .groupBy(dailyReports.date),
     db
       .select({ memberId: dailyReports.memberId })
       .from(dailyReports)
-      .where(and(eq(dailyReports.companyId, actor.companyId), eq(dailyReports.date, today))),
+      .where(and(eq(dailyReports.companyId, actor.companyId), eq(dailyReports.date, today), ...(scopeCond ? [scopeCond] : []))),
     // 未提交名单只统计内部成员(外部资源不登录系统,永远"未提交")。
     db
       .select({ id: members.id, name: members.name })
@@ -270,7 +326,7 @@ export async function reportStats(actor: Actor, today: string) {
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(dailyReports)
-      .where(eq(dailyReports.companyId, actor.companyId)),
+      .where(and(eq(dailyReports.companyId, actor.companyId), ...(scopeCond ? [scopeCond] : []))),
   ]);
 
   const countByDate = new Map(trendRows.map((r) => [r.date, r.count]));
@@ -279,7 +335,7 @@ export async function reportStats(actor: Actor, today: string) {
     return { date, count: countByDate.get(date) ?? 0 };
   });
   const submittedIds = new Set(todayRows.map((r) => r.memberId));
-  const unsubmitted = humanRows.filter((m) => !submittedIds.has(m.id));
+  const unsubmitted = viewAll ? humanRows.filter((m) => !submittedIds.has(m.id)) : [];
 
   return {
     totalReports: totalRows[0]?.count ?? 0,
