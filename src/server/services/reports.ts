@@ -254,6 +254,114 @@ export async function upsertMyReport(
   return groupEntries([r], entryRows)[0];
 }
 
+/* ---- merge my report entries (合并提交:按 (reportId, productId) 逐条 upsert,
+   未提交的产品条目保持不动;MCP spms_submit_report 走这里,避免多项目/token
+   分别上报时互相覆盖) ---- */
+export interface MergeReportResult {
+  report: ReportView;
+  created: string[]; // 本次新建条目的 productId
+  updated: string[]; // 本次更新条目的 productId
+}
+
+export async function mergeMyReportEntries(
+  actor: Actor,
+  date: string,
+  input: ReportEntryInput[],
+): Promise<MergeReportResult> {
+  await requirePerm(actor, 'reports', 'write');
+  if (!actor.memberId) throw new ApiException('FORBIDDEN', '需要公司席位才能提交日报', 403);
+  assertDay(date);
+  if (!Array.isArray(input)) throw new ApiException('VALIDATION_FAILED', '缺少日报内容');
+
+  // 清洗:内容非空(合并语义下静默丢弃会让调用方误以为已提交,故直接报错)、
+  // 限长、按产品去重 —— 口径与 upsertMyReport 一致。
+  const seen = new Set<string>();
+  const entries: ReportEntryInput[] = [];
+  for (const e of input) {
+    const content = (e?.content ?? '').trim();
+    if (typeof e?.productId !== 'string' || !e.productId) throw new ApiException('VALIDATION_FAILED', '缺少产品');
+    if (!content) throw new ApiException('VALIDATION_FAILED', '日报内容不能为空');
+    if (content.length > MAX_CONTENT_LEN) {
+      throw new ApiException('VALIDATION_FAILED', `单产品内容不能超过 ${MAX_CONTENT_LEN} 字`);
+    }
+    if (seen.has(e.productId)) throw new ApiException('VALIDATION_FAILED', '同一产品只能填写一段内容');
+    seen.add(e.productId);
+    entries.push({ productId: e.productId, content });
+  }
+  if (entries.length === 0) throw new ApiException('VALIDATION_FAILED', '至少填写一个产品的内容');
+
+  // 产品必须属于本公司且未归档。
+  const prodRows = await db
+    .select({ id: products.id, status: products.status })
+    .from(products)
+    .where(
+      and(
+        eq(products.companyId, actor.companyId),
+        inArray(products.id, entries.map((e) => e.productId)),
+      ),
+    );
+  const writableIds = new Set(prodRows.filter((p) => p.status !== 'archived').map((p) => p.id));
+  for (const e of entries) {
+    if (!writableIds.has(e.productId)) throw new ApiException('PRODUCT_NOT_FOUND');
+  }
+
+  const { reportId, created, updated } = await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ id: dailyReports.id })
+      .from(dailyReports)
+      .where(
+        and(
+          eq(dailyReports.companyId, actor.companyId),
+          eq(dailyReports.memberId, actor.memberId!),
+          eq(dailyReports.date, date),
+        ),
+      )
+      .limit(1);
+    let id: string;
+    if (existing) {
+      id = existing.id;
+      await tx.update(dailyReports).set({ updatedAt: new Date() }).where(eq(dailyReports.id, id));
+    } else {
+      id = crypto.randomUUID();
+      await tx
+        .insert(dailyReports)
+        .values({ id, companyId: actor.companyId, memberId: actor.memberId!, date });
+    }
+    // 逐条 upsert:已存在的产品条目只更新 content(保留原 position);
+    // 新条目 position 取现有最大 position 起递增。未涉及的产品条目不动。
+    const existingEntries = await tx
+      .select({ id: dailyReportEntries.id, productId: dailyReportEntries.productId, position: dailyReportEntries.position })
+      .from(dailyReportEntries)
+      .where(eq(dailyReportEntries.reportId, id));
+    const entryIdByProduct = new Map(existingEntries.map((r) => [r.productId, r.id]));
+    let nextPosition = existingEntries.reduce((max, r) => Math.max(max, r.position), -1) + 1;
+    const created: string[] = [];
+    const updated: string[] = [];
+    for (const e of entries) {
+      const entryId = entryIdByProduct.get(e.productId);
+      if (entryId) {
+        await tx.update(dailyReportEntries).set({ content: e.content }).where(eq(dailyReportEntries.id, entryId));
+        updated.push(e.productId);
+      } else {
+        await tx.insert(dailyReportEntries).values({
+          id: crypto.randomUUID(),
+          reportId: id,
+          companyId: actor.companyId,
+          productId: e.productId,
+          content: e.content,
+          position: nextPosition++,
+        });
+        created.push(e.productId);
+      }
+    }
+    return { reportId: id, created, updated };
+  });
+
+  const [r] = await db.select().from(dailyReports).where(eq(dailyReports.id, reportId)).limit(1);
+  const entryRows = await db.select().from(dailyReportEntries).where(eq(dailyReportEntries.reportId, reportId));
+  return { report: groupEntries([r], entryRows)[0], created, updated };
+}
+
 /* ---- delete (本人;他人日报需 company_admin / 平台管理员) ---- */
 export async function deleteReport(actor: Actor, id: string): Promise<{ id: string }> {
   await requirePerm(actor, 'reports', 'write');

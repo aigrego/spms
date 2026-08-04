@@ -909,9 +909,11 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
     'spms_submit_report',
     {
       description:
-        `提交本人日报（覆盖式 upsert：同日重复提交会全量替换 entries，返回的 overwritten 标明是新建还是覆盖）。` +
-        `典型场景：Agent 按 git 提交记录按项目汇总出条目后，直接上报到项目对应的产品和令牌所属人名下。` +
-        `entries 的 product 接受产品 key（如 'SPMS'）或产品 id（spms_get_bootstrap 的 products 可查）；` +
+        `按项目提交本人日报（合并式 upsert：服务端按 项目→版本→产品 推导日报归属产品；` +
+        `同日重复提交同一产品只更新该产品条目，不影响当日其他产品的条目，返回的 created/updated 标明各产品条目是新建还是更新）。` +
+        `entries 的 project 接受项目 id 或项目名（精确匹配，spms_get_bootstrap 的 projects 可查）；` +
+        `项目必须在令牌的项目白名单内（令牌未设白名单则不限）；项目需已关联版本，否则无法推导产品。` +
+        `典型场景：Agent 按 git 提交记录按项目汇总出条目后逐项目上报，多个项目/token 分别上报不会互相覆盖。` +
         `作者固定为令牌所属人（所属人无公司席位则报错），不接受任何 memberId 参数，不能代他人提交。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
@@ -922,38 +924,89 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         entries: z
           .array(
             z.object({
-              product: z.string().min(1).describe("产品 key（如 'SPMS'）或产品 id"),
-              content: z.string().min(1).max(reportSvc.MAX_CONTENT_LEN).describe(`该产品下的日报内容（≤${reportSvc.MAX_CONTENT_LEN} 字）`),
+              project: z.string().min(1).describe('项目 id 或项目名（精确匹配）'),
+              content: z.string().min(1).max(reportSvc.MAX_CONTENT_LEN).describe(`该项目（推导到产品）下的日报内容（≤${reportSvc.MAX_CONTENT_LEN} 字）`),
             }),
           )
           .min(1)
-          .describe('按产品拆分的日报条目（同一产品只能出现一次）'),
+          .describe('按项目拆分的日报条目（推导到同一产品的多个项目请先自行合并内容，一次提交内同一产品只能出现一次）'),
       },
     },
     async (args) =>
       run(async () => {
         const actor = await actorFor(args.companyId);
-        // 产品解析：key / id 都接受（产品 key 在公司内唯一）；公司归属与
-        // 未归档校验由 service 层兜底（PRODUCT_NOT_FOUND）。
-        const wanted = [...new Set(args.entries.map((e) => e.product))];
-        const rows = await db
-          .select({ id: products.id, key: products.key })
-          .from(products)
-          .where(and(eq(products.companyId, actor.companyId), or(inArray(products.key, wanted), inArray(products.id, wanted))));
-        const byKey = new Map(rows.map((r) => [r.key, r.id]));
-        const byId = new Map(rows.map((r) => [r.id, r.id]));
-        const entries = args.entries.map((e) => {
-          const productId = byKey.get(e.product) ?? byId.get(e.product);
-          if (!productId) throw new ApiException('PRODUCT_NOT_FOUND', `产品 ${e.product} 不存在`);
-          return { productId, content: e.content };
+        // 项目解析：公司内先按 id 再按 name 精确匹配（projects 表无 key 列）。
+        const wanted = [...new Set(args.entries.map((e) => e.project))];
+        const projRows = await db
+          .select({ id: projects.id, name: projects.name, releaseId: projects.releaseId })
+          .from(projects)
+          .where(and(eq(projects.companyId, actor.companyId), or(inArray(projects.id, wanted), inArray(projects.name, wanted))));
+        const byId = new Map(projRows.map((r) => [r.id, r]));
+        const byName = new Map(projRows.map((r) => [r.name, r]));
+        const resolved = args.entries.map((e) => {
+          const proj = byId.get(e.project) ?? byName.get(e.project);
+          if (!proj) throw new ApiException('PROJECT_NOT_FOUND', `项目 ${e.project} 不存在`);
+          return { proj, content: e.content };
         });
-        // 先查再写，便于在返回中明确告知是新建还是覆盖（upsert 为覆盖式）。
-        const existing = await reportSvc.getMyReport(actor, args.date);
-        const report = await reportSvc.upsertMyReport(actor, { date: args.date, entries });
+        // 令牌项目白名单强制收窄（与 issue 写操作同规则）。
+        if (actor.allowedProjectIds) {
+          for (const { proj } of resolved) {
+            if (!actor.allowedProjectIds.includes(proj.id)) {
+              throw new ApiException('FORBIDDEN', `项目 ${proj.name} 不在令牌的项目白名单内`, 403);
+            }
+          }
+        }
+        // 产品推导：项目 → releaseId → releases.productId。
+        const releaseIds = [...new Set(resolved.map((r) => r.proj.releaseId).filter((x): x is string => x != null))];
+        const releaseRows = releaseIds.length
+          ? await db
+              .select({ id: releases.id, productId: releases.productId })
+              .from(releases)
+              .where(and(eq(releases.companyId, actor.companyId), inArray(releases.id, releaseIds)))
+          : [];
+        const productIdByRelease = new Map(releaseRows.map((r) => [r.id, r.productId]));
+        const productIdByProject = new Map<string, string>();
+        for (const { proj } of resolved) {
+          if (!proj.releaseId) {
+            throw new ApiException('VALIDATION_FAILED', `项目 ${proj.name} 未关联版本，无法推导产品`);
+          }
+          const productId = productIdByRelease.get(proj.releaseId);
+          if (!productId) throw new ApiException('VALIDATION_FAILED', `项目 ${proj.name} 关联的版本不存在，无法推导产品`);
+          productIdByProject.set(proj.id, productId);
+        }
+        // 一次调用内两个项目推导到同一产品 → 要求调用方先合并内容。
+        const firstProjectByProduct = new Map<string, string>();
+        for (const { proj } of resolved) {
+          const productId = productIdByProject.get(proj.id)!;
+          const first = firstProjectByProduct.get(productId);
+          if (first) {
+            throw new ApiException(
+              'VALIDATION_FAILED',
+              `项目 ${first} 与项目 ${proj.name} 推导到同一产品，请先合并内容再提交（同一产品一次提交只能出现一次）`,
+            );
+          }
+          firstProjectByProduct.set(productId, proj.name);
+        }
+        const entries = resolved.map((r) => ({ productId: productIdByProject.get(r.proj.id)!, content: r.content }));
+        const { report, created, updated } = await reportSvc.mergeMyReportEntries(actor, args.date, entries);
+        // created/updated 以产品 key/name 标注，便于调用方确认推导结果。
+        const productIds = [...created, ...updated];
+        const prodRows = productIds.length
+          ? await db
+              .select({ id: products.id, key: products.key, name: products.name })
+              .from(products)
+              .where(and(eq(products.companyId, actor.companyId), inArray(products.id, productIds)))
+          : [];
+        const prodById = new Map(prodRows.map((r) => [r.id, r]));
+        const label = (id: string) => {
+          const p = prodById.get(id);
+          return p ? `${p.key}（${p.name}）` : id;
+        };
         return {
           ...report,
-          overwritten: existing != null,
-          note: existing ? '已覆盖同日原日报（entries 全量替换）' : '已新建当日日报；同日重复提交将覆盖原有内容',
+          created: created.map(label),
+          updated: updated.map(label),
+          note: '合并提交：同日重复提交同一产品会更新该产品条目，不影响其他产品',
         };
       }),
   );

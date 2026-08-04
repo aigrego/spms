@@ -85,7 +85,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_complete_sprint` | `id` | 完成迭代（active → completed；未完成 Issue 移回待办，返回 movedCount） |
 | `spms_create_project` | `name, releaseId?, leadId?, target?, description?` | 创建项目 |
 | `spms_update_release` | `id, name?, description?, status?, phase?, targetDate?, progress?, position?` | 更新版本；`phase` 为产品生命周期段（concept→development→release→maintenance→retired），项目卡片生命周期进度条读它 |
-| `spms_submit_report` | `date, entries[{product, content}]` | **新增**：提交本人日报（覆盖式 upsert，同日重复提交全量替换 entries，返回 `overwritten` 标明新建/覆盖）。`product` 接受产品 key（如 'SPMS'）或产品 id；作者固定为令牌所属人，不能代他人提交。典型场景：Agent 按 git 提交记录汇总条目后上报到项目对应的产品名下 |
+| `spms_submit_report` | `date, entries[{project, content}]` | 按项目提交本人日报（合并式 upsert）：服务端按 项目→版本→产品 推导日报归属产品（项目需已关联版本），同日重复提交同一产品只更新该产品条目、不影响其他产品条目，返回 `created`/`updated` 标明各产品条目新建/更新。`project` 接受项目 id 或项目名（精确匹配），且必须在令牌的项目白名单内；一次调用内多个项目推导到同一产品需先自行合并内容。作者固定为令牌所属人，不能代他人提交。典型场景：Agent 按 git 提交记录按项目汇总条目后逐项目上报，多项目/多令牌分别上报互不覆盖 |
 
 写工具与 REST API 复用同一套 `src/server/services/*`，业务规则一致（如 sprint-project 一致性校验、REQUIREMENT_NOT_FOUND 等错误码原样抛出）。
 
