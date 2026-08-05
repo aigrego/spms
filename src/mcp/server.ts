@@ -250,7 +250,7 @@ const CONCEPTS = [
 
 /* ---- server factory (one instance per stateless HTTP request) ------------- */
 export function createMcpServer(keyContext: McpKeyContext): McpServer {
-  const server = new McpServer({ name: 'next-spms', version: '0.1.0' });
+  const server = new McpServer({ name: 'spms', version: '0.1.0' });
 
   /* 能力门（DB key 的 capabilities 是上限）：带 readOnlyHint 的工具要 read，
      其余写工具要 write；delete 预留（当前无删除类工具）。超限不执行，直接

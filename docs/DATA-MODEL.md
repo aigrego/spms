@@ -1,4 +1,4 @@
-# next-spms 数据模型
+# spms 数据模型
 
 PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 相对原 spms-server 的变更：**去掉所有 tenantId**（无多租户）；新增 `users`、`counters`；`members.portalUserId`→`userId`，删 `homeTenantId`。

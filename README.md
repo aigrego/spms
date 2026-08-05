@@ -1,8 +1,8 @@
-# next-spms
+# spms
 
 用 **Next.js 全栈**重写的 SPMS 研发管理系统（需求 / 任务 / 缺陷 / 迭代 / 测试用例 / 产品生命周期 / 研发资源池），并内置 **HTTP Streamable MCP 服务**，让 Agent 可以直接连接并读写研发数据。
 
-参考蓝本：`saas-portal/apps/spms-app`（前端）+ `saas-portal/apps/spms-server`（后端），功能完全对齐，去掉了多租户与 portal 依赖。
+功能对齐原 SPMS 前后端，去掉了多租户与 portal 依赖。
 
 ## 功能
 
@@ -42,7 +42,7 @@ npm run dev
 
 | 变量 | 说明 |
 |---|---|
-| `DATABASE_URL` | PostgreSQL 连接串（如 `postgres://postgres:postgres@localhost:5432/next_spms`） |
+| `DATABASE_URL` | PostgreSQL 连接串（如 `postgres://postgres:postgres@localhost:5432/spms`） |
 | `SESSION_SECRET` | session cookie 签名密钥（随机长串） |
 | `MCP_API_KEY` | MCP 鉴权 key 的**平台级兜底**（逗号分隔多个，均视为平台级）；seed 时已迁移为 DB 平台级 key。**推荐使用 DB key**（见下） |
 | `LARK_APP_ID` / `LARK_APP_SECRET` / `LARK_REDIRECT_URI` | 可选，飞书扫码登录；未配置时登录页不显示飞书入口 |
@@ -57,7 +57,7 @@ npm run dev
 ```json
 {
   "mcpServers": {
-    "next-spms": {
+    "spms": {
       "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": { "Authorization": "Bearer <在 /agent-access 签发的 key>" }

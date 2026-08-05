@@ -1,6 +1,6 @@
-# next-spms 项目规划
+# spms 项目规划
 
-> 用 Next.js 全栈重写 SPMS 研发管理系统（参考 `saas-portal/apps/spms-app` + `spms-server`），并提供 HTTP Streamable MCP 服务供 Agent 操作需求、任务、缺陷等。
+> 用 Next.js 全栈重写 SPMS 研发管理系统，并提供 HTTP Streamable MCP 服务供 Agent 操作需求、任务、缺陷等。
 
 ## 已确认的决策
 
@@ -29,7 +29,7 @@
 - drizzle 迁移已生成（`npm run db:generate` / `db:migrate` / `db:seed`）
 - `scripts/seed.ts`：admin 用户、4 个 AI agent、ai 标签、完整演示数据
 - `src/lib/{env,password,keys}.ts`、`.env.example` / `.env.local`
-- ✅ 迁移与 seed 已在 `postgres://postgres:postgres@livebook:5433/next_spms` 执行完成（admin/admin123 + 演示数据）
+- ✅ 迁移与 seed 已在 `postgres://postgres:postgres@livebook:5433/spms` 执行完成（admin/admin123 + 演示数据）
 
 ### Phase B1：服务端 lib + services ✅ 已完成
 - envelope/错误码、session（jose cookie）、serialize、rollup、assignments 传播代数、identity、agents 演示
@@ -106,5 +106,5 @@
 
 ## 环境要求
 
-- Node.js 20+；本地 PostgreSQL（`DATABASE_URL`，当前已配置 `postgres://postgres:postgres@livebook:5433/next_spms`）
+- Node.js 20+；本地 PostgreSQL（`DATABASE_URL`，当前已配置 `postgres://postgres:postgres@livebook:5433/spms`）
 - 可选：飞书开放平台自建应用凭证（`LARK_APP_ID` / `LARK_APP_SECRET` / `LARK_REDIRECT_URI`）

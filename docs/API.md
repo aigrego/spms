@@ -1,4 +1,4 @@
-# next-spms API 清单
+# spms API 清单
 
 业务前缀 `/api/v1/pms`；平台管理前缀 `/api/v1/platform`（仅平台管理员）。认证：cookie session（`POST /api/auth/login` 获取）。
 响应信封：业务结果一律 HTTP 200 + `{ ok:true, data } | { ok:false, error:{ code, message } }`；详情不存在返回 `ok(null)`。

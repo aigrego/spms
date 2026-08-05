@@ -1,4 +1,4 @@
-# next-spms 架构设计
+# spms 架构设计
 
 ## 总体架构
 
@@ -38,7 +38,7 @@
 ## 目录结构
 
 ```
-next-spms/
+spms/
 ├── drizzle/                    # 迁移文件
 ├── docs/                       # 项目文档（本目录）
 ├── scripts/seed.ts             # 初始数据（admin/agent/演示数据）

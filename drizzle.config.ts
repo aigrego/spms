@@ -5,6 +5,6 @@ export default defineConfig({
   schema: './src/db/schema.ts',
   out: './drizzle',
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/next_spms',
+    url: process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/spms',
   },
 });

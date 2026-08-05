@@ -3,7 +3,7 @@ import postgres from 'postgres';
 import * as schema from './schema';
 
 const connectionString =
-  process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/next_spms';
+  process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/spms';
 
 // postgres-js client. Next.js dev mode hot-reloads modules, so cache the client
 // on globalThis to avoid exhausting PG connections across reloads.

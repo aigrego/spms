@@ -21,7 +21,7 @@ for (const file of ['.env.local', '.env']) {
 
 async function main() {
   const sql = postgres(
-    process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/next_spms',
+    process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/spms',
   );
 
   const stale = await sql<{ id: string; name: string; company_id: string }[]>`

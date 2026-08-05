@@ -1,4 +1,4 @@
-# next-spms MCP 服务
+# spms MCP 服务
 
 HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、缺陷等。
 实现：`@modelcontextprotocol/sdk` 的 `StreamableHTTPServerTransport`，挂在 Next.js `/mcp` 路由（处理 POST/GET/DELETE）。
@@ -29,7 +29,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 ```json
 {
   "mcpServers": {
-    "next-spms": {
+    "spms": {
       "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": { "Authorization": "Bearer <在 /agent-access 签发的 key>" }

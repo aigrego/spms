@@ -87,7 +87,7 @@ async function queryByStatus(token: string, databaseId: string): Promise<NotionP
 }
 
 async function main() {
-  const sql = postgres(process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/next_spms');
+  const sql = postgres(process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/spms');
   console.log(
     `mode: ${apply ? 'APPLY (物理删除)' : 'DRY-RUN (只列出)'}${local ? ' + LOCAL (库内匹配,不查 Notion)' : ''}; statuses: ${statuses.join(' / ')}`,
   );

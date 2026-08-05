@@ -9,7 +9,7 @@ function required(name: string): string {
 
 export const env = {
   databaseUrl:
-    process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/next_spms',
+    process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/spms',
   // Secret used to sign session tokens (jose). Generate with:
   //   openssl rand -hex 32
   get sessionSecret() {
