@@ -175,12 +175,12 @@ function NotionConnectionForm({ conn }: { conn: NotionConnectionInfo }) {
       setPreviewJson(JSON.stringify(page, null, 2));
     });
 
-  const doSync = async () => {
+  const doSync = async (full = false) => {
     if (syncing) return;
     setSyncing(true);
     setActionError(null);
     try {
-      const result = await api.syncNotion();
+      const result = await api.syncNotion({ full });
       setSyncResult(result);
       await qc.invalidateQueries({ queryKey: ['notion-integration'] });
     } catch (e) {
@@ -340,15 +340,28 @@ function NotionConnectionForm({ conn }: { conn: NotionConnectionInfo }) {
         label={t('settingsPage.notionSync')}
         desc={syncReady ? undefined : t('settingsPage.notionSyncNeedConfig')}
         control={
-          <button
-            type="button"
-            className={primaryBtnCls}
-            disabled={busy || syncing || !syncReady}
-            title={syncReady ? undefined : t('settingsPage.notionSyncNeedConfig')}
-            onClick={doSync}
-          >
-            {syncing ? t('settingsPage.notionSyncing') : t('settingsPage.notionSync')}
-          </button>
+          <span className="flex items-center gap-2">
+            {/* 全量重同步:重置水位重拉全部页面(幂等,未变更页跳过),用于
+                issue 被直接删除后的重建。 */}
+            <button
+              type="button"
+              className={secondaryBtnCls}
+              disabled={busy || syncing || !syncReady}
+              title={syncReady ? t('settingsPage.notionSyncFullDesc') : t('settingsPage.notionSyncNeedConfig')}
+              onClick={() => doSync(true)}
+            >
+              {syncing ? t('settingsPage.notionSyncing') : t('settingsPage.notionSyncFull')}
+            </button>
+            <button
+              type="button"
+              className={primaryBtnCls}
+              disabled={busy || syncing || !syncReady}
+              title={syncReady ? undefined : t('settingsPage.notionSyncNeedConfig')}
+              onClick={() => doSync()}
+            >
+              {syncing ? t('settingsPage.notionSyncing') : t('settingsPage.notionSync')}
+            </button>
+          </span>
         }
       />
       {syncResult && (

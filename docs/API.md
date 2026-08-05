@@ -165,7 +165,7 @@
 | PATCH | `/integrations/notion` | `{ databaseId?, databaseName?, projectId?, statusMap? }` 保存同步数据库/目标项目（projectId 校验属于本公司）；`statusMap` 为每个 Notion 状态的 `{ name, status, sync }` 规则（status=null 不映射、sync=false 不同步；置 null 恢复内置默认） |
 | DELETE | `/integrations/notion` | 断开：删连接行，issue 映射随 cascade 删除（重连后全量重同步） |
 | GET | `/integrations/notion/preview` | 拉所选数据库最近编辑的一条记录，返回原始 Notion page JSON（字段映射调试用） |
-| POST | `/integrations/notion/sync` | 手动同步 Notion → Issues（按 `lastSyncedAt` 水位增量，幂等靠 `notion_issue_links`），返回 `{ created, updated, skipped, errors }` |
+| POST | `/integrations/notion/sync` | 手动同步 Notion → Issues（按 `lastSyncedAt` 水位增量，幂等靠 `notion_issue_links`），返回 `{ created, updated, skipped, errors }`；`?full=1` 全量重同步：忽略水位重拉全部页面（幂等不变，未变更页跳过），用于 issue 被直接删除后的重建 |
 
 ## Platform 平台管理（`/api/v1/platform`，仅平台管理员，否则 403；`/mcp-keys` 除外，见下）
 

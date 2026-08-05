@@ -443,7 +443,9 @@ export const api = {
     request<NotionIntegrationStatus>('/integrations/notion', json('PATCH', input)),
   disconnectNotion: () => request<{ disconnected: boolean }>('/integrations/notion', { method: 'DELETE' }),
   notionPreview: () => request<{ page: unknown }>('/integrations/notion/preview'),
-  syncNotion: () => request<NotionSyncResult>('/integrations/notion/sync', { method: 'POST' }),
+  // full=true 全量重同步:忽略水位重拉全部页面(幂等),用于已删 issue 的重建。
+  syncNotion: (opts?: { full?: boolean }) =>
+    request<NotionSyncResult>(`/integrations/notion/sync${opts?.full ? '?full=1' : ''}`, { method: 'POST' }),
 
   /* ---- 日报 (daily reports) ---- */
   reports: (params?: { startDate?: string; endDate?: string; memberId?: string; productId?: string }) => {

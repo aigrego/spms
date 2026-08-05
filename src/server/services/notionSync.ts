@@ -426,8 +426,12 @@ async function syncPage(
 
 /* 手动触发一次同步:拉取水位以来的变更页,逐条创建/更新/跳过,单条失败记
    errors 继续;结束后推进 lastSyncedAt 水位(本轮见过的最新 last_edited_time,
-   没有变更则置为 now)。 */
-export async function syncNotion(actor: Actor): Promise<NotionSyncResult> {
+   没有变更则置为 now)。
+   full=true 全量重同步:忽略连接水位重拉全部页面(用于 issue 被直接删除后的
+   重建等场景——删除只级联清映射,不触碰 Notion 的 last_edited_time,增量同步
+   永远拉不回这些页)。幂等不变:映射仍在且未变更的页照旧 skipped,只有缺失/
+   变更的页才会创建/更新。 */
+export async function syncNotion(actor: Actor, opts?: { full?: boolean }): Promise<NotionSyncResult> {
   await requirePerm(actor, 'issues', 'write');
   const [conn] = await db
     .select()
@@ -440,7 +444,7 @@ export async function syncNotion(actor: Actor): Promise<NotionSyncResult> {
 
   let pages: NotionPageObject[];
   try {
-    pages = await queryDatabase(conn.accessToken, conn.databaseId, conn.lastSyncedAt);
+    pages = await queryDatabase(conn.accessToken, conn.databaseId, opts?.full ? null : conn.lastSyncedAt);
   } catch (e) {
     throw new ApiException('INTERNAL', errMsg(e));
   }
