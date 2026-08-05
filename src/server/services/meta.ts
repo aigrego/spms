@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   members,
@@ -12,6 +12,7 @@ import {
   releases,
   companies,
   companyMemberships,
+  resourceAssignments,
 } from '@/db/schema';
 import { ensureAgents, ensureAiLabel } from '@/lib/identity';
 import { computeRollups } from '@/lib/rollup';
@@ -70,6 +71,30 @@ export async function bootstrap(actor: Actor) {
     projectsBySprint.set(l.sprintId, [...(projectsBySprint.get(l.sprintId) ?? []), l.projectId]);
   }
 
+  // 「我参与的」项目集:本人 direct 指派的项目,或本人 direct 指派迭代经
+  // sprint_projects 关联到的项目(口径同 visibility.ts)。管理员的列表不受
+  // 可见性过滤,前端项目列表的「全部/我参与的」筛选依赖此集合。
+  let myProjectIds: string[] = [];
+  if (actor.memberId) {
+    const myDirect = await db
+      .select({ nodeType: resourceAssignments.nodeType, nodeId: resourceAssignments.nodeId })
+      .from(resourceAssignments)
+      .where(
+        and(
+          eq(resourceAssignments.companyId, companyId),
+          eq(resourceAssignments.memberId, actor.memberId),
+          eq(resourceAssignments.source, 'direct'),
+        ),
+      );
+    const dProjects = new Set(myDirect.filter((d) => d.nodeType === 'project').map((d) => d.nodeId));
+    const dSprints = new Set(myDirect.filter((d) => d.nodeType === 'sprint').map((d) => d.nodeId));
+    const mine = new Set<string>(projectRows.filter((p) => dProjects.has(p.id)).map((p) => p.id));
+    for (const l of sprintProjectRows) {
+      if (dSprints.has(l.sprintId)) mine.add(l.projectId);
+    }
+    myProjectIds = [...mine];
+  }
+
   // Companies the actor can enter: every company for a platform admin, else the
   // companies they hold a membership in (oldest membership first).
   const companyRows = actor.isPlatformAdmin
@@ -101,6 +126,7 @@ export async function bootstrap(actor: Actor) {
     teams: teamRows,
     labels: labelRows,
     projects: visProjects.map((p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 })),
+    myProjectIds,
     sprints: visSprints.map((s) => ({ ...s, projectIds: projectsBySprint.get(s.id) ?? [] })),
     productLines: productLineRows,
     products: visProducts,

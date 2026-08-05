@@ -41,7 +41,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/bootstrap` | 启动参考数据：`{ me, role, companyRole, companies, currentCompany, permissions, members, teams, labels, projects, sprints, productLines, products, releases }`；均为**当前公司**沙箱内数据；projects/releases 的 progress 为派生值 |
+| GET | `/bootstrap` | 启动参考数据：`{ me, role, companyRole, companies, currentCompany, permissions, members, teams, labels, projects, myProjectIds, sprints, productLines, products, releases }`；均为**当前公司**沙箱内数据；projects/releases 的 progress 为派生值；`myProjectIds` 为「我参与的」项目集（本人 direct 指派的项目及其指派迭代关联的项目，口径同指派可见性），供项目列表「全部/我参与的」筛选 |
 
 ## Issues（缺陷 = type='bug'）
 

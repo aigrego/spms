@@ -76,6 +76,8 @@ export const PROJECT_STATUS: Record<ProjectStatus, { tone: Tone }> = {
   completed: { tone: 'success' },
 };
 
+export const PROJECT_STATUS_ORDER: ProjectStatus[] = ['backlog', 'planned', 'in_progress', 'completed'];
+
 /* Product Life Cycle (PLC) phases, in lifecycle order. */
 export const PROJECT_PHASE: Record<ProjectPhase, { color: string }> = {
   concept: { color: '#8E99B0' },

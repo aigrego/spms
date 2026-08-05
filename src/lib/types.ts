@@ -346,6 +346,9 @@ export interface Bootstrap {
   teams: Team[];
   labels: Label[];
   projects: Project[];
+  // 「我参与的」项目 id 集:本人 direct 指派的项目及其指派迭代关联的项目
+  // (口径同 visibility.ts);供项目列表的「全部/我参与的」筛选。
+  myProjectIds: string[];
   sprints: Sprint[];
   productLines: ProductLine[];
   products: Product[];

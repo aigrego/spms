@@ -42,6 +42,8 @@ interface AppDataValue {
   teams: Team[];
   labels: Label[];
   projects: Project[];
+  // 「我参与的」项目 id 集(bootstrap 下发,口径同 visibility.ts)。
+  myProjectIds: string[];
   sprints: Sprint[];
   productLines: ProductLine[];
   products: Product[];
@@ -131,6 +133,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       teams,
       labels,
       projects,
+      myProjectIds: data?.myProjectIds ?? [],
       sprints,
       productLines,
       products,
