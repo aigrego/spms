@@ -10,6 +10,7 @@ import {
   downloadFile,
   getPageBlocks,
   queryDatabase,
+  type NotionBlockObject,
   type NotionPageObject,
 } from '@/server/notion';
 import { registerAttachment } from './attachments';
@@ -25,7 +26,9 @@ import type { Actor } from './types';
 
    v1 字段映射与客户「CRM Requests」库的真实记录结构对齐(属性名硬编码):
    Name(title)/Request Description(rich_text)/Status(status)/Assigned To
-   (people)/Files & media(files)/Tags(multi_select)/Id(unique_id)。
+   (people)/Files & media(files)/Tags(multi_select)/Id(unique_id);
+   描述 = 头行 + Request Description 属性 + 页面正文 blocks 纯文本(客户库的
+   实际内容多写在页面正文里)。
    Status → SPMS status 的映射与「是否同步」由连接的 statusMap 配置驱动
    (设置页可改;未配置回退 lib/notionStatusMap 的内置默认)。
    展示 key 采用 Id(unique_id)的 "CRM-518"(缺失才按类型自动分配);
@@ -33,7 +36,8 @@ import type { Actor } from './types';
    时刻不可考的最佳近似);老数据随页面变更逐条收敛;
    老数据追平(页面未变更也执行):key 追平为 unique_id;映射状态与现值
    不一致时照常走完整更新。
-   v1 明示限制:附件只在新建时同步,后续新增的图片不补。 */
+   v1 明示限制:附件只在新建时同步,后续新增的图片不补;正文 blocks 只取
+   顶层,不递归子块(toggle/嵌套列表里的内容不取)。 */
 
 const PROP = {
   title: 'Name',
@@ -136,11 +140,63 @@ function mapType(page: NotionPageObject): IssueType {
 }
 
 /* 描述 = 头行(每次更新都重新生成,兼作 More info needed 等状态的备注位)
-   + 空行 + Request Description 纯文本。 */
-function buildDescription(page: NotionPageObject): string {
+   + Request Description 属性纯文本(如有)+ 页面正文 blocks 纯文本(如有)。 */
+function buildDescription(page: NotionPageObject, bodyText: string): string {
   const header = `Notion: ${pageLabel(page)} · ${statusName(page) ?? '—'} · ${page.url ?? ''}`;
-  const body = richText(page, PROP.description);
-  return body ? `${header}\n\n${body}` : header;
+  return [header, richText(page, PROP.description), bodyText].filter(Boolean).join('\n\n');
+}
+
+/* ---- 页面正文 blocks → 纯文本 ---- */
+
+/* 单个 block → 一行纯文本(Markdown 风格前缀);未覆盖的类型(含 image,
+   走附件通道)返回空串跳过。 */
+function blockText(block: NotionBlockObject): string {
+  const payload = block[block.type] as { rich_text?: { plain_text?: string }[] } | undefined;
+  const text = (payload?.rich_text ?? []).map((t) => t.plain_text ?? '').join('').trim();
+  if (!text) return '';
+  switch (block.type) {
+    case 'heading_1':
+      return `# ${text}`;
+    case 'heading_2':
+      return `## ${text}`;
+    case 'heading_3':
+      return `### ${text}`;
+    case 'bulleted_list_item':
+      return `- ${text}`;
+    case 'numbered_list_item':
+      return `1. ${text}`;
+    case 'to_do':
+      return `- [${(payload as { checked?: boolean }).checked ? 'x' : ' '}] ${text}`;
+    case 'quote':
+      return `> ${text}`;
+    case 'paragraph':
+    case 'callout':
+    case 'toggle':
+    case 'code':
+      return text;
+    default:
+      return '';
+  }
+}
+
+function blocksToText(blocks: NotionBlockObject[]): string {
+  return blocks.map(blockText).filter(Boolean).join('\n');
+}
+
+/* 页面正文 blocks:描述正文与图片附件都从这里取,每个被同步的页面只拉一次;
+   失败记 errors、按空处理,不阻断同步。v1 只取顶层 blocks,不递归子块
+   (toggle/嵌套列表里的内容不取)。 */
+async function fetchBlocks(
+  conn: ConnectionRow,
+  page: NotionPageObject,
+  errors: string[],
+): Promise<NotionBlockObject[]> {
+  try {
+    return await getPageBlocks(conn.accessToken, page.id);
+  } catch (e) {
+    errors.push(`${pageLabel(page)}: 读取内容块失败 (${errMsg(e)})`);
+    return [];
+  }
 }
 
 /* 邮箱 → 本公司指派人,两级匹配:
@@ -204,8 +260,8 @@ function errMsg(e: unknown): string {
 
 async function syncAttachments(
   actor: Actor,
-  conn: ConnectionRow,
   page: NotionPageObject,
+  blocks: NotionBlockObject[],
   issueKey: string,
   errors: string[],
 ): Promise<void> {
@@ -215,17 +271,12 @@ async function syncAttachments(
     const url = f.type === 'external' ? f.external?.url : f.file?.url;
     if (url && imageMimeFromName(f.name ?? '')) candidates.push({ name: f.name ?? 'image', url });
   }
-  // 页面内容里的 image blocks。
-  try {
-    const blocks = await getPageBlocks(conn.accessToken, page.id);
-    for (const b of blocks) {
-      if (b.type !== 'image') continue;
-      const img = b.image as FileRef | undefined;
-      const url = img?.type === 'external' ? img?.external?.url : img?.file?.url;
-      if (url) candidates.push({ name: filenameFromUrl(url) ?? `${b.id}.png`, url });
-    }
-  } catch (e) {
-    errors.push(`${pageLabel(page)}: 读取内容块失败 (${errMsg(e)})`);
+  // 页面内容里的 image blocks(blocks 由 syncPage 统一拉取)。
+  for (const b of blocks) {
+    if (b.type !== 'image') continue;
+    const img = b.image as FileRef | undefined;
+    const url = img?.type === 'external' ? img?.external?.url : img?.file?.url;
+    if (url) candidates.push({ name: filenameFromUrl(url) ?? `${b.id}.png`, url });
   }
 
   for (const c of candidates) {
@@ -309,10 +360,11 @@ async function syncPage(
     if (!statusStale && link.notionLastEditedAt && link.notionLastEditedAt >= edited) return 'skipped';
 
     const title = titleText(page) || pageLabel(page);
+    const blocks = await fetchBlocks(conn, page, errors);
     const assigneeId = await resolveAssigneeInput(actor.companyId, page);
     await updateIssue(actor, issueRow.key, {
       title,
-      description: buildDescription(page),
+      description: buildDescription(page, blocksToText(blocks)),
       type: mapType(page),
       ...(mappedStatus !== undefined ? { status: mappedStatus } : {}),
       ...(assigneeId !== undefined ? { assigneeId } : {}),
@@ -334,10 +386,11 @@ async function syncPage(
 
   const title = titleText(page) || pageLabel(page);
   const status = mapStatus(page, rules);
+  const blocks = await fetchBlocks(conn, page, errors);
   const assigneeId = await resolveAssigneeInput(actor.companyId, page);
   const created = await createIssue(actor, {
     title,
-    description: buildDescription(page),
+    description: buildDescription(page, blocksToText(blocks)),
     type: mapType(page),
     status: status ?? 'todo',
     assigneeId: assigneeId ?? null,
@@ -357,7 +410,7 @@ async function syncPage(
       .set({ createdAt: notionCreatedAt, ...((status ?? 'todo') === 'done' ? { completedAt: notionCreatedAt } : {}) })
       .where(eq(issues.id, row.id));
   }
-  await syncAttachments(actor, conn, page, created.id, errors);
+  await syncAttachments(actor, page, blocks, created.id, errors);
   await db.insert(notionIssueLinks).values({
     id: crypto.randomUUID(),
     companyId: actor.companyId,
