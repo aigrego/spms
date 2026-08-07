@@ -81,6 +81,7 @@ export function NewIssueModal({
   const [assignee, setAssignee] = React.useState<string | null>(null);
   const [labels, setLabels] = React.useState<string[]>([]);
   const [pending, setPending] = React.useState<PendingFile[]>([]);
+  const [submitError, setSubmitError] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   // Browser memory: remember the last picked project so the next new issue
   // defaults to it (presetProject, when given, always wins).
@@ -102,6 +103,7 @@ export function NewIssueModal({
       setAssignee(null);
       setLabels([]);
       setPending([]);
+      setSubmitError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, preset, presetProject]);
@@ -162,25 +164,32 @@ export function NewIssueModal({
 
   const submit = async () => {
     if (!title.trim() || !projectId) return;
-    const issue = await create.mutateAsync({
-      title: title.trim(),
-      description: desc.trim() || undefined,
-      type,
-      status,
-      priority,
-      importance,
-      projectId,
-      assigneeId: assignee,
-      labels: labels.length ? labels : undefined,
-    });
-    // The issue exists now — register the pending uploads (issue.id is the
-    // display key, e.g. "BUG-7"). A failed registration surfaces like a failed
-    // create; the issue itself is already created either way.
-    for (const p of pending) {
-      if (p.meta) await api.registerAttachment(issue.id, p.meta);
+    setSubmitError(null);
+    try {
+      const issue = await create.mutateAsync({
+        title: title.trim(),
+        description: desc.trim() || undefined,
+        type,
+        status,
+        priority,
+        importance,
+        projectId,
+        assigneeId: assignee,
+        labels: labels.length ? labels : undefined,
+      });
+      // The issue exists now — register the pending uploads (issue.id is the
+      // display key, e.g. "BUG-7"). A failed registration surfaces like a failed
+      // create; the issue itself is already created either way.
+      for (const p of pending) {
+        if (p.meta) await api.registerAttachment(issue.id, p.meta);
+      }
+      onOpenChange(false);
+      onCreated(issue.id);
+    } catch (e) {
+      // 不能把异常吞掉(弹框不关、无反馈、控制台 Uncaught)——issue 可能已创建,
+      // 把错误展示出来让用户决定重试还是取消。
+      setSubmitError(e instanceof Error ? e.message : String(e));
     }
-    onOpenChange(false);
-    onCreated(issue.id);
   };
 
   return (
@@ -337,6 +346,7 @@ export function NewIssueModal({
           />
         </div>
         <div className="flex items-center gap-2 border-t border-border px-[18px] py-3">
+          {submitError && <span className="min-w-0 flex-1 truncate text-[12.5px] text-danger">{submitError}</span>}
           <div className="flex-1" />
           <Button variant="ghost" size="md" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}

@@ -17,8 +17,12 @@ function providerLabel(p: OAuthProvider): string {
   return p === 'feishu' ? '飞书' : p === 'lark' ? 'Lark' : 'GitHub';
 }
 
-function loginFail(req: NextRequest, provider: string) {
-  const res = NextResponse.redirect(new URL(`/login?error=${provider}`, req.url), 302);
+function loginFail(req: NextRequest, provider: string, reason?: string) {
+  const url = new URL(`/login?error=${provider}`, req.url);
+  // 失败环节带上 reason(state/code/exchange),生产排障只看 URL 就能区分
+  // state 校验失败 / 缺少 code / 换取 token 或落库失败。
+  if (reason) url.searchParams.set('reason', reason);
+  const res = NextResponse.redirect(url, 302);
   res.cookies.delete(LOGIN_STATE_COOKIE);
   return res;
 }
@@ -67,7 +71,7 @@ export async function GET(
   const p = parseProvider(raw);
   if (!p || !providerConfigured(p)) return loginFail(req, raw);
   const code = req.nextUrl.searchParams.get('code');
-  if (!code) return loginFail(req, p);
+  if (!code) return loginFail(req, p, 'code');
 
   const state = req.nextUrl.searchParams.get('state') ?? '';
   const bindNonce = state.startsWith('bind.') ? state.slice('bind.'.length) : null;
@@ -105,7 +109,7 @@ export async function GET(
   // /login — proves this browser initiated the flow (login CSRF guard).
   const loginNonce = state.startsWith('login.') ? state.slice('login.'.length) : null;
   const loginCookie = req.cookies.get(LOGIN_STATE_COOKIE)?.value;
-  if (!loginNonce || !loginCookie || loginCookie !== loginNonce) return loginFail(req, p);
+  if (!loginNonce || !loginCookie || loginCookie !== loginNonce) return loginFail(req, p, 'state');
 
   try {
     const profile = await fetchOAuthProfile(p, code);
@@ -183,6 +187,6 @@ export async function GET(
     return res;
   } catch (e) {
     console.error(`[auth/${p}] callback failed:`, e);
-    return loginFail(req, p);
+    return loginFail(req, p, 'exchange');
   }
 }

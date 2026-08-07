@@ -19,10 +19,13 @@ export const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
 
 /* 期望的 blob host:与 @vercel/blob SDK 同款,从 BLOB_READ_WRITE_TOKEN
    (vercel_blob_rw_<storeId>_<secret>)解析 storeId,拼出 public 域名。
+   注意 token 内嵌的 storeId 是大小写混合的,而 blob 公共域名一律小写
+   (URL 解析也会把 host 规范化成小写),必须转小写再比较 —— 否则所有
+   附件注册都会被误判为「不属于本 blob 存储」。
    解析不到(未配置)时返回 null,调用方退化为只校验 Vercel Blob 公共域名后缀。 */
 function expectedBlobHost(): string | null {
   const storeId = process.env.BLOB_READ_WRITE_TOKEN?.split('_')[3];
-  return storeId ? `${storeId}.public.blob.vercel-storage.com` : null;
+  return storeId ? `${storeId.toLowerCase()}.public.blob.vercel-storage.com` : null;
 }
 
 /* 不信任客户端上报的 url/pathname:url 必须是指向本 blob 存储的 https 地址,
