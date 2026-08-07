@@ -471,12 +471,23 @@ export function IssueDetail({
               </h1>
             </div>
 
-            {(labels.length > 0 || issue.aiAssigned) && (
-              <div className="mb-[18px] flex flex-wrap gap-1.5">
+            {(labels.length > 0 || issue.aiAssigned || (canEditDesc && !descEditing)) && (
+              <div className="mb-[18px] flex flex-wrap items-center gap-1.5">
                 {issue.aiAssigned && <AISlaBadge />}
                 {labels.map((l) => (
                   <LabelChip key={l.id} label={l} />
                 ))}
+                {/* 描述编辑入口(TKT-25):与标签同一行,靠右对齐。 */}
+                {canEditDesc && !descEditing && (
+                  <button
+                    onClick={() => setDescEdit({ id: issue.id, text: issue.description ?? '' })}
+                    title={t('detail.editDesc')}
+                    aria-label={t('detail.editDesc')}
+                    className="ml-auto grid h-6 w-6 flex-none place-items-center rounded-md text-fg-3 hover:bg-surface-2 hover:text-fg-1"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                )}
               </div>
             )}
 
@@ -504,17 +515,7 @@ export function IssueDetail({
                 </div>
               </div>
             ) : (
-              <div className="group relative mb-[22px]">
-                {canEditDesc && (
-                  <button
-                    onClick={() => setDescEdit({ id: issue.id, text: issue.description ?? '' })}
-                    title={t('detail.editDesc')}
-                    aria-label={t('detail.editDesc')}
-                    className="absolute right-0 top-0 grid h-6 w-6 place-items-center rounded-md text-fg-3 hover:bg-surface-2 hover:text-fg-1"
-                  >
-                    <Pencil size={13} />
-                  </button>
-                )}
+              <div className="mb-[22px]">
                 {issue.description ? (
                   <Markdown text={issue.description} className="text-sm leading-relaxed text-fg-1" />
                 ) : canEditDesc ? (
