@@ -148,7 +148,9 @@ export default function LoginPage() {
                     size="lg"
                     className="w-full"
                     onClick={() => {
-                      window.location.href = oauth.feishu?.url ?? '/api/auth/feishu/login';
+                      // 必须走 /login 入口路由：它会签发 state nonce cookie 再 302——
+                      // 直接用 config 预建的授权 URL 会跳过 cookie,callback 必失败。
+                      window.location.href = '/api/auth/feishu/login';
                     }}
                   >
                     <FeishuMark size={16} /> 飞书登录
@@ -160,7 +162,7 @@ export default function LoginPage() {
                     size="lg"
                     className="w-full"
                     onClick={() => {
-                      window.location.href = oauth.lark?.url ?? '/api/auth/lark/login';
+                      window.location.href = '/api/auth/lark/login';
                     }}
                   >
                     <LarkMark size={16} /> Lark 登录
@@ -172,7 +174,7 @@ export default function LoginPage() {
                     size="lg"
                     className="w-full"
                     onClick={() => {
-                      window.location.href = oauth.github?.url ?? '/api/auth/github/login';
+                      window.location.href = '/api/auth/github/login';
                     }}
                   >
                     <GitHubMark size={16} /> GitHub 登录
