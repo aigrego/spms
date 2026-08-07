@@ -267,6 +267,7 @@ export function IssuesView({
   onOpen,
   onUpdate,
   onNewIssue,
+  onVisibleKeysChange,
 }: {
   issues: Issue[];
   title: string;
@@ -276,6 +277,9 @@ export function IssuesView({
   onOpen: (id: string) => void;
   onUpdate: (id: string, patch: UpdateIssueInput) => void;
   onNewIssue: (preset?: { status?: IssueStatus }) => void;
+  /* 当前可见列表(过滤+分组后的展示顺序)变化时上报有序 key 集,
+     供详情抽屉的上一个/下一个翻页限定在当前列表(TKT-26)。 */
+  onVisibleKeysChange?: (keys: string[]) => void;
 }) {
   const t = useT();
   const { humans, agents, projects, projectById, labelById, memberById, can } = useAppData();
@@ -337,6 +341,13 @@ export function IssuesView({
   const groups = cfg.keys
     .map((k) => ({ key: k, items: shownIssues.filter((i) => cfg.get(i) === k) }))
     .filter((g) => g.items.length > 0);
+
+  /* 展示顺序(分组顺序 × 组内顺序)的有序 key 集;board 模式同样是
+     按 cfg.keys 逐组铺开,顺序一致。key 不含逗号,用 join 做稳定依赖。 */
+  const visibleKeysJoin = groups.flatMap((g) => g.items.map((i) => i.id)).join(',');
+  React.useEffect(() => {
+    onVisibleKeysChange?.(visibleKeysJoin ? visibleKeysJoin.split(',') : []);
+  }, [visibleKeysJoin, onVisibleKeysChange]);
 
   // Inline create within a group: the new issue inherits the group's attribute, plus
   // the active type filter (so a quick-add under a type filter lands as that type).

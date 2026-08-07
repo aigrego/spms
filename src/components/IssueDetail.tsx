@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronLeft, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2, Archive, ArchiveRestore } from 'lucide-react';
+import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronLeft, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2, Archive, ArchiveRestore, Pencil } from 'lucide-react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +18,7 @@ import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, ScopedAssigneeMenu,
 import { useT, useLocale } from '@/lib/i18n';
 import { formatActivityTime } from '@/lib/time';
 import { useAppData } from '@/store/AppData';
-import { useIssue, useAllIssues, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue, useArchiveIssue, useRegisterAttachment, useDeleteAttachment } from '@/store/issues';
+import { useIssue, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue, useArchiveIssue, useRegisterAttachment, useDeleteAttachment } from '@/store/issues';
 import { useIssueCandidates } from '@/store/resources';
 import { useRequirements } from '@/store/requirements';
 import { uploadAttachment } from '@/lib/upload';
@@ -218,12 +218,22 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
   );
 }
 
-export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () => void; onOpen?: (key: string) => void }) {
-  const { memberById, projectById, labelById, sprintById, me, labelByKey, releaseById, productById, productLineById } = useAppData();
+export function IssueDetail({
+  id,
+  onClose,
+  onOpen,
+  listKeys,
+}: {
+  id: string;
+  onClose: () => void;
+  onOpen?: (key: string) => void;
+  /* 上一个/下一个翻页的上下文列表(TKT-26):调用方传入当前页面可见列表的
+     有序 key 集,翻页不会跨出该列表;不传则不提供翻页。 */
+  listKeys?: string[];
+}) {
+  const { memberById, projectById, labelById, sprintById, me, labelByKey, releaseById, productById, productLineById, can } = useAppData();
   const t = useT();
   const { data: issue } = useIssue(id);
-  // 上一个/下一个:与列表一致的「展示 ID 倒序」全集里取相邻项(不含已归档)。
-  const { data: allIssues = [] } = useAllIssues();
   const update = useUpdateIssue();
   const addComment = useAddComment();
   const toggleSub = useToggleSub();
@@ -240,6 +250,8 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
   const [tab, setTab] = React.useState<'activity' | 'comments'>('activity');
   const [copied, setCopied] = React.useState(false);
   const [moreOpen, setMoreOpen] = React.useState(false);
+  // 描述编辑草稿(TKT-25):按 issue id 记,翻页到别的 issue 自动退出编辑态。
+  const [descEdit, setDescEdit] = React.useState<{ id: string; text: string } | null>(null);
   // Image preview lightbox: index into the image-only attachment list (documents
   // open in a new tab instead), null = closed.
   const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
@@ -249,12 +261,13 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
   React.useEffect(() => {
     // Capture phase: runs before the Dialog's own Escape handling, so `previewOpen`
     // still reflects the open lightbox and Escape closes only the lightbox, not the drawer.
+    // 描述编辑中(descEdit)不按 Escape 关抽屉,避免丢失草稿。
     const k = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !previewOpen) onClose();
+      if (e.key === 'Escape' && !previewOpen && descEdit?.id !== id) onClose();
     };
     window.addEventListener('keydown', k, true);
     return () => window.removeEventListener('keydown', k, true);
-  }, [onClose, previewOpen]);
+  }, [onClose, previewOpen, descEdit, id]);
 
   // ArrowLeft/ArrowRight cycle the preview while the lightbox is open.
   React.useEffect(() => {
@@ -269,17 +282,11 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
 
   if (!issue) return null;
 
-  // 展示 ID 尾号数字降序(与 listIssues 的 SQL 排序同口径),取当前项前后邻居。
-  const numOf = (key: string) => {
-    const m = key.match(/(\d+)$/);
-    return m ? parseInt(m[1], 10) : 0;
-  };
-  const orderedKeys = [...allIssues]
-    .sort((a, b) => numOf(b.id) - numOf(a.id) || (a.id < b.id ? 1 : -1))
-    .map((i) => i.id);
-  const idx = orderedKeys.indexOf(issue.id);
-  const prevKey = idx > 0 ? orderedKeys[idx - 1] : null;
-  const nextKey = idx >= 0 && idx < orderedKeys.length - 1 ? orderedKeys[idx + 1] : null;
+  // 上一个/下一个:在当前列表(listKeys)里取相邻项;当前 issue 不在列表中
+  // (如被过滤掉)时两个方向都不可用,不跨列表翻页。
+  const idx = listKeys ? listKeys.indexOf(issue.id) : -1;
+  const prevKey = idx > 0 ? listKeys![idx - 1] : null;
+  const nextKey = idx >= 0 && listKeys && idx < listKeys.length - 1 ? listKeys[idx + 1] : null;
 
   const assignee = memberById(issue.assigneeId);
   const project = projectById(issue.projectId);
@@ -292,6 +299,14 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
   const docsLabel = labelByKey('docs');
   const isPRD = !!docsLabel && issue.labels.includes(docsLabel.id) && issue.aiAssigned;
   const patch = (p: Parameters<typeof update.mutate>[0]['input']) => update.mutate({ id, input: p });
+  // 描述仅创建人可编辑(TKT-25,Notion 同步的 issue 需要订正内容);创建人 = created 活动的 whoId。
+  const creatorId = issue.activities.find((a) => a.kind === 'created')?.whoId ?? null;
+  const canEditDesc = !!me && me.id === creatorId && can('issues', 'write');
+  const descEditing = descEdit?.id === issue.id;
+  const saveDesc = () => {
+    const text = (descEdit?.text ?? '').trim();
+    update.mutate({ id, input: { description: text || null } }, { onSuccess: () => setDescEdit(null) });
+  };
   const candidates = candData?.candidates ?? [];
   // Current lightbox attachment + wrap-around stepping across image attachments
   // only (documents never enter the lightbox — they open in a new tab).
@@ -465,10 +480,54 @@ export function IssueDetail({ id, onClose, onOpen }: { id: string; onClose: () =
               </div>
             )}
 
-            {issue.description ? (
-              <Markdown text={issue.description} className="mb-[22px] text-sm leading-relaxed text-fg-1" />
+            {descEditing ? (
+              <div className="mb-[22px]">
+                <textarea
+                  autoFocus
+                  value={descEdit.text}
+                  onChange={(e) => setDescEdit({ id: issue.id, text: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setDescEdit(null);
+                  }}
+                  rows={Math.min(16, Math.max(4, descEdit.text.split('\n').length + 1))}
+                  placeholder={t('detail.noDesc')}
+                  className="mb-2 block max-h-[320px] w-full resize-y rounded-[9px] border border-border-strong bg-surface px-3 py-2 text-sm leading-relaxed text-fg-1 outline-none focus:border-brand-blue"
+                />
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={saveDesc} disabled={update.isPending}>
+                    {t('common.save')}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setDescEdit(null)}>
+                    {t('common.cancel')}
+                  </Button>
+                  <span className="text-[12px] text-fg-3">Markdown</span>
+                </div>
+              </div>
             ) : (
-              <div className="mb-[22px] text-sm leading-relaxed text-fg-1">{t('detail.noDesc')}</div>
+              <div className="group relative mb-[22px]">
+                {canEditDesc && (
+                  <button
+                    onClick={() => setDescEdit({ id: issue.id, text: issue.description ?? '' })}
+                    title={t('detail.editDesc')}
+                    aria-label={t('detail.editDesc')}
+                    className="absolute right-0 top-0 grid h-6 w-6 place-items-center rounded-md text-fg-3 hover:bg-surface-2 hover:text-fg-1"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                )}
+                {issue.description ? (
+                  <Markdown text={issue.description} className="text-sm leading-relaxed text-fg-1" />
+                ) : canEditDesc ? (
+                  <button
+                    onClick={() => setDescEdit({ id: issue.id, text: '' })}
+                    className="block w-full rounded-md py-1 text-left text-sm leading-relaxed text-fg-3 hover:text-fg-1"
+                  >
+                    {t('detail.noDesc')}
+                  </button>
+                ) : (
+                  <div className="text-sm leading-relaxed text-fg-1">{t('detail.noDesc')}</div>
+                )}
+              </div>
             )}
 
             {/* Attachments */}

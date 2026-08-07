@@ -195,12 +195,24 @@ function VelocityChart({ data }: { data: Velocity }) {
 /* ------------------------------------------------------------------ */
 /* Backlog view (product backlog + sprint planning drop targets)       */
 /* ------------------------------------------------------------------ */
-export function BacklogView({ onOpen }: { onOpen: (id: string) => void }) {
+export function BacklogView({
+  onOpen,
+  onVisibleKeysChange,
+}: {
+  onOpen: (id: string) => void;
+  /* 待办列表展示顺序的有序 key 集,供详情抽屉翻页限定在当前列表(TKT-26)。 */
+  onVisibleKeysChange?: (keys: string[]) => void;
+}) {
   const t = useT();
   const { data: backlog = [] } = useBacklog();
   const { data: sprints = [] } = useSprints();
   const move = useMoveIssueToSprint();
   const [dragOver, setDragOver] = React.useState<string | null>(null);
+
+  const backlogKeysJoin = backlog.map((i) => i.id).join(',');
+  React.useEffect(() => {
+    onVisibleKeysChange?.(backlogKeysJoin ? backlogKeysJoin.split(',') : []);
+  }, [backlogKeysJoin, onVisibleKeysChange]);
 
   const onDragStart = (e: React.DragEvent, id: string) => {
     e.dataTransfer.setData('text/id', id);
@@ -334,6 +346,7 @@ export function SprintsView({
   sprint = null,
   onSelectSprint,
   onOpen,
+  onVisibleKeysChange,
 }: {
   // selected sprint id (driven by the /sprints/<id> path segment); null → fall back to active
   sprint?: string | null;
@@ -342,6 +355,9 @@ export function SprintsView({
   // 看板 issue 点击:带上当前生效的 sprintId(可能是 fallback 的活跃迭代),
   // 供路由拼 /sprints/<id>/issues/<KEY>。
   onOpen: (sprintId: string | null, issueKey: string) => void;
+  /* 看板展示顺序(按列从左到右、列内从上到下)的有序 key 集,
+     供详情抽屉翻页限定在当前迭代看板(TKT-26)。 */
+  onVisibleKeysChange?: (keys: string[]) => void;
 }) {
   const t = useT();
   const sd = useSprintDict();
@@ -398,6 +414,14 @@ export function SprintsView({
     { k: 'testing', label: t('scrum.col.testing'), match: (s: string) => s === 'testing' },
     { k: 'done', label: t('scrum.col.done'), match: (s: string) => ['done', 'canceled'].includes(s) },
   ];
+
+  // 看板展示顺序(逐列铺开)的有序 key 集;key 不含逗号,用 join 做稳定依赖。
+  const boardKeysJoin = detail
+    ? cols.flatMap((col) => detail.issues.filter((i) => col.match(i.status)).map((i) => i.id)).join(',')
+    : '';
+  React.useEffect(() => {
+    onVisibleKeysChange?.(boardKeysJoin ? boardKeysJoin.split(',') : []);
+  }, [boardKeysJoin, onVisibleKeysChange]);
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">

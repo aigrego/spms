@@ -47,6 +47,8 @@ export default function IssuesClient({
   );
   const { data: issues = [] } = useIssues(params);
   const update = useUpdateIssue();
+  // 详情抽屉翻页的上下文列表:视图按当前过滤/分组的展示顺序上报(TKT-26)。
+  const [navKeys, setNavKeys] = React.useState<string[]>([]);
 
   const onUpdate = React.useCallback(
     (id: string, patch: UpdateIssueInput) => update.mutate({ id, input: patch }),
@@ -75,8 +77,9 @@ export default function IssuesClient({
         onOpen={(id) => setSelected(id)}
         onUpdate={onUpdate}
         onNewIssue={openNewIssue}
+        onVisibleKeysChange={setNavKeys}
       />
-      {selected && <IssueDetail id={selected} onClose={() => setSelected(null)} onOpen={(key) => setSelected(key)} />}
+      {selected && <IssueDetail id={selected} onClose={() => setSelected(null)} onOpen={(key) => setSelected(key)} listKeys={navKeys} />}
     </>
   );
 }

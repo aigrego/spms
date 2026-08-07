@@ -10,7 +10,7 @@ import { Avatar } from '@/components/glyphs/Avatar';
 import { Markdown } from '@/components/Markdown';
 import { Skeleton } from '@/components/StateBlock';
 import { relativeTime } from '@/lib/time';
-import { contentToHtmlList, inlineToHtml } from '@/lib/reportHtml';
+import { contentToHtmlList, inlineToHtml, parseContentLines } from '@/lib/reportHtml';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useDeleteReport, useMyReport, useReports, useReportStats, useSaveMyReport } from '@/store/reports';
@@ -35,14 +35,6 @@ function ProductDot({ product, size = 8 }: { product?: Product; size?: number })
       style={{ width: size, height: size, background: product?.color ?? 'var(--fg-3)' }}
     />
   );
-}
-
-/* 内容行 → 任务条目:按行拆分,去掉常见列表前缀(1. / a. / - / •)。 */
-function toTaskLines(content: string): string[] {
-  return content
-    .split('\n')
-    .map((l) => l.replace(/^\s*(?:\d+[.、)]|[a-zA-Z][.)]|[-*•·])\s*/, '').trim())
-    .filter(Boolean);
 }
 
 /* ------------------------------------------------------------------ */
@@ -294,6 +286,7 @@ function FilterMenu({
 
 /* 汇总文本(对齐向上上报格式,TKT-14 起输出简单 Markdown):
    标题与分组名加粗,任务行统一 `- ` 列表并按层级缩进,中间层保留 `1.` 编号。
+   任务内容的多层级条目按缩进保留(TKT-29),无列表标记的标题/段落行原样保留。
      按产品:   **产品:** / 1. **成员:** /    - 任务
      按人员:   **成员:** / 1. **产品:** /    - 任务
      按负责人: **负责人:** / 1. **产品:** /    - **成员:** /      - 任务 */
@@ -310,9 +303,13 @@ function buildCopyText(
   const outerName = (g: SummaryGroup) =>
     mode === 'product' ? productName(g.id) : g.id === NO_LEAD ? noLeadLabel : memberName(g.id);
   const pushTasks = (rows: FlatRow[], indent: string) => {
-    rows
-      .flatMap((r) => toTaskLines(r.entry.content))
-      .forEach((task) => out.push(`${indent}- ${task}`));
+    for (const r of rows) {
+      for (const ln of parseContentLines(r.entry.content)) {
+        if (ln.list) out.push(`${indent}${'  '.repeat(ln.depth)}- ${ln.text}`);
+        else if (ln.heading) out.push(`${indent}${'#'.repeat(ln.heading)} ${ln.text}`);
+        else out.push(`${indent}${ln.text}`);
+      }
+    }
   };
   for (const g of groups) {
     out.push(`**${outerName(g)}:**`);
@@ -338,7 +335,8 @@ function buildCopyText(
 }
 
 /* 与 buildCopyText 同结构的 HTML 版本:粘贴进飞书/Lark 时,
-   嵌套 <ol> 渲染为 1. / a. / i. 富文本序号,<b>/<code> 同步生效。 */
+   分组层级嵌套 <ol> 渲染为 1. / a. / i. 富文本序号,任务内容的多层级条目
+   编成嵌套 <ul>,两个产品(外层分组)之间空一行(TKT-29)。 */
 function buildCopyHtml(
   date: string,
   groups: SummaryGroup[],
@@ -351,8 +349,9 @@ function buildCopyHtml(
   const out: string[] = [`<p><b>${d}/${m}/${y} 工作总结:</b></p>`];
   const outerName = (g: SummaryGroup) =>
     mode === 'product' ? productName(g.id) : g.id === NO_LEAD ? noLeadLabel : memberName(g.id);
-  const tasksHtml = (rows: FlatRow[]) => contentToHtmlList(rows.map((r) => r.entry.content).join('\n'));
+  const tasksHtml = (rows: FlatRow[]) => rows.map((r) => contentToHtmlList(r.entry.content)).join('');
   for (const g of groups) {
+    if (out.length > 1) out.push('<p></p>'); // 两个产品(外层分组)之间空一行
     out.push(`<p><b>${inlineToHtml(outerName(g))}:</b></p>`);
     if (g.depth === 2) {
       const innerName = (id: string) => (mode === 'product' ? memberName(id) : productName(id));
