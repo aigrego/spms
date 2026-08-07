@@ -4,7 +4,7 @@ import { issues, issueLabels, subIssues, activities, members, projects, requirem
 import { serializeIssueList, serializeIssueDetail } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
-import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
+import { assertProjectWritable, clampAllowed, issueVisible, visibleSetsFor } from '@/lib/visibility';
 import { onAgentAssigned } from '@/lib/agents';
 import { requirePerm } from '@/lib/permissions';
 import { recordSprintSnapshot } from './sprintSnapshots';
@@ -34,6 +34,11 @@ export type IssueType = IssueRow['type'];
 // Matches docs/PLAN.md §keys + the blueprint (BLG/TKT/BUG).
 const TYPE_PREFIX: Record<IssueType, string> = { backlog: 'BLG', ticket: 'TKT', bug: 'BUG' };
 
+/* 列表服务端上限(口径同 reports.ts 的 LIST_LIMIT=500,此处放宽到 1000):
+   前端「全部 Issues」视图依赖接近全量的列表,上限只作内存保护;超出按 key
+   倒序截断(最新的优先返回),不加分页参数、不改响应形状。 */
+const LIST_LIMIT = 1000;
+
 /* Resolve a requirement display key ("FR-12") → its internal uuid, within the
    company. Returns null for an empty key; undefined when provided but not found. */
 async function resolveRequirementId(companyId: string, key: string | null | undefined) {
@@ -56,6 +61,18 @@ const fetchDetail = (id: string) =>
     where: eq(issues.id, id),
     with: { ...withRelations, activities: true, attachments: true },
   });
+
+/* 批量回读多条 issue 详情(批量创建场景的统一回读,避免逐条 fetchDetail 的
+   N+1);返回顺序与入参 id 顺序一致。 */
+export async function fetchIssueDetails(ids: string[]) {
+  if (!ids.length) return [];
+  const rows = await db.query.issues.findMany({
+    where: inArray(issues.id, ids),
+    with: { ...withRelations, activities: true, attachments: true },
+  });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return ids.map((id) => serializeIssueDetail(byId.get(id)!));
+}
 
 /* Load any member (human or agent) by id, within the company. */
 async function loadMember(companyId: string, memberId: string | null | undefined) {
@@ -146,10 +163,13 @@ export async function listIssues(
     // 展示顺序固定为展示 ID 倒序(尾号数字降序,数字相同按 key 降序),
     // 不随创建/修改时间漂移 —— 列表位置稳定可预期。
     // 注意:模板串里的正则必须写成 \\d(JS 会把 \d 吞成字面 d)。
+    // TODO(perf): 正则 cast 无法走索引,排序仍是全表 sort;LIMIT 只兜内存。
+    // 后续优化点:key 尾号生成列 + 表达式索引(需迁移,TKT-21 未引入)。
     orderBy: [
       sql`case when ${issues.key} ~ '\\d+$' then cast(substring(${issues.key} from '\\d+$') as integer) else 0 end desc`,
       desc(issues.key),
     ],
+    limit: LIST_LIMIT,
   });
   return rows.map(serializeIssueList);
 }
@@ -165,19 +185,7 @@ export async function archivedProjectIds(companyId: string): Promise<string[]> {
 }
 
 /* 读单条按「不存在」处理（写路径 create/update 换项目则显式 403）:
-   1) 令牌项目白名单(无项目的 Issue 也不可见);
-   2) 指派可见性(visibility.ts;无项目的 Issue 公司级放行)。 */
-async function issueVisible(actor: Actor, projectId: string | null): Promise<boolean> {
-  if (actor.allowedProjectIds && (!projectId || !actor.allowedProjectIds.includes(projectId))) return false;
-  if (!projectId) return true;
-  const visible = await visibleSetsFor(actor);
-  return !visible || visible.projectIds.includes(projectId);
-}
-async function assertProjectWritable(actor: Actor, projectId: string | null) {
-  if (!(await issueVisible(actor, projectId))) {
-    throw new ApiException('FORBIDDEN', '该项目不在你的可见范围内', 403);
-  }
-}
+   可见性判定统一由 @/lib/visibility 的 issueVisible / assertProjectWritable 提供。 */
 
 /* ---- single issue with sub-issues + activity feed ----
    Missing data is NOT an error; the service returns null (route → data: null). */
@@ -208,8 +216,19 @@ export interface CreateIssueInput {
   labels?: string[]; // label ids — full replacement set
 }
 
-/* ---- create ---- */
-export async function createIssue(actor: Actor, input: CreateIssueInput) {
+/* ---- create ----
+   opts.deferDetail: 跳过结尾的详情回读,只返回 { id, key }(内部 uuid + 展示 key)
+   —— 批量创建场景(decomposeRequirement)由调用方最后用 fetchIssueDetails 统一回读。 */
+export async function createIssue(
+  actor: Actor,
+  input: CreateIssueInput,
+): Promise<ReturnType<typeof serializeIssueDetail>>;
+export async function createIssue(
+  actor: Actor,
+  input: CreateIssueInput,
+  opts: { deferDetail: true },
+): Promise<{ id: string; key: string }>;
+export async function createIssue(actor: Actor, input: CreateIssueInput, opts?: { deferDetail?: boolean }) {
   await requirePerm(actor, 'issues', 'write');
   if (!input.title.trim()) throw new ApiException('VALIDATION_FAILED', '标题不能为空');
   const companyId = actor.companyId;
@@ -245,50 +264,58 @@ export async function createIssue(actor: Actor, input: CreateIssueInput) {
     if (clash) throw new ApiException('CONFLICT', `key ${customKey} 已存在`);
   }
   const key = customKey || (await nextKey(companyId, TYPE_PREFIX[issueType]));
-  await db.insert(issues).values({
-    id,
-    companyId,
-    key,
-    teamId,
-    title: input.title.trim(),
-    description: input.description ?? null,
-    type: issueType,
-    status: input.status ?? 'todo',
-    completedAt: input.status === 'done' ? new Date() : null,
-    priority: input.priority ?? 'none',
-    importance: input.importance ?? 'none',
-    assigneeId: input.assigneeId ?? null,
-    projectId: resolvedProjectId,
-    requirementId: reqId,
-    sprintId: input.sprintId ?? null,
-    estimate: input.estimate ?? null,
-    storyPoints: input.storyPoints ?? null,
-    aiAssigned: !!agent,
-  });
+  // issue 行 + 标签 + created 动态同生同灭 → 一个事务。nextKey 保持事务外:
+  // 计数器行锁若带进事务会串行化同类创建,回遗留号空洞可接受(与序列语义一致)。
+  await db.transaction(async (tx) => {
+    await tx.insert(issues).values({
+      id,
+      companyId,
+      key,
+      teamId,
+      title: input.title.trim(),
+      description: input.description ?? null,
+      type: issueType,
+      status: input.status ?? 'todo',
+      completedAt: input.status === 'done' ? new Date() : null,
+      priority: input.priority ?? 'none',
+      importance: input.importance ?? 'none',
+      assigneeId: input.assigneeId ?? null,
+      projectId: resolvedProjectId,
+      requirementId: reqId,
+      sprintId: input.sprintId ?? null,
+      estimate: input.estimate ?? null,
+      storyPoints: input.storyPoints ?? null,
+      aiAssigned: !!agent,
+    });
 
-  if (input.labels?.length) {
-    await db
-      .insert(issueLabels)
-      .values(input.labels.map((labelId) => ({ companyId, issueId: id, labelId })))
-      .onConflictDoNothing();
-  }
-  await db.insert(activities).values({
-    id: crypto.randomUUID(),
-    companyId,
-    issueId: id,
-    whoId: actor.memberId,
-    kind: 'created',
-    body: '创建了该 Issue',
+    if (input.labels?.length) {
+      await tx
+        .insert(issueLabels)
+        .values(input.labels.map((labelId) => ({ companyId, issueId: id, labelId })))
+        .onConflictDoNothing();
+    }
+    await tx.insert(activities).values({
+      id: crypto.randomUUID(),
+      companyId,
+      issueId: id,
+      whoId: actor.memberId,
+      kind: 'created',
+      body: '创建了该 Issue',
+    });
   });
 
   // Agent assignee → label + scripted AI task. Human assignee on create: the
   // blueprint only sent a portal notification; with no portal, nothing extra
   // is written (the `created` activity already records it).
+  // onAgentAssigned / recordSprintSnapshot 是外部 helper(内部用全局 db,且依赖
+  // 已提交的 issue 行),保持事务后执行;失败留下的是可补偿的缺漏(少剧本/少快照),
+  // 而非半截 issue。
   if (agent) await onAgentAssigned(companyId, id, agent);
 
   // 直接建进迭代的 issue 影响当日燃尽快照。
   if (input.sprintId) await recordSprintSnapshot(companyId, input.sprintId);
 
+  if (opts?.deferDetail) return { id, key };
   const row = await fetchDetail(id);
   return serializeIssueDetail(row!);
 }
@@ -399,13 +426,17 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
   }
 
   if (input.labels !== undefined) {
-    await db.delete(issueLabels).where(eq(issueLabels.issueId, existing.id));
-    if (input.labels.length) {
-      await db
-        .insert(issueLabels)
-        .values(input.labels.map((labelId) => ({ companyId, issueId: existing.id, labelId })))
-        .onConflictDoNothing();
-    }
+    // 全量替换 = 先删后插,必须同事务:中途失败不能留下"标签被清空"的半截状态。
+    const labelIds = input.labels;
+    await db.transaction(async (tx) => {
+      await tx.delete(issueLabels).where(eq(issueLabels.issueId, existing.id));
+      if (labelIds.length) {
+        await tx
+          .insert(issueLabels)
+          .values(labelIds.map((labelId) => ({ companyId, issueId: existing.id, labelId })))
+          .onConflictDoNothing();
+      }
+    });
   }
 
   if (newAgent) {
@@ -432,6 +463,10 @@ export async function deleteIssue(actor: Actor, key: string) {
   await requirePerm(actor, 'issues', 'write');
   const existing = await findByKey(actor.companyId, key);
   if (!existing) throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
+  // 令牌项目白名单 + 指派可见性：范围外的 Issue 按不存在处理（与 updateIssue 一致）。
+  if (!(await issueVisible(actor, existing.projectId))) {
+    throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
+  }
   await db.delete(issues).where(eq(issues.id, existing.id));
   if (existing.sprintId) await recordSprintSnapshot(actor.companyId, existing.sprintId);
   return { id: key };
@@ -466,33 +501,46 @@ export async function addComment(actor: Actor, key: string, body: string) {
   await requirePerm(actor, 'issues', 'write');
   const existing = await findByKey(actor.companyId, key);
   if (!existing) throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
+  // 令牌项目白名单 + 指派可见性：范围外的 Issue 按不存在处理（与 updateIssue 一致）。
+  if (!(await issueVisible(actor, existing.projectId))) {
+    throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
+  }
   if (!body.trim()) throw new ApiException('VALIDATION_FAILED', '评论内容不能为空');
   const id = crypto.randomUUID();
-  await db.insert(activities).values({
-    id,
-    companyId: actor.companyId,
-    issueId: existing.id,
-    whoId: actor.memberId,
-    kind: 'comment',
-    body: body.trim(),
+  // 评论动态与 commentsCount+1 必须同生同灭 → 一个事务。
+  await db.transaction(async (tx) => {
+    await tx.insert(activities).values({
+      id,
+      companyId: actor.companyId,
+      issueId: existing.id,
+      whoId: actor.memberId,
+      kind: 'comment',
+      body: body.trim(),
+    });
+    await tx
+      .update(issues)
+      .set({ commentsCount: sql`${issues.commentsCount} + 1`, updatedAt: new Date() })
+      .where(eq(issues.id, existing.id));
   });
-  await db
-    .update(issues)
-    .set({ commentsCount: sql`${issues.commentsCount} + 1`, updatedAt: new Date() })
-    .where(eq(issues.id, existing.id));
   return { id };
 }
 
 /* ---- toggle a sub-issue's done state ----
-   Mirrors the blueprint: the sub is addressed by its own id (the issue key is
-   part of the route shape but not re-validated against the sub's parent). */
+   The sub is addressed by its own id; the URL 中的 issue key 必须与 sub 的
+   父 issue 一致且父 issue 在可见范围内,否则一律按子任务不存在处理。 */
 export async function toggleSubIssue(actor: Actor, key: string, subId: string, status: IssueStatus) {
   await requirePerm(actor, 'issues', 'write');
-  void key;
   const sub = await db.query.subIssues.findFirst({
     where: and(eq(subIssues.companyId, actor.companyId), eq(subIssues.id, subId)),
   });
   if (!sub) throw new ApiException('NOT_FOUND', `子任务 ${subId} 不存在`);
+  // 校验 sub 归属 URL 中的父 issue(key 一致),并对父 issue 项目做可见性检查。
+  const parent = await db.query.issues.findFirst({
+    where: and(eq(issues.companyId, actor.companyId), eq(issues.id, sub.issueId)),
+  });
+  if (!parent || parent.key !== key || !(await issueVisible(actor, parent.projectId))) {
+    throw new ApiException('NOT_FOUND', `子任务 ${subId} 不存在`);
+  }
   await db.update(subIssues).set({ status }).where(eq(subIssues.id, subId));
   await db.update(issues).set({ updatedAt: new Date() }).where(eq(issues.id, sub.issueId));
   return { id: subId, status };

@@ -6,7 +6,7 @@ import { findUserByEmail, upsertVerifiedEmail } from '@/lib/emails';
 import { claimExternalInvites, ensureCurrentMember, syncMemberProjection } from '@/lib/identity';
 import { createSessionCookie, getSession } from '@/lib/session';
 import { defaultCompanyForUser } from '@/server/http';
-import { BIND_STATE_COOKIE, fetchOAuthProfile, parseProvider, providerConfigured, type OAuthProvider } from '@/server/lark';
+import { BIND_STATE_COOKIE, LOGIN_STATE_COOKIE, fetchOAuthProfile, parseProvider, providerConfigured, type OAuthProvider } from '@/server/lark';
 
 /* 各 provider 的稳定身份存哪个字段：飞书/Lark 共享 union_id，GitHub 用数字 id。 */
 function identityKey(p: OAuthProvider): 'larkUnionId' | 'githubId' {
@@ -18,7 +18,9 @@ function providerLabel(p: OAuthProvider): string {
 }
 
 function loginFail(req: NextRequest, provider: string) {
-  return NextResponse.redirect(new URL(`/login?error=${provider}`, req.url), 302);
+  const res = NextResponse.redirect(new URL(`/login?error=${provider}`, req.url), 302);
+  res.cookies.delete(LOGIN_STATE_COOKIE);
+  return res;
 }
 
 function bindResult(req: NextRequest, result: 'bound' | 'taken' | 'failed') {
@@ -45,7 +47,8 @@ async function pickUsername(preferred: string | undefined, fallback: string): Pr
    - state=bind.<nonce> (from /api/auth/<p>/bind): verify the nonce cookie and
      the active session, then link the provider identity onto THAT user (no new
      account, no re-login) → 302 /profile/security?oauth=bound|taken|failed.
-   - otherwise (login mode):
+   - state=login.<nonce> (from /api/auth/<p>/login): verify the nonce cookie
+     (login CSRF guard), then:
      1) 身份命中 users.larkUnionId / githubId → 老用户直接登录;
      2) 身份未命中但 IdP 邮箱匹配任一已有邮箱（user_emails 主/备，其次用户名）
         → 把身份绑到该账号（IdP 已证明邮箱归属），邮箱升级 verified 并认领邀请;
@@ -97,6 +100,12 @@ export async function GET(
       return bindResult(req, 'failed');
     }
   }
+
+  // Login mode: state must be login.<nonce> and match the cookie set by
+  // /login — proves this browser initiated the flow (login CSRF guard).
+  const loginNonce = state.startsWith('login.') ? state.slice('login.'.length) : null;
+  const loginCookie = req.cookies.get(LOGIN_STATE_COOKIE)?.value;
+  if (!loginNonce || !loginCookie || loginCookie !== loginNonce) return loginFail(req, p);
 
   try {
     const profile = await fetchOAuthProfile(p, code);
@@ -169,6 +178,7 @@ export async function GET(
     if (company) await ensureCurrentMember(u, company.id);
     const c = await createSessionCookie(u, company?.id);
     const res = NextResponse.redirect(new URL('/issues', req.url), 302);
+    res.cookies.delete(LOGIN_STATE_COOKIE); // nonce 一次性使用
     res.cookies.set(c.name, c.value, c.options);
     return res;
   } catch (e) {

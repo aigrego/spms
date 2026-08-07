@@ -25,8 +25,8 @@ import type { Issue, Sprint, Burndown, Velocity } from '@/lib/types';
    vs the blueprint:
    - no `team` prop — the standalone app is single-workspace, hooks are called
      unscoped (same as C1's issues view);
-   - ResourcePanel → ResourcePanelCompact placeholder until Phase C3 lands the
-     full panel;
+   - 资源指派面板统一用 ResourcePanelCompact（皇冠=负责人、勾选=普通成员的
+     精简选择框，各视图一致；完整版 ResourcePanel 仅项目枢纽等资源 tab 使用）;
    - SprintsView gains a 新建迭代 entry + a card edit button wired to the new
      SprintModal (no blueprint counterpart). */
 

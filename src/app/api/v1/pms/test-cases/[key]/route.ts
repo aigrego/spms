@@ -1,11 +1,7 @@
 import { ok } from '@/lib/envelope';
-import {
-  deleteTestCase,
-  getTestCase,
-  updateTestCase,
-  type UpdateTestCaseInput,
-} from '@/server/services/testcases';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { deleteTestCase, getTestCase, updateTestCase } from '@/server/services/testcases';
+import { requireActor, route } from '@/server/http';
+import { jsonBodyWith, testCaseUpdateSchema } from '@/server/validate';
 
 type Ctx = { params: Promise<{ key: string }> };
 
@@ -19,7 +15,7 @@ export const GET = route(async (_req, ctx: Ctx) => {
 
 export const PATCH = route(async (req, ctx: Ctx) => {
   const actor = await requireActor();
-  return ok(await updateTestCase(actor, (await ctx.params).key, await jsonBody<UpdateTestCaseInput>(req)));
+  return ok(await updateTestCase(actor, (await ctx.params).key, await jsonBodyWith(req, testCaseUpdateSchema)));
 });
 
 export const DELETE = route(async (_req, ctx: Ctx) => {

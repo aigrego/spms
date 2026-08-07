@@ -182,6 +182,10 @@ async function main() {
   if (existingLine) {
     console.log('demo data already present (CORE product line exists) — skipped (seed is idempotent).');
   } else {
+    // 生产环境必须显式提供 SEED_ADMIN_PASSWORD,禁止回退到公开的默认口令。
+    if (process.env.NODE_ENV === 'production' && !process.env.SEED_ADMIN_PASSWORD) {
+      throw new Error('生产环境 (NODE_ENV=production) 必须显式设置 SEED_ADMIN_PASSWORD');
+    }
     const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'admin123';
     await db
       .insert(users)

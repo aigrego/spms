@@ -11,7 +11,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ### key 能力、有效期与使用记录
 
-- **能力上限**（`capabilities`，逗号分隔）：`read` = 11 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`）；`write` = 12 个写工具；`delete` 预留（当前无删除类工具）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
+- **能力上限**（`capabilities`，逗号分隔）：`read` = 11 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`）；`write` = 15 个写工具；`delete` 预留（当前无删除类工具）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
 - **有效期**（`expiresAt`，NULL = 永久）：到期后鉴权直接 401，无需吊销。
 - **最近使用**（`lastUsedAt`）：每次通过 MCP 鉴权时刷新（60s 节流），在令牌列表展示。
   2. **env 兜底**：未命中 DB 时回退到 env `MCP_API_KEY`（逗号分隔多个），一律视为**平台级** key（开发兼容）。
@@ -49,7 +49,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## Tools
 
-共 **23 个**（读 11 + 写 12）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
+共 **26 个**（读 11 + 写 15）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
 
 ### 读
 

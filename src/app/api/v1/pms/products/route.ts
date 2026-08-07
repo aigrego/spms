@@ -1,6 +1,7 @@
 import { ok } from '@/lib/envelope';
-import { createProduct, listProducts, type CreateProductInput } from '@/server/services/catalog';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { createProduct, listProducts } from '@/server/services/catalog';
+import { requireActor, route } from '@/server/http';
+import { jsonBodyWith, productCreateSchema } from '@/server/validate';
 
 /* GET  /api/v1/pms/products?line — list (position asc).
    POST /api/v1/pms/products — create (auto PD-N key; leadId double-write). */
@@ -11,5 +12,5 @@ export const GET = route(async (req) => {
 
 export const POST = route(async (req) => {
   const actor = await requireActor();
-  return ok(await createProduct(actor, await jsonBody<CreateProductInput>(req)));
+  return ok(await createProduct(actor, await jsonBodyWith(req, productCreateSchema)));
 });

@@ -20,6 +20,11 @@ export const ALLOWED_DOC_TYPES = [
 
 export const ALLOWED_ATTACHMENT_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_DOC_TYPES];
 
+/* Blob pathname 的签发前缀约定:浏览器 client-direct 上传与服务端 put
+   (MCP/Notion 同步)都落在该前缀下;upload token 签发端拒绝其他 pathname,
+   注册端(registerAttachment)用同一前缀校验附件归属。 */
+export const ATTACHMENT_PATH_PREFIX = 'issues/';
+
 // <input accept> string — extensions are more reliable than MIME on some OSes.
 export const ATTACHMENT_ACCEPT = 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.md';
 

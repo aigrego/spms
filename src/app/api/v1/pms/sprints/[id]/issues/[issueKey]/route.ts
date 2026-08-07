@@ -1,6 +1,7 @@
 import { ok } from '@/lib/envelope';
 import { moveIssue } from '@/server/services/sprints';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { requireActor, route } from '@/server/http';
+import { jsonBodyWith, sprintMoveIssueSchema } from '@/server/validate';
 
 type Ctx = { params: Promise<{ id: string; issueKey: string }> };
 
@@ -9,6 +10,6 @@ type Ctx = { params: Promise<{ id: string; issueKey: string }> };
 export const PATCH = route(async (req, ctx: Ctx) => {
   const actor = await requireActor();
   const { id, issueKey } = await ctx.params;
-  const body = await jsonBody<{ storyPoints?: number | null }>(req);
-  return ok(await moveIssue(actor, id, issueKey, body.storyPoints));
+  const { storyPoints } = await jsonBodyWith(req, sprintMoveIssueSchema);
+  return ok(await moveIssue(actor, id, issueKey, storyPoints));
 });

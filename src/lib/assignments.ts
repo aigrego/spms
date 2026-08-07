@@ -1,6 +1,7 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '@/db';
 import { resourceAssignments, sprints, sprintProjects, projects, releases, products } from '@/db/schema';
+import { invalidateVisibilityCache } from '@/lib/visibility';
 
 /* PMS-2 §3 — 研发资源 (virtual team) assignment + propagation algebra.
 
@@ -29,6 +30,18 @@ export type AssignmentNodeType = 'product' | 'release' | 'project' | 'sprint';
 export interface NodeRef {
   nodeType: AssignmentNodeType;
   nodeId: string;
+}
+
+/* 一组多态节点引用 → resourceAssignments 的 or(...) 谓词(按 nodeType 分组成
+   inArray,一条 SQL 覆盖全部节点,替代逐节点查询/删除的 N+1)。refs 为空时
+   返回 undefined,调用方需自行兜底(inArray 不接受空数组)。 */
+function nodeRefsCond(refs: NodeRef[]): SQL | undefined {
+  if (!refs.length) return undefined;
+  const byType = new Map<AssignmentNodeType, string[]>();
+  for (const r of refs) byType.set(r.nodeType, [...(byType.get(r.nodeType) ?? []), r.nodeId]);
+  return or(
+    ...[...byType].map(([t, ids]) => and(eq(resourceAssignments.nodeType, t), inArray(resourceAssignments.nodeId, ids))),
+  );
 }
 
 /* The immediate lifecycle parents of a node (empty at the product root).
@@ -203,42 +216,46 @@ export async function assignMember(
     });
 
   const ancestors = await ancestorsOf(companyId, nodeType, nodeId);
-  for (const a of ancestors) {
+  // 祖先链 propagated 行合并为一条多行 INSERT(各祖先互不影响,onConflict 幂等,
+  // 与逐条插入等价;原为逐祖先一次往返)。
+  if (ancestors.length) {
     await db
       .insert(resourceAssignments)
-      .values({
-        id: crypto.randomUUID(),
-        companyId,
-        nodeType: a.nodeType,
-        nodeId: a.nodeId,
-        memberId,
-        role: 'member',
-        source: 'propagated',
-        addedById,
-      })
+      .values(
+        ancestors.map((a) => ({
+          id: crypto.randomUUID(),
+          companyId,
+          nodeType: a.nodeType,
+          nodeId: a.nodeId,
+          memberId,
+          role: 'member' as const,
+          source: 'propagated' as const,
+          addedById,
+        })),
+      )
       .onConflictDoNothing();
   }
+  // 指派变化直接影响该成员的可见性集合 → 即时失效(visibility.ts 的 60s 缓存)。
+  invalidateVisibilityCache(companyId);
 }
 
 /* Is there a `direct` row for the member among any of these nodes? */
 async function anyDirectAmong(companyId: string, refs: NodeRef[], memberId: string): Promise<boolean> {
-  for (const r of refs) {
-    const [row] = await db
-      .select({ id: resourceAssignments.id })
-      .from(resourceAssignments)
-      .where(
-        and(
-          eq(resourceAssignments.companyId, companyId),
-          eq(resourceAssignments.nodeType, r.nodeType),
-          eq(resourceAssignments.nodeId, r.nodeId),
-          eq(resourceAssignments.memberId, memberId),
-          eq(resourceAssignments.source, 'direct'),
-        ),
-      )
-      .limit(1);
-    if (row) return true;
-  }
-  return false;
+  if (!refs.length) return false;
+  // 一条按类型分组的查询覆盖全部节点(原为逐节点 SELECT,N+1)。
+  const [row] = await db
+    .select({ id: resourceAssignments.id })
+    .from(resourceAssignments)
+    .where(
+      and(
+        eq(resourceAssignments.companyId, companyId),
+        eq(resourceAssignments.memberId, memberId),
+        eq(resourceAssignments.source, 'direct'),
+        nodeRefsCond(refs),
+      ),
+    )
+    .limit(1);
+  return !!row;
 }
 
 /* §3.4 unassign — cascade DOWN (delete N + every descendant row for the member),
@@ -250,39 +267,45 @@ export async function unassignMember(
   memberId: string,
 ): Promise<void> {
   const targets: NodeRef[] = [{ nodeType, nodeId }, ...(await descendantsOf(companyId, nodeType, nodeId))];
-  for (const tref of targets) {
-    await db
-      .delete(resourceAssignments)
-      .where(
-        and(
-          eq(resourceAssignments.companyId, companyId),
-          eq(resourceAssignments.nodeType, tref.nodeType),
-          eq(resourceAssignments.nodeId, tref.nodeId),
-          eq(resourceAssignments.memberId, memberId),
-        ),
-      );
-  }
+  // 逐节点 DELETE 合并为一条按类型分组的删除(节点各自独立,无顺序依赖)。
+  await db
+    .delete(resourceAssignments)
+    .where(
+      and(eq(resourceAssignments.companyId, companyId), eq(resourceAssignments.memberId, memberId), nodeRefsCond(targets)),
+    );
 
   const ancestors = await ancestorsOf(companyId, nodeType, nodeId); // near → far
+  // 成员在祖先链上的现有行一次取回(原为逐祖先 SELECT)。
+  const ancestorRows = ancestors.length
+    ? await db
+        .select({
+          id: resourceAssignments.id,
+          nodeType: resourceAssignments.nodeType,
+          nodeId: resourceAssignments.nodeId,
+          source: resourceAssignments.source,
+        })
+        .from(resourceAssignments)
+        .where(
+          and(
+            eq(resourceAssignments.companyId, companyId),
+            eq(resourceAssignments.memberId, memberId),
+            nodeRefsCond(ancestors),
+          ),
+        )
+    : [];
+  const rowByNode = new Map(ancestorRows.map((r) => [`${r.nodeType}:${r.nodeId}`, r]));
+  const gcIds: string[] = [];
   for (const a of ancestors) {
-    const [row] = await db
-      .select({ id: resourceAssignments.id, source: resourceAssignments.source })
-      .from(resourceAssignments)
-      .where(
-        and(
-          eq(resourceAssignments.companyId, companyId),
-          eq(resourceAssignments.nodeType, a.nodeType),
-          eq(resourceAssignments.nodeId, a.nodeId),
-          eq(resourceAssignments.memberId, memberId),
-        ),
-      )
-      .limit(1);
+    const row = rowByNode.get(`${a.nodeType}:${a.nodeId}`);
     if (!row || row.source !== 'propagated') continue; // direct rows stay
     const desc = await descendantsOf(companyId, a.nodeType, a.nodeId);
-    if (!(await anyDirectAmong(companyId, desc, memberId))) {
-      await db.delete(resourceAssignments).where(eq(resourceAssignments.id, row.id));
-    }
+    if (!(await anyDirectAmong(companyId, desc, memberId))) gcIds.push(row.id);
   }
+  // GC 删除统一批量执行:anyDirectAmong 只看 direct 行,删掉 propagated 行不影响
+  // 后续祖先的判定,与原先「边走边删」(near → far)等价。
+  if (gcIds.length) await db.delete(resourceAssignments).where(inArray(resourceAssignments.id, gcIds));
+  // 撤销指派是可见性缓存唯一敏感的方向 → 即时失效。
+  invalidateVisibilityCache(companyId);
 }
 
 /* Remove a member from EVERY node in the company (revoke / delete from pool).
@@ -291,6 +314,7 @@ export async function unassignMemberEverywhere(companyId: string, memberId: stri
   await db
     .delete(resourceAssignments)
     .where(and(eq(resourceAssignments.companyId, companyId), eq(resourceAssignments.memberId, memberId)));
+  invalidateVisibilityCache(companyId);
 }
 
 /* Clean up a node's assignments when the node itself is deleted (referential
@@ -310,6 +334,15 @@ export async function clearNodeAssignments(
         eq(resourceAssignments.nodeId, nodeId),
       ),
     );
+  invalidateVisibilityCache(companyId);
+}
+
+/* clearNodeAssignments 的批量版:多节点合并为一条按类型分组的删除(节点各自
+   独立,一次往返替代逐节点 N 次)。 */
+export async function clearNodesAssignments(companyId: string, refs: NodeRef[]): Promise<void> {
+  if (!refs.length) return;
+  await db.delete(resourceAssignments).where(and(eq(resourceAssignments.companyId, companyId), nodeRefsCond(refs)));
+  invalidateVisibilityCache(companyId);
 }
 
 /* When a node is deleted its whole lifecycle subtree cascade-deletes (DB FK) but
@@ -320,8 +353,10 @@ export async function clearSubtreeAssignments(
   nodeType: AssignmentNodeType,
   nodeId: string,
 ): Promise<void> {
-  const refs: NodeRef[] = [{ nodeType, nodeId }, ...(await descendantsOf(companyId, nodeType, nodeId))];
-  for (const r of refs) await clearNodeAssignments(companyId, r.nodeType, r.nodeId);
+  await clearNodesAssignments(companyId, [
+    { nodeType, nodeId },
+    ...(await descendantsOf(companyId, nodeType, nodeId)),
+  ]);
 }
 
 /* Sprints that die when the given projects are deleted: those whose EVERY
@@ -337,15 +372,15 @@ export async function sprintsDyingWithProjects(companyId: string, projectIds: st
     .where(and(eq(sprintProjects.companyId, companyId), inArray(sprintProjects.projectId, projectIds)));
   const insideCount = new Map<string, number>();
   for (const l of links) insideCount.set(l.sprintId, (insideCount.get(l.sprintId) ?? 0) + 1);
-  const dying: string[] = [];
-  for (const [sprintId, inside] of insideCount) {
-    const total = await db
-      .select({ projectId: sprintProjects.projectId })
-      .from(sprintProjects)
-      .where(and(eq(sprintProjects.companyId, companyId), eq(sprintProjects.sprintId, sprintId)));
-    if (total.length === inside) dying.push(sprintId);
-  }
-  return dying;
+  if (!insideCount.size) return [];
+  // 候选迭代的项目总数一次按组取回(原为逐候选迭代再查一次,N+1)。
+  const totalRows = await db
+    .select({ sprintId: sprintProjects.sprintId })
+    .from(sprintProjects)
+    .where(and(eq(sprintProjects.companyId, companyId), inArray(sprintProjects.sprintId, [...insideCount.keys()])));
+  const totalCount = new Map<string, number>();
+  for (const r of totalRows) totalCount.set(r.sprintId, (totalCount.get(r.sprintId) ?? 0) + 1);
+  return [...insideCount].filter(([sprintId, inside]) => totalCount.get(sprintId) === inside).map(([sprintId]) => sprintId);
 }
 
 /* Count the cascade-delete impact of removing a node (for the type-to-confirm
@@ -367,6 +402,15 @@ export async function subtreeImpact(companyId: string, nodeType: AssignmentNodeT
     all.push(d);
   }
   let assignments = 0;
-  for (const r of all) assignments += (await nodeMemberIds(companyId, r.nodeType, r.nodeId)).size;
+  // 指派行数一条 count 查询覆盖全部节点(原为逐节点 nodeMemberIds,N+1);
+  // (nodeType,nodeId,memberId) 有唯一索引,行数即各节点去重成员数之和。
+  const countCond = nodeRefsCond(all);
+  if (countCond) {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(resourceAssignments)
+      .where(and(eq(resourceAssignments.companyId, companyId), countCond));
+    assignments = row?.count ?? 0;
+  }
   return { descendants: counts, assignments };
 }

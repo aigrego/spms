@@ -4,7 +4,7 @@ import type { InviteResourceInput } from '@/lib/api';
 import type { AssignmentNodeType, AssignmentRole } from '@/lib/types';
 
 /* PMS-2 资源池 + 虚拟团队 hooks. The pool ships in bootstrap (members carry
-   origin/status), so invite/revoke/sync invalidate ['bootstrap']. Per-node
+   origin/status), so invite/revoke invalidate ['bootstrap']. Per-node
    assignments are lazily queried; an assign/unassign touches a node's whole
    ancestor/descendant chain, so any mutation invalidates ['assignments'] wholesale
    (cheap — only mounted panels refetch) plus ['bootstrap'] for the pool view. */
@@ -29,10 +29,6 @@ export function useInviteResource() {
 export function useRevokeResource() {
   const invalidate = useInvalidateAssignments();
   return useMutation({ mutationFn: (id: string) => api.revokeResource(id), onSuccess: invalidate });
-}
-export function useSyncDirectory() {
-  const invalidate = useInvalidatePool();
-  return useMutation({ mutationFn: () => api.syncDirectory(), onSuccess: invalidate });
 }
 
 /* ---- 公司席位(研发资源 · 内部成员段) ---- */

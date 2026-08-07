@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { products, projects, releases, resourceAssignments, sprints, sprintProjects } from '@/db/schema';
+import { ApiException } from '@/lib/envelope';
 import type { Actor } from '@/server/services/types';
 
 /* 按研发资源指派(resource_assignments 的 direct 行)的可见性模型。
@@ -26,11 +27,39 @@ export interface VisibleSets {
 
 const EMPTY: VisibleSets = { productIds: [], releaseIds: [], projectIds: [], sprintIds: [] };
 
+/* visibleSetsFor 的结果按 (companyId, memberId) 进程内缓存 60s(与 permissions
+   矩阵缓存同款写法):每次判定要拉 6 张全表,而可见性变化的传播延迟可接受 ——
+   新建节点对未指派者本就不可见(fail-closed),已删节点的残留 id 命中不到行、
+   不放大可见面;唯一敏感方向是「撤销指派」,由 @/lib/assignments 的写路径调用
+   invalidateVisibilityCache 即时清掉该公司条目。
+   注意:serverless / 多实例部署下各实例缓存互不可见,失效只清当前实例,
+   其余实例等 TTL 自然过期(与 permissions 缓存同一前提)。 */
+const CACHE_TTL_MS = 60_000;
+const cache = new Map<string, { at: number; sets: VisibleSets }>();
+
+export function invalidateVisibilityCache(companyId?: string): void {
+  if (companyId === undefined) {
+    cache.clear();
+    return;
+  }
+  for (const k of cache.keys()) if (k.startsWith(`${companyId}:`)) cache.delete(k);
+}
+
 export async function visibleSetsFor(actor: Actor): Promise<VisibleSets | null> {
   if (actor.isPlatformAdmin || actor.companyRole === 'company_admin') return null;
   if (!actor.memberId) return EMPTY;
   const companyId = actor.companyId;
 
+  const cacheKey = `${companyId}:${actor.memberId}`;
+  const hit = cache.get(cacheKey);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.sets;
+
+  const sets = await computeVisibleSets(companyId, actor.memberId);
+  cache.set(cacheKey, { at: Date.now(), sets });
+  return sets;
+}
+
+async function computeVisibleSets(companyId: string, memberId: string): Promise<VisibleSets> {
   const [direct, projectRows, releaseRows, sprintRows, sprintProjectRows, productRows] = await Promise.all([
     db
       .select({ nodeType: resourceAssignments.nodeType, nodeId: resourceAssignments.nodeId })
@@ -38,7 +67,7 @@ export async function visibleSetsFor(actor: Actor): Promise<VisibleSets | null> 
       .where(
         and(
           eq(resourceAssignments.companyId, companyId),
-          eq(resourceAssignments.memberId, actor.memberId),
+          eq(resourceAssignments.memberId, memberId),
           eq(resourceAssignments.source, 'direct'),
         ),
       ),
@@ -121,4 +150,23 @@ export function clampAllowed(actor: Actor, visibleProjectIds: string[] | null): 
   if (!visibleProjectIds) return actor.allowedProjectIds;
   const allow = new Set(actor.allowedProjectIds);
   return visibleProjectIds.filter((id) => allow.has(id));
+}
+
+/* 单条项目可见性判定（写路径共用；读单条按「不存在」处理，换项目则显式 403）:
+   1) 令牌项目白名单(无项目的资源也不可见);
+   2) 指派可见性(visibleSetsFor;无项目的资源视为公司级放行)。
+   注意:本模块不得 import 任何 services,避免循环依赖。 */
+export async function issueVisible(actor: Actor, projectId: string | null): Promise<boolean> {
+  if (actor.allowedProjectIds && (!projectId || !actor.allowedProjectIds.includes(projectId))) return false;
+  if (!projectId) return true;
+  const visible = await visibleSetsFor(actor);
+  return !visible || visible.projectIds.includes(projectId);
+}
+
+/* 写路径门槛:项目不在可见范围内 → 403(与 issueVisible 的 NOT_FOUND 语义互补,
+   用于 create / 改入新项目等「目标项目」场景)。 */
+export async function assertProjectWritable(actor: Actor, projectId: string | null) {
+  if (!(await issueVisible(actor, projectId))) {
+    throw new ApiException('FORBIDDEN', '该项目不在你的可见范围内', 403);
+  }
 }

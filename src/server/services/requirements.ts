@@ -5,9 +5,9 @@ import { serializeRequirement } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
 import { requirePerm } from '@/lib/permissions';
-import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
+import { assertProjectWritable, clampAllowed, issueVisible, visibleSetsFor } from '@/lib/visibility';
 import { decompositionItemsFor } from '@/lib/decompose';
-import { archivedProjectIds, createIssue } from './issues';
+import { archivedProjectIds, createIssue, fetchIssueDetails } from './issues';
 import type { Actor } from './types';
 
 /* Requirements / PRD business service. Ported from
@@ -30,6 +30,10 @@ export type RequirementImportance = RequirementRow['importance'];
 
 const withIssues = { issues: { columns: { key: true, status: true } } } as const;
 
+/* 列表服务端上限(与 reports.ts 的 LIST_LIMIT=500 同口径):内存保护,
+   超出按 position 截断;不加分页参数、不改响应形状。 */
+const LIST_LIMIT = 500;
+
 async function findByKey(companyId: string, key: string) {
   return db.query.requirements.findFirst({
     where: and(eq(requirements.companyId, companyId), eq(requirements.key, key)),
@@ -51,6 +55,7 @@ export async function listRequirements(actor: Actor, filter?: { project?: string
     where: and(...conds),
     with: withIssues,
     orderBy: [asc(requirements.position)],
+    limit: LIST_LIMIT,
   });
   return rows.map(serializeRequirement);
 }
@@ -94,6 +99,8 @@ export async function createRequirement(actor: Actor, input: CreateRequirementIn
     .where(and(eq(projects.companyId, actor.companyId), eq(projects.id, input.projectId)))
     .limit(1);
   if (!project) throw new ApiException('PROJECT_NOT_FOUND');
+  // 只能在可见项目内建需求(令牌白名单 + 指派可见性),范围外 403。
+  await assertProjectWritable(actor, input.projectId);
 
   // Key prefix reflects the type: functional → FR-N, non-functional → NFR-N,
   // each with its own sequence. The key is the stable identifier (issues link by
@@ -149,6 +156,12 @@ export async function updateRequirement(actor: Actor, key: string, input: Update
   await requirePerm(actor, 'requirements', 'write');
   const existing = await findByKey(actor.companyId, key);
   if (!existing) throw new ApiException('REQUIREMENT_NOT_FOUND', `需求 ${key} 不存在`);
+  // 可见性:范围外的需求按不存在处理(与 list/get 的过滤一致)。
+  if (!(await issueVisible(actor, existing.projectId))) {
+    throw new ApiException('REQUIREMENT_NOT_FOUND', `需求 ${key} 不存在`);
+  }
+  // 改入新项目时,目标项目也必须在可见范围内,范围外 403。
+  if (input.projectId !== undefined) await assertProjectWritable(actor, input.projectId);
 
   const patch: Partial<typeof requirements.$inferInsert> = { updatedAt: new Date() };
   if (input.projectId !== undefined) patch.projectId = input.projectId;
@@ -181,6 +194,10 @@ export async function deleteRequirement(actor: Actor, key: string) {
   await requirePerm(actor, 'requirements', 'write');
   const existing = await findByKey(actor.companyId, key);
   if (!existing) throw new ApiException('REQUIREMENT_NOT_FOUND', `需求 ${key} 不存在`);
+  // 可见性:范围外的需求按不存在处理(与 list/get 的过滤一致)。
+  if (!(await issueVisible(actor, existing.projectId))) {
+    throw new ApiException('REQUIREMENT_NOT_FOUND', `需求 ${key} 不存在`);
+  }
   await db.delete(requirements).where(eq(requirements.id, existing.id));
   return { id: key };
 }
@@ -200,18 +217,24 @@ export async function decomposeRequirement(actor: Actor, key: string) {
   }
 
   // createIssue enforces the issues-write perm and the project whitelist per item.
-  const created = [];
+  // 逐条创建保留 createIssue 的编号/事务语义;deferDetail 跳过逐条详情回读,
+  // 最后一条 inArray 统一批量取回(原为每条一次 fetchDetail,N+1)。
+  const refs: { id: string; key: string }[] = [];
   for (const title of items) {
-    created.push(
-      await createIssue(actor, {
-        title,
-        type: 'ticket',
-        projectId: existing.projectId,
-        requirementId: key,
-        priority: existing.priority,
-        importance: existing.importance,
-      }),
+    refs.push(
+      await createIssue(
+        actor,
+        {
+          title,
+          type: 'ticket',
+          projectId: existing.projectId,
+          requirementId: key,
+          priority: existing.priority,
+          importance: existing.importance,
+        },
+        { deferDetail: true },
+      ),
     );
   }
-  return created;
+  return fetchIssueDetails(refs.map((r) => r.id));
 }

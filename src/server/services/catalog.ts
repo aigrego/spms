@@ -3,7 +3,7 @@ import { db } from '@/db';
 import { productLines, products, projects, releases, sprints, issues } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
-import { assignMember, clearNodeAssignments, sprintsDyingWithProjects } from '@/lib/assignments';
+import { assignMember, clearNodesAssignments, sprintsDyingWithProjects, type NodeRef } from '@/lib/assignments';
 import { requirePerm } from '@/lib/permissions';
 import { visibleSetsFor } from '@/lib/visibility';
 import type { Actor } from './types';
@@ -22,6 +22,9 @@ export type ProductStatus = ProductRow['status'];
 type ReleaseRow = typeof releases.$inferSelect;
 export type ReleaseStatus = ReleaseRow['status'];
 export type LifecyclePhase = ReleaseRow['phase'];
+
+/* drizzle 事务句柄(db.transaction 回调参数),供须入事务的私有 helper 使用。 */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /* ============================ Product lines ============================ */
 
@@ -91,15 +94,45 @@ export async function deleteProductLine(actor: Actor, id: string) {
     .limit(1);
   if (!existing) throw new ApiException('PRODUCT_LINE_NOT_FOUND');
   // Clear virtual-team rows + dying sprints across the whole subtree before the
-  // cascade delete (shared sprints survive minus their links).
+  // cascade delete (shared sprints survive minus their links). 指派清理在事务外
+  // (lib helper 用全局 db);垂死迭代与产品线行的删除收进一个事务 ——
+  // products/releases/projects 行由 productLines 删除的 FK 级联带走。
+  //
+  // 原为逐产品串行处理(N+1),现按产品线一次批量:项目/版本各一条查询;垂死迭代
+  // 按「项目集合整体随产品线删除」判定 —— 横跨同线多个产品的共享迭代随产品线
+  // 一起删除(逐产品判定时它会作为 0 项目的空壳残留)。
   const childProducts = await db
     .select({ id: products.id })
     .from(products)
     .where(and(eq(products.companyId, actor.companyId), eq(products.productLineId, id)));
-  for (const p of childProducts) {
-    await clearProductSubtree(actor, p.id);
-  }
-  await db.delete(productLines).where(eq(productLines.id, id));
+  const productIds = childProducts.map((p) => p.id);
+  const [projRows, relRows] = productIds.length
+    ? await Promise.all([
+        db
+          .select({ id: projects.id })
+          .from(projects)
+          .innerJoin(releases, eq(projects.releaseId, releases.id))
+          .where(and(eq(projects.companyId, actor.companyId), inArray(releases.productId, productIds))),
+        db
+          .select({ id: releases.id })
+          .from(releases)
+          .where(and(eq(releases.companyId, actor.companyId), inArray(releases.productId, productIds))),
+      ])
+    : [[], []];
+  const dyingSprintIds = await sprintsDyingWithProjects(
+    actor.companyId,
+    projRows.map((r) => r.id),
+  );
+  await clearNodesAssignments(actor.companyId, [
+    ...productIds.map((pid): NodeRef => ({ nodeType: 'product', nodeId: pid })),
+    ...relRows.map((r): NodeRef => ({ nodeType: 'release', nodeId: r.id })),
+    ...projRows.map((r): NodeRef => ({ nodeType: 'project', nodeId: r.id })),
+    ...dyingSprintIds.map((sid): NodeRef => ({ nodeType: 'sprint', nodeId: sid })),
+  ]);
+  await db.transaction(async (tx) => {
+    await deleteSubtreeSprints(tx, actor.companyId, dyingSprintIds);
+    await tx.delete(productLines).where(eq(productLines.id, id));
+  });
   return { id };
 }
 
@@ -213,39 +246,60 @@ async function projectIdsOfRelease(companyId: string, releaseId: string): Promis
 }
 
 /* Shared delete walk for product/release: clear the polymorphic assignment rows
-   of the dying nodes, then explicitly delete sprints that die with the subtree
-   (all their projects inside it) — shared sprints survive minus the links. */
+   of the dying nodes, then return the sprints that die with the subtree (all
+   their projects inside it) — shared sprints survive minus the links.
+   extraRefs: 同批清理的其它指派节点(如产品下的 release 行),合并进同一条删除。
+
+   两阶段约定:指派清理(clearNodesAssignments,lib helper 内部用全局 db)留在
+   事务外、维持原有先后;垂死迭代的行删除由 deleteSubtreeSprints 在调用方的
+   事务里做。若事务失败,代价是存活节点少了指派行(可重新指派),而非半截删除。 */
 async function clearLifecycleSubtree(
   actor: Actor,
-  node: { nodeType: 'product' | 'release'; nodeId: string },
+  node: NodeRef & { nodeType: 'product' | 'release' },
   projectIds: string[],
-) {
+  extraRefs: NodeRef[] = [],
+): Promise<string[]> {
   const companyId = actor.companyId;
   const dyingSprints = await sprintsDyingWithProjects(companyId, projectIds);
-  await clearNodeAssignments(companyId, node.nodeType, node.nodeId);
-  for (const p of projectIds) await clearNodeAssignments(companyId, 'project', p);
-  for (const s of dyingSprints) await clearNodeAssignments(companyId, 'sprint', s);
-  if (dyingSprints.length) {
-    // Explicit detach (house style; the FK is set null too), then delete —
-    // snapshots/join rows cascade by FK.
-    await db
-      .update(issues)
-      .set({ sprintId: null })
-      .where(and(eq(issues.companyId, companyId), inArray(issues.sprintId, dyingSprints)));
-    await db.delete(sprints).where(and(eq(sprints.companyId, companyId), inArray(sprints.id, dyingSprints)));
-  }
+  // 指派行清理合并为一条按类型分组的删除(原为逐节点 clearNodeAssignments,N+1)。
+  await clearNodesAssignments(companyId, [
+    node,
+    ...projectIds.map((pid): NodeRef => ({ nodeType: 'project', nodeId: pid })),
+    ...dyingSprints.map((sid): NodeRef => ({ nodeType: 'sprint', nodeId: sid })),
+    ...extraRefs,
+  ]);
+  return dyingSprints;
+}
+
+/* 垂死迭代的行删除(在调用方的事务里执行):显式 detach issue(house style;
+   FK 也是 set null),再删迭代行 —— snapshots/join rows 由 FK 级联。 */
+async function deleteSubtreeSprints(tx: Tx, companyId: string, dyingSprintIds: string[]) {
+  if (!dyingSprintIds.length) return;
+  await tx
+    .update(issues)
+    .set({ sprintId: null })
+    .where(and(eq(issues.companyId, companyId), inArray(issues.sprintId, dyingSprintIds)));
+  await tx.delete(sprints).where(and(eq(sprints.companyId, companyId), inArray(sprints.id, dyingSprintIds)));
 }
 
 /* Shared per-product delete walk: clear assignment rows of the product subtree
-   nodes, delete sprints dying with it, but NOT the product row itself. */
-async function clearProductSubtree(actor: Actor, productId: string) {
+   nodes, but NOT the product row itself. 返回垂死迭代 id,供调用方事务删除。 */
+async function clearProductSubtree(actor: Actor, productId: string): Promise<string[]> {
   const companyId = actor.companyId;
-  await clearLifecycleSubtree(actor, { nodeType: 'product', nodeId: productId }, await projectIdsOfProduct(companyId, productId));
-  const releaseRows = await db
-    .select({ id: releases.id })
-    .from(releases)
-    .where(and(eq(releases.companyId, companyId), eq(releases.productId, productId)));
-  for (const r of releaseRows) await clearNodeAssignments(companyId, 'release', r.id);
+  // 项目与版本各一条查询(原为逐 release 再清理),release 指派行经 extraRefs 合并清理。
+  const [projectIds, releaseRows] = await Promise.all([
+    projectIdsOfProduct(companyId, productId),
+    db
+      .select({ id: releases.id })
+      .from(releases)
+      .where(and(eq(releases.companyId, companyId), eq(releases.productId, productId))),
+  ]);
+  return clearLifecycleSubtree(
+    actor,
+    { nodeType: 'product', nodeId: productId },
+    projectIds,
+    releaseRows.map((r): NodeRef => ({ nodeType: 'release', nodeId: r.id })),
+  );
 }
 
 export async function deleteProduct(actor: Actor, id: string) {
@@ -256,8 +310,12 @@ export async function deleteProduct(actor: Actor, id: string) {
     .where(and(eq(products.companyId, actor.companyId), eq(products.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('PRODUCT_NOT_FOUND');
-  await clearProductSubtree(actor, id);
-  await db.delete(products).where(eq(products.id, id));
+  const dyingSprintIds = await clearProductSubtree(actor, id);
+  // 垂死迭代与产品行的删除同生同灭(releases/projects 由 FK 级联)。
+  await db.transaction(async (tx) => {
+    await deleteSubtreeSprints(tx, actor.companyId, dyingSprintIds);
+    await tx.delete(products).where(eq(products.id, id));
+  });
   return { id };
 }
 
@@ -288,6 +346,14 @@ export interface CreateReleaseInput {
   position?: number;
 }
 
+/* targetDate 双层防御:REST 路由层 zod 已拦掉非法日期字符串,服务层(MCP 等
+   直连调用方不过 zod)再兜一次 isNaN。 */
+function parseTargetDate(v: Date | string): Date {
+  const d = v instanceof Date ? v : new Date(v);
+  if (Number.isNaN(+d)) throw new ApiException('VALIDATION_FAILED', 'targetDate 不是合法日期');
+  return d;
+}
+
 export async function createRelease(actor: Actor, input: CreateReleaseInput) {
   await requirePerm(actor, 'products', 'write');
   if (!input.name.trim()) throw new ApiException('VALIDATION_FAILED', '版本名称不能为空');
@@ -308,7 +374,7 @@ export async function createRelease(actor: Actor, input: CreateReleaseInput) {
     description: input.description ?? null,
     status: input.status ?? 'planned',
     phase: input.phase ?? 'concept',
-    targetDate: input.targetDate ? new Date(input.targetDate) : null,
+    targetDate: input.targetDate ? parseTargetDate(input.targetDate) : null,
     progress: input.progress ?? 0,
     position: input.position ?? 0,
   });
@@ -340,7 +406,7 @@ export async function updateRelease(actor: Actor, id: string, input: UpdateRelea
   if (input.description !== undefined) patch.description = input.description;
   if (input.status !== undefined) patch.status = input.status;
   if (input.phase !== undefined) patch.phase = input.phase;
-  if (input.targetDate !== undefined) patch.targetDate = input.targetDate ? new Date(input.targetDate) : null;
+  if (input.targetDate !== undefined) patch.targetDate = input.targetDate ? parseTargetDate(input.targetDate) : null;
   if (input.progress !== undefined) patch.progress = input.progress;
   if (input.position !== undefined) patch.position = input.position;
   await db.update(releases).set(patch).where(eq(releases.id, id));
@@ -355,7 +421,15 @@ export async function deleteRelease(actor: Actor, id: string) {
     .where(and(eq(releases.companyId, actor.companyId), eq(releases.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('RELEASE_NOT_FOUND');
-  await clearLifecycleSubtree(actor, { nodeType: 'release', nodeId: id }, await projectIdsOfRelease(actor.companyId, id));
-  await db.delete(releases).where(eq(releases.id, id));
+  const dyingSprintIds = await clearLifecycleSubtree(
+    actor,
+    { nodeType: 'release', nodeId: id },
+    await projectIdsOfRelease(actor.companyId, id),
+  );
+  // 垂死迭代与版本行的删除同生同灭(projects 由 FK 级联)。
+  await db.transaction(async (tx) => {
+    await deleteSubtreeSprints(tx, actor.companyId, dyingSprintIds);
+    await tx.delete(releases).where(eq(releases.id, id));
+  });
   return { id };
 }

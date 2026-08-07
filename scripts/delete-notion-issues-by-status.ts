@@ -1,7 +1,9 @@
 /**
  * One-off cleanup (2026-07): 物理删除 Notion 中当前状态为 "More info needed" /
  * "Approval needed" 的已同步 issue。Notion 库为真源:按状态过滤查出页面,
- * 经 notion_issue_links 定位 issue 后 DELETE(关联表均 FK cascade)。
+ * 经 notion_issue_links 定位 issue 后 DELETE(关联表均 FK cascade);附件的
+ * issue_attachments 行随之级联,对应 Vercel Blob 文件一并显式删除(失败只
+ * 告警,孤儿可由 scripts/reconcile-attachments.ts 对账回收)。
  *
  * 用法:
  *   DATABASE_URL=<目标库> npx tsx scripts/delete-notion-issues-by-status.ts           # 预演,只列出
@@ -9,11 +11,10 @@
  *   DATABASE_URL=<目标库> npx tsx scripts/delete-notion-issues-by-status.ts --local    # 不查 Notion API,
  *     按同步写入描述头的 "Notion: key · 状态 · url" 从库内匹配(状态为上次同步时的快照)
  *   追加参数可覆盖状态名: ... --apply "More info needed" "Approval needed"
- *
- * 注意:issue 在 Vercel Blob 上的附件文件不会随之清理(孤儿文件,需另行处理)。
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { del } from '@vercel/blob';
 import postgres from 'postgres';
 
 for (const file of ['.env.local', '.env']) {
@@ -126,11 +127,29 @@ async function main() {
     }
     for (const r of rows) console.log(`  ${r.key}  ${r.title}`);
 
-    if (apply && rows.length > 0) {
+    if (rows.length > 0) {
+      // 附件:行随 issue 删除 FK 级联,blob 需显式清理(先查出 url,dry-run
+      // 也能看到将清理的数量)。
       const ids = rows.map((r) => r.issue_id);
-      const deleted = await sql`DELETE FROM issues WHERE id = ANY(${ids})`;
-      console.log(`  deleted ${deleted.count}`);
-      totalDeleted += Number(deleted.count);
+      const atts = await sql<{ id: string; url: string }[]>`
+        SELECT id, url FROM issue_attachments WHERE issue_id = ANY(${ids})
+      `;
+      if (atts.length) console.log(`  关联附件 ${atts.length} 个(blob 将一并清理)`);
+      if (apply) {
+        const deleted = await sql`DELETE FROM issues WHERE id = ANY(${ids})`;
+        console.log(`  deleted ${deleted.count}`);
+        totalDeleted += Number(deleted.count);
+        let blobsDeleted = 0;
+        for (const a of atts) {
+          try {
+            await del(a.url);
+            blobsDeleted += 1;
+          } catch (e) {
+            console.warn(`  附件 blob 删除失败(孤儿由 reconcile-attachments 对账回收): ${a.url}`, e);
+          }
+        }
+        if (atts.length) console.log(`  附件 blob 清理 ${blobsDeleted}/${atts.length}`);
+      }
     }
   }
 

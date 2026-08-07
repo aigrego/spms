@@ -5,7 +5,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 
 二期「多公司沙箱」变更：新增 `companies`、`company_memberships`、`role_permissions`、`mcp_api_keys` 4 张表；
 **全部业务表加 `companyId` NN（→ companies cascade）**，原 `key` 类唯一约束改为 `(companyId, key)` 复合唯一；
-`counters` 主键改为 `(companyId, name)` —— 编号按公司独立。共 22 张表 + 21 个枚举。
+`counters` 主键改为 `(companyId, name)` —— 编号按公司独立。共 29 张表 + 21 个枚举。
 
 ## 枚举
 
@@ -49,12 +49,12 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 ### company_memberships（新增，用户↔公司 + 公司内角色）
 `id` PK · `userId` NN → users cascade · `companyId` NN → companies cascade · `role` NN（`company_admin | product_manager | developer | tester | viewer`）· `createdAt` NN · 唯一 `(userId, companyId)`
 
-### role_permissions（新增，角色×模块权限矩阵，全局参考数据不按公司分）
-复合 PK `(role, module)` · `role` NN（4 个可配置角色：product_manager/developer/tester/viewer）· `module` NN（10 个模块：issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents）· `level` NN（`none | read | write`）
+### role_permissions（新增，角色×模块权限矩阵，两层：全局默认 + 公司覆盖）
+复合 PK `(companyId, role, module)` · `companyId` NN 默认 `''`（`''` = 全局默认层，无 FK；非空 = 该公司对全局的按单元格覆盖，生效值 = 全局 + 覆盖）· `role` NN（4 个可配置角色：product_manager/developer/tester/viewer）· `module` NN（11 个模块：issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents/reports）· `level` NN（`none | read | write`）
 —— `company_admin` 与平台管理员恒全权限，不入此表；缺失行按 `none` 处理。
 
 ### mcp_api_keys（新增，MCP 接入密钥）
-`id` PK · `keyHash` unique NN（sha256 hex，不存明文）· `prefix` NN（前 8 位，仅展示）· `name` NN · `companyId` → companies cascade（**NULL = 平台级 key**，否则公司级）· `createdBy` → users set null · `ownerId` → users set null（**所属人**：MCP 调用的第一人称身份，默认=创建人，可改）· `revokedAt`（吊销标记，行保留审计）· `createdAt` NN
+`id` PK · `keyHash` unique NN（sha256 hex，不存明文）· `prefix` NN（前 8 位，仅展示）· `name` NN · `companyId` → companies cascade（**NULL = 平台级 key**，否则公司级）· `createdBy` → users set null · `ownerId` → users set null（**所属人**：MCP 调用的第一人称身份，默认=创建人，可改）· `capabilities` NN 默认 `'read,write'`（能力上限，逗号分隔 read/write/delete；delete 预留，当前无删除类工具）· `projectIds` text[]（项目白名单，NULL = 不限项目）· `expiresAt`（NULL = 永久，到期即 401，无需吊销）· `lastUsedAt`（最近一次通过 MCP 鉴权的时间，60s 节流写入）· `revokedAt`（吊销标记，行保留审计）· `createdAt` NN
 
 ### counters（编号序列，二期改为按公司独立）
 复合 PK `(companyId, name)` · `companyId` NN → companies cascade · `name` NN · `value` int NN 默认 0 —— `INSERT ... ON CONFLICT DO UPDATE SET value = counters.value + 1 RETURNING value`；同一前缀（如 BUG）在不同公司各自从 1 起编。
@@ -103,6 +103,9 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 ### sub_issues（issue 内 checklist）
 `id` PK · `issueId` NN → issues cascade · `title` NN · `status` NN 默认 todo · `position` NN 默认 0
 
+### issue_attachments（issue 图片附件，存 Vercel Blob）
+`id` PK · `issueId` NN → issues cascade · `url` NN（blob 公网地址）· `pathname` NN（blob 路径，删除 blob 用）· `filename` NN · `contentType` NN · `size` int NN · `uploadedById` → members set null · `createdAt` NN —— 注册时服务端校验 url/pathname 确属本 blob 存储（`assertBlobMeta`），不信任客户端上报。
+
 ### activities（issue 动态/评论流）
 `id` PK · `issueId` NN → issues cascade · `whoId` → members · `kind` NN 默认 comment · `body` NN · `createdAt` NN
 
@@ -111,6 +114,12 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 
 ### resource_assignments（虚拟团队，多态无外键，应用层保证引用完整性）
 `id` PK · `nodeType` NN（product|release|project|sprint）· `nodeId` NN · `memberId` NN → members cascade · `role` NN 默认 member · `source` NN 默认 direct · `addedById` → members set null · `createdAt` NN · 唯一 `(nodeType, nodeId, memberId)`
+
+### notion_connections（Notion 集成连接，每公司一条）
+`id` PK · `companyId` NN → companies cascade + unique · `workspaceId` / `workspaceName` / `botId` · `accessToken` NN（敏感：仅服务端保存，任何 API 不序列化输出）· `databaseId` / `databaseName`（同步目标库）· `statusMap` jsonb（每个 Notion 状态 → { SPMS status, 是否同步 } 规则；NULL = 内置默认映射）· `projectId` → projects set null（同步落入的项目，删项目仅解除引用）· `lastSyncedAt`（增量同步水位）· `createdById` → users set null · `createdAt` / `updatedAt` NN
+
+### notion_issue_links（Notion 页面 ↔ issue 映射，同步幂等依据）
+`id` PK · `connectionId` NN → notion_connections cascade · `notionPageId` NN · `issueId` NN → issues cascade · `notionLastEditedAt`（页面最近编辑时间，变更检测用）· 唯一 `(connectionId, notionPageId)`、`(issueId)` —— 一页面对应一个 issue，一个 issue 至多关联一个页面。
 
 ### daily_reports（日报）
 `id` PK · `companyId` NN → companies cascade · `memberId` NN → members cascade（作者，human member）· `date` date NN（'YYYY-MM-DD' 日历日字符串，无时区语义——客户端本地时区给出，服务端视为不透明 day key）· `createdAt` / `updatedAt` NN · 唯一 `(companyId, memberId, date)`（每人每天一份，覆盖提交 = upsert）

@@ -1,6 +1,6 @@
 import { upload } from '@vercel/blob/client';
 import type { AttachmentMeta } from './api';
-import { isAllowedType } from './attachments';
+import { ATTACHMENT_PATH_PREFIX, isAllowedType } from './attachments';
 
 /* Client-direct attachment upload to Vercel Blob. The browser gets an upload
    token from /api/v1/pms/attachments/upload and PUTs the file straight to
@@ -17,7 +17,8 @@ export async function uploadAttachment(file: File): Promise<AttachmentMeta> {
   if (file.size > MAX_ATTACHMENT_SIZE) {
     throw new Error('附件大小需在 10MB 以内');
   }
-  const blob = await upload(file.name, file, {
+  // pathname 走签发前缀约定(token 签发端会拒绝前缀外的 pathname)。
+  const blob = await upload(`${ATTACHMENT_PATH_PREFIX}${file.name}`, file, {
     access: 'public',
     handleUploadUrl: '/api/v1/pms/attachments/upload',
   });

@@ -1,12 +1,7 @@
 import { ok } from '@/lib/envelope';
-import {
-  createTestCase,
-  listTestCases,
-  type CreateTestCaseInput,
-  type TestCaseStatus,
-  type TestResult,
-} from '@/server/services/testcases';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { createTestCase, listTestCases, type TestCaseStatus, type TestResult } from '@/server/services/testcases';
+import { requireActor, route } from '@/server/http';
+import { jsonBodyWith, testCaseCreateSchema } from '@/server/validate';
 
 /* GET  /api/v1/pms/test-cases?project&requirement&status&result — list
    (requirement takes the display key "FR-N").
@@ -26,5 +21,5 @@ export const GET = route(async (req) => {
 
 export const POST = route(async (req) => {
   const actor = await requireActor();
-  return ok(await createTestCase(actor, await jsonBody<CreateTestCaseInput>(req)));
+  return ok(await createTestCase(actor, await jsonBodyWith(req, testCaseCreateSchema)));
 });

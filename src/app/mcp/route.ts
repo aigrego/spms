@@ -129,7 +129,7 @@ export async function GET(req: Request): Promise<Response> {
   // Stateless mode has no session to attach a standalone SSE stream to —
   // clients only need POST (JSON-RPC over Streamable HTTP).
   return Response.json(
-    { ok: false, error: { code: 'NOT_FOUND', message: 'stateless MCP 端点不支持 GET SSE 流，请使用 POST' } },
+    { ok: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'stateless MCP 端点不支持 GET SSE 流，请使用 POST' } },
     { status: 405 },
   );
 }

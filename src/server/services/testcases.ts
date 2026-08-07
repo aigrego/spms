@@ -5,7 +5,7 @@ import { serializeTestCase } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
 import { requirePerm } from '@/lib/permissions';
-import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
+import { assertProjectWritable, clampAllowed, issueVisible, visibleSetsFor } from '@/lib/visibility';
 import { archivedProjectIds } from './issues';
 import type { Actor } from './types';
 
@@ -24,6 +24,11 @@ export type TestResult = TestCaseRow['result'];
 export type TestCasePriority = TestCaseRow['priority'];
 
 const withRequirement = { requirement: { columns: { key: true } } } as const;
+
+/* 列表服务端上限(与 reports.ts 的 LIST_LIMIT=500 同口径):内存保护,
+   超出按 position 截断;不加分页参数、不改响应形状。注意 requirement 过滤是
+   展示 key 的 join 后过滤,上限先行截断可能使其少匹配(>500 行时)。 */
+const LIST_LIMIT = 500;
 
 /* Resolve a requirement display key (FR-N / NFR-N) → internal uuid, within the
    company. undefined = provided but not found; null = unlinked. */
@@ -65,6 +70,7 @@ export async function listTestCases(
     where: and(...conds),
     with: withRequirement,
     orderBy: [asc(testCases.position)],
+    limit: LIST_LIMIT,
   });
   // requirement filter is by display key → filter post-join.
   const filtered = filter?.requirement ? rows.filter((r) => r.requirement?.key === filter.requirement) : rows;
@@ -108,6 +114,8 @@ export async function createTestCase(actor: Actor, input: CreateTestCaseInput) {
     .where(and(eq(projects.companyId, actor.companyId), eq(projects.id, input.projectId)))
     .limit(1);
   if (!project) throw new ApiException('PROJECT_NOT_FOUND');
+  // 只能在可见项目内建用例(令牌白名单 + 指派可见性),范围外 403。
+  await assertProjectWritable(actor, input.projectId);
   const reqId = await resolveRequirementId(actor.companyId, input.requirementId);
   if (reqId === undefined) {
     throw new ApiException('REQUIREMENT_NOT_FOUND', `需求 ${input.requirementId} 不存在`);
@@ -159,6 +167,12 @@ export async function updateTestCase(actor: Actor, key: string, input: UpdateTes
   await requirePerm(actor, 'testcases', 'write');
   const existing = await findByKey(actor.companyId, key);
   if (!existing) throw new ApiException('TEST_CASE_NOT_FOUND', `测试用例 ${key} 不存在`);
+  // 可见性:范围外的用例按不存在处理(与 list/get 的过滤一致)。
+  if (!(await issueVisible(actor, existing.projectId))) {
+    throw new ApiException('TEST_CASE_NOT_FOUND', `测试用例 ${key} 不存在`);
+  }
+  // 改入新项目时,目标项目也必须在可见范围内,范围外 403。
+  if (input.projectId !== undefined) await assertProjectWritable(actor, input.projectId);
 
   const patch: Partial<typeof testCases.$inferInsert> = { updatedAt: new Date() };
   if (input.projectId !== undefined) patch.projectId = input.projectId;
@@ -192,6 +206,10 @@ export async function deleteTestCase(actor: Actor, key: string) {
   await requirePerm(actor, 'testcases', 'write');
   const existing = await findByKey(actor.companyId, key);
   if (!existing) throw new ApiException('TEST_CASE_NOT_FOUND', `测试用例 ${key} 不存在`);
+  // 可见性:范围外的用例按不存在处理(与 list/get 的过滤一致)。
+  if (!(await issueVisible(actor, existing.projectId))) {
+    throw new ApiException('TEST_CASE_NOT_FOUND', `测试用例 ${key} 不存在`);
+  }
   await db.delete(testCases).where(eq(testCases.id, existing.id));
   return { id: key };
 }

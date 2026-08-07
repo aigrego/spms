@@ -1,6 +1,7 @@
 import { ok } from '@/lib/envelope';
-import { createIssue, listIssues, type CreateIssueInput } from '@/server/services/issues';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { createIssue, listIssues } from '@/server/services/issues';
+import { requireActor, route } from '@/server/http';
+import { issueCreateSchema, jsonBodyWith } from '@/server/validate';
 
 /* GET  /api/v1/pms/issues?team&assignee&project&includeArchived&recentDone — list (展示 ID 尾号数字倒序)。
        默认排除已归档 issue 及已归档项目的 issue;includeArchived=1 放行。
@@ -23,5 +24,5 @@ export const GET = route(async (req) => {
 
 export const POST = route(async (req) => {
   const actor = await requireActor();
-  return ok(await createIssue(actor, await jsonBody<CreateIssueInput>(req)));
+  return ok(await createIssue(actor, await jsonBodyWith(req, issueCreateSchema)));
 });

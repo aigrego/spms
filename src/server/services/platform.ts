@@ -3,7 +3,7 @@ import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db';
 import { companies, companyMemberships, members, mcpApiKeys, projects, rolePermissions, users } from '@/db/schema';
-import { addEmail, primaryEmailsFor } from '@/lib/emails';
+import { addEmail, findUserByEmail, normalizeEmail, primaryEmailsFor } from '@/lib/emails';
 import { unassignMemberEverywhere } from '@/lib/assignments';
 import { ApiException } from '@/lib/envelope';
 import { ensureCurrentMember, revokeMemberProjection } from '@/lib/identity';
@@ -228,11 +228,18 @@ export async function deleteUser(actor: Actor, userId: string) {
     .select({ id: members.id, companyId: members.companyId })
     .from(members)
     .where(eq(members.userId, userId));
+  // unassignMemberEverywhere(lib helper,内部用全局 db)留在事务外、维持原有
+  // 先后;事务保证「全部投影 revoked + users 行删除」原子完成 —— 不再出现
+  // 账号删了但投影未 revoke(或反之)的半截状态。
   for (const m of projections) {
     await unassignMemberEverywhere(m.companyId, m.id);
-    await db.update(members).set({ status: 'revoked' }).where(eq(members.id, m.id));
   }
-  await db.delete(users).where(eq(users.id, userId));
+  await db.transaction(async (tx) => {
+    for (const m of projections) {
+      await tx.update(members).set({ status: 'revoked' }).where(eq(members.id, m.id));
+    }
+    await tx.delete(users).where(eq(users.id, userId));
+  });
   return { id: userId, revokedProjections: projections.length };
 }
 
@@ -275,33 +282,68 @@ export async function addMember(actor: Actor, companyId: string, input: AddMembe
   assertCompanyRole(input.role);
 
   let [u] = await db.select().from(users).where(eq(users.username, username)).limit(1);
-  if (!u) {
+  const membershipId = crypto.randomUUID();
+  if (u) {
+    // 老用户:只有席位一条直接写,顺序保持原样(addEmail 的格式/占用报错
+    // 优先于 INVITE_FAILED,且报错时无任何落库)。
+    // 选填邮箱:写入主邮箱(已有主邮箱则降级为备用;被他人占用 → CONFLICT)。
+    if (input.email?.trim()) await addEmail(u.id, input.email);
+
+    const [dupe] = await db
+      .select({ id: companyMemberships.id })
+      .from(companyMemberships)
+      .where(and(eq(companyMemberships.userId, u.id), eq(companyMemberships.companyId, companyId)))
+      .limit(1);
+    if (dupe) throw new ApiException('INVITE_FAILED', '该用户已是公司成员');
+
+    await db.insert(companyMemberships).values({ id: membershipId, userId: u.id, companyId, role: input.role });
+  } else {
+    // 新用户:users 行 + 席位行同生同灭 → 一个事务。addEmail 是 lib helper
+    // (内部用全局 db,且 user_emails.userId 外键依赖已提交的 users 行),只能在
+    // 事务后执行 —— 故把它的两类报错(格式非法/被他人占用)在写入前预检,保持
+    // 「报错即无落库」语义;预检之后 addEmail 仅剩并发竞态才可能失败。
     if (!input.password) throw new ApiException('VALIDATION_FAILED', '用户不存在且未提供初始密码');
+    const email = input.email?.trim() || null;
+    if (email) {
+      normalizeEmail(email);
+      if (await findUserByEmail(email)) throw new ApiException('CONFLICT', '该邮箱已被使用');
+    }
     const userId = crypto.randomUUID();
-    await db.insert(users).values({
-      id: userId,
-      username,
-      passwordHash: await hashPassword(input.password),
-      name: input.name?.trim() || username,
-      role: 'member',
+    // 慢哈希在事务外算好,不占事务时长。
+    const passwordHash = await hashPassword(input.password);
+    await db.transaction(async (tx) => {
+      await tx.insert(users).values({
+        id: userId,
+        username,
+        passwordHash,
+        name: input.name?.trim() || username,
+        role: 'member',
+      });
+      await tx.insert(companyMemberships).values({ id: membershipId, userId, companyId, role: input.role });
     });
+    if (email) await addEmail(userId, email);
     [u] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   }
-  // 选填邮箱:写入主邮箱(已有主邮箱则降级为备用;被他人占用 → CONFLICT)。
-  if (input.email?.trim()) await addEmail(u.id, input.email);
-
-  const [dupe] = await db
-    .select({ id: companyMemberships.id })
-    .from(companyMemberships)
-    .where(and(eq(companyMemberships.userId, u.id), eq(companyMemberships.companyId, companyId)))
-    .limit(1);
-  if (dupe) throw new ApiException('INVITE_FAILED', '该用户已是公司成员');
-
-  const id = crypto.randomUUID();
-  await db.insert(companyMemberships).values({ id, userId: u.id, companyId, role: input.role });
   // 席位分配即把用户投影进本公司资源池(幂等),供指派/研发资源使用。
   await ensureCurrentMember({ id: u.id, name: u.name }, companyId);
-  return { id, userId: u.id, username: u.username, name: u.name, role: input.role };
+  return { id: membershipId, userId: u.id, username: u.username, name: u.name, role: input.role };
+}
+
+/* ---- 最后一个 company_admin 保护(BUG-11):目标席位是该公司唯一的
+   company_admin 时拒绝移除/降级,防止公司失去所有管理员。研发资源页的席位
+   操作(resources.ts)也复用本函数。 ---- */
+export async function assertNotLastCompanyAdmin(
+  companyId: string,
+  membershipId: string,
+  action: string,
+): Promise<void> {
+  const admins = await db
+    .select({ id: companyMemberships.id })
+    .from(companyMemberships)
+    .where(and(eq(companyMemberships.companyId, companyId), eq(companyMemberships.role, 'company_admin')));
+  if (admins.length === 1 && admins[0].id === membershipId) {
+    throw new ApiException('VALIDATION_FAILED', `不能${action}该公司唯一的公司管理员`);
+  }
 }
 
 /* ---- change a membership's company role ---- */
@@ -314,6 +356,7 @@ export async function updateMemberRole(actor: Actor, companyId: string, membersh
     .where(and(eq(companyMemberships.id, membershipId), eq(companyMemberships.companyId, companyId)))
     .limit(1);
   if (!m) throw new ApiException('MEMBER_NOT_FOUND', '成员不存在');
+  if (role !== 'company_admin') await assertNotLastCompanyAdmin(companyId, membershipId, '降级');
   await db.update(companyMemberships).set({ role }).where(eq(companyMemberships.id, membershipId));
   return { id: membershipId, role };
 }
@@ -328,6 +371,7 @@ export async function removeMember(actor: Actor, companyId: string, membershipId
     .where(and(eq(companyMemberships.id, membershipId), eq(companyMemberships.companyId, companyId)))
     .limit(1);
   if (!m) throw new ApiException('MEMBER_NOT_FOUND', '成员不存在');
+  await assertNotLastCompanyAdmin(companyId, membershipId, '移除');
   await db.delete(companyMemberships).where(eq(companyMemberships.id, membershipId));
   await revokeMemberProjection(companyId, m.userId);
   return { id: membershipId };
@@ -349,17 +393,21 @@ function validateMatrix(matrix: Matrix): void {
 }
 
 async function upsertMatrix(scope: string, matrix: Matrix): Promise<void> {
-  for (const role of CONFIGURABLE_ROLES) {
-    for (const mod of MODULES) {
-      await db
-        .insert(rolePermissions)
-        .values({ companyId: scope, role, module: mod, level: matrix[role][mod] })
-        .onConflictDoUpdate({
-          target: [rolePermissions.companyId, rolePermissions.role, rolePermissions.module],
-          set: { level: matrix[role][mod] },
-        });
+  // 整矩阵(4 角色 × N 模块)的多条 upsert 必须同生同灭 → 一个事务,
+  // 不留"一半角色是新配置"的半截状态。
+  await db.transaction(async (tx) => {
+    for (const role of CONFIGURABLE_ROLES) {
+      for (const mod of MODULES) {
+        await tx
+          .insert(rolePermissions)
+          .values({ companyId: scope, role, module: mod, level: matrix[role][mod] })
+          .onConflictDoUpdate({
+            target: [rolePermissions.companyId, rolePermissions.role, rolePermissions.module],
+            set: { level: matrix[role][mod] },
+          });
+      }
     }
-  }
+  });
 }
 
 /* 公司级矩阵的访问门槛:平台管理员,或该公司的 company_admin。 */

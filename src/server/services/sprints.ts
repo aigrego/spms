@@ -1,10 +1,10 @@
-import { and, asc, eq, inArray, isNull, ne, notInArray, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { sprints, sprintProjects, sprintSnapshots, issues, projects } from '@/db/schema';
 import { serializeIssueList } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { requirePerm } from '@/lib/permissions';
-import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
+import { assertProjectWritable, clampAllowed, issueVisible, visibleSetsFor } from '@/lib/visibility';
 import { recordSprintSnapshot } from './sprintSnapshots';
 import { archivedProjectIds } from './issues';
 import type { Actor } from './types';
@@ -27,6 +27,13 @@ const withRelations = {
 } as const;
 
 const DONE_STATUSES = ['done', 'canceled'];
+
+/* 列表服务端上限(与 reports.ts 的 LIST_LIMIT=500 同口径):内存保护,
+   超出按现有排序截断;不加分页参数、不改响应形状。 */
+const LIST_LIMIT = 500;
+
+/* drizzle 事务句柄(db.transaction 回调参数),供须入事务的私有 helper 使用。 */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /* The projects a sprint spans (sprint_projects join). */
 async function sprintProjectIds(companyId: string, sprintId: string): Promise<string[]> {
@@ -59,11 +66,12 @@ async function attachProjectIds<T extends { id: string }>(companyId: string, row
 }
 
 /* At most one active sprint per project — the lifecycle guard shared by
-   startSprint and the raw status PATCH. A sprint spanning several projects
-   conflicts when ANY of them is already covered by another active sprint. */
-async function assertNoOtherActive(companyId: string, projectIds: string[], excludeId: string) {
+   startSprint and updateSprint 的状态流转转发(经 applyStartSprint 调用,在
+   调用方的事务里执行)。A sprint spanning several projects conflicts when ANY
+   of them is already covered by another active sprint. */
+async function assertNoOtherActive(tx: Tx, companyId: string, projectIds: string[], excludeId: string) {
   if (!projectIds.length) return;
-  const [other] = await db
+  const [other] = await tx
     .select({ id: sprintProjects.sprintId })
     .from(sprintProjects)
     .innerJoin(sprints, eq(sprints.id, sprintProjects.sprintId))
@@ -100,6 +108,17 @@ function allowedSprintCond(actor: Actor) {
 function passesWhitelist(actor: Actor, projectIds: string[]): boolean {
   if (!actor.allowedProjectIds) return true;
   return projectIds.some((id) => actor.allowedProjectIds!.includes(id));
+}
+
+/* 迭代级写操作的可见性门槛:与 getSprint 读路径同一套过滤(指派可见性
+   sprintIds + 令牌白名单项目交集),范围外按 SPRINT_NOT_FOUND 处理。
+   返回该迭代的项目列表,供调用方继续使用。 */
+async function assertSprintWritable(actor: Actor, sprintId: string): Promise<string[]> {
+  const visible = await visibleSetsFor(actor);
+  if (visible && !visible.sprintIds.includes(sprintId)) throw new ApiException('SPRINT_NOT_FOUND');
+  const projectIds = await sprintProjectIds(actor.companyId, sprintId);
+  if (!passesWhitelist(actor, projectIds)) throw new ApiException('SPRINT_NOT_FOUND');
+  return projectIds;
 }
 
 const sumPoints = (rows: { storyPoints: number | null }[]) =>
@@ -145,6 +164,7 @@ export async function getBacklog(actor: Actor, filter?: { team?: string }) {
     where: and(...conds),
     with: withRelations,
     orderBy: [asc(issues.backlogRank)],
+    limit: LIST_LIMIT,
   });
   return rows.map(serializeIssueList);
 }
@@ -166,21 +186,40 @@ export async function getVelocity(actor: Actor, filter?: { team?: string }) {
     .where(and(...conds))
     .orderBy(asc(sprints.startDate));
 
-  const series = [];
-  for (const s of sprintRows) {
-    const rows = await db
-      .select({ storyPoints: issues.storyPoints, status: issues.status })
-      .from(issues)
-      .where(and(eq(issues.companyId, actor.companyId), eq(issues.sprintId, s.id)));
-    series.push({
+  // 点数汇总一条 GROUP BY 拿全(原实现每迭代一次 issues 查询,N+1);
+  // committed = 全部状态的点数和,completed = 仅 done,与逐条统计口径一致。
+  const pointRows = sprintRows.length
+    ? await db
+        .select({
+          sprintId: issues.sprintId,
+          committed: sql<number>`coalesce(sum(${issues.storyPoints}), 0)::int`,
+          completed: sql<number>`coalesce(sum(${issues.storyPoints}) filter (where ${issues.status} = 'done'), 0)::int`,
+        })
+        .from(issues)
+        .where(
+          and(
+            eq(issues.companyId, actor.companyId),
+            inArray(
+              issues.sprintId,
+              sprintRows.map((s) => s.id),
+            ),
+          ),
+        )
+        .groupBy(issues.sprintId)
+    : [];
+  const pointsBySprint = new Map(pointRows.map((r) => [r.sprintId, r]));
+
+  const series = sprintRows.map((s) => {
+    const pts = pointsBySprint.get(s.id);
+    return {
       sprintId: s.id,
       name: s.name,
       status: s.status,
-      committed: sumPoints(rows),
-      completed: sumPoints(rows.filter((r) => r.status === 'done')),
+      committed: pts?.committed ?? 0,
+      completed: pts?.completed ?? 0,
       capacity: s.capacity,
-    });
-  }
+    };
+  });
   const completedOnly = series.filter((x) => x.status === 'completed');
   const avgVelocity = completedOnly.length
     ? Math.round(completedOnly.reduce((a, b) => a + b.completed, 0) / completedOnly.length)
@@ -278,6 +317,10 @@ export async function moveIssue(actor: Actor, sprintIdOrBacklog: string, issueKe
     where: and(eq(issues.companyId, actor.companyId), eq(issues.key, issueKey)),
   });
   if (!issue) throw new ApiException('ISSUE_NOT_FOUND', `Issue ${issueKey} 不存在`);
+  // 目标 issue 须在可见范围内(令牌白名单 + 指派可见性),范围外按不存在处理。
+  if (!(await issueVisible(actor, issue.projectId))) {
+    throw new ApiException('ISSUE_NOT_FOUND', `Issue ${issueKey} 不存在`);
+  }
 
   const targetSprint = sprintIdOrBacklog === '_backlog' ? null : sprintIdOrBacklog;
   const patch: Partial<typeof issues.$inferInsert> = { sprintId: targetSprint, updatedAt: new Date() };
@@ -286,7 +329,8 @@ export async function moveIssue(actor: Actor, sprintIdOrBacklog: string, issueKe
       where: and(eq(sprints.companyId, actor.companyId), eq(sprints.id, targetSprint)),
     });
     if (!sprint) throw new ApiException('SPRINT_NOT_FOUND', `Sprint ${targetSprint} 不存在`);
-    const projIds = await sprintProjectIds(actor.companyId, targetSprint);
+    // 目标迭代也须在可见范围内(同 getSprint 的过滤),范围外按不存在处理。
+    const projIds = await assertSprintWritable(actor, targetSprint);
     if (projIds.length > 0) {
       if (issue.projectId && !projIds.includes(issue.projectId)) {
         throw new ApiException('LIFECYCLE_MISMATCH', 'Issue 所属项目不在该迭代的项目范围内');
@@ -338,13 +382,14 @@ async function assertProjectsExist(companyId: string, ids: string[]) {
   if (rows.length !== new Set(ids).size) throw new ApiException('PROJECT_NOT_FOUND');
 }
 
-/* Replace the sprint's project links (delete + re-insert). */
-async function setSprintProjects(companyId: string, sprintId: string, projectIds: string[]) {
-  await db
+/* Replace the sprint's project links (delete + re-insert — 在调用方的事务里
+   执行:先删后插若分属不同连接,中途失败会留下"关联被清空"的半截状态)。 */
+async function setSprintProjects(tx: Tx, companyId: string, sprintId: string, projectIds: string[]) {
+  await tx
     .delete(sprintProjects)
     .where(and(eq(sprintProjects.companyId, companyId), eq(sprintProjects.sprintId, sprintId)));
   if (projectIds.length) {
-    await db.insert(sprintProjects).values(
+    await tx.insert(sprintProjects).values(
       [...new Set(projectIds)].map((projectId) => ({ companyId, sprintId, projectId })),
     );
   }
@@ -373,23 +418,29 @@ export async function createSprint(actor: Actor, input: CreateSprintInput) {
   if (+endDate < +startDate) throw new ApiException('VALIDATION_FAILED', '结束日期不能早于开始日期');
   const projectIds = [...new Set(input.projectIds ?? [])];
   await assertProjectsExist(actor.companyId, projectIds);
+  // 只能在可见项目内建迭代:入参项目逐个过写门槛,范围外 403。
+  for (const projectId of projectIds) await assertProjectWritable(actor, projectId);
 
+  const teamId =
+    input.teamId !== undefined
+      ? input.teamId
+      : await teamForProject(actor.companyId, projectIds.length === 1 ? projectIds[0] : null);
   const id = crypto.randomUUID();
-  await db.insert(sprints).values({
-    id,
-    companyId: actor.companyId,
-    name: input.name.trim(),
-    goal: input.goal ?? null,
-    status: input.status ?? 'planned',
-    startDate,
-    endDate,
-    capacity: input.capacity ?? null,
-    teamId:
-      input.teamId !== undefined
-        ? input.teamId
-        : await teamForProject(actor.companyId, projectIds.length === 1 ? projectIds[0] : null),
+  // 迭代行 + 项目关联同生同灭 → 一个事务。
+  await db.transaction(async (tx) => {
+    await tx.insert(sprints).values({
+      id,
+      companyId: actor.companyId,
+      name: input.name.trim(),
+      goal: input.goal ?? null,
+      status: input.status ?? 'planned',
+      startDate,
+      endDate,
+      capacity: input.capacity ?? null,
+      teamId,
+    });
+    await setSprintProjects(tx, actor.companyId, id, projectIds);
   });
-  await setSprintProjects(actor.companyId, id, projectIds);
   const [row] = await attachProjectIds(actor.companyId, [
     (await db.select().from(sprints).where(eq(sprints.id, id)).limit(1))[0],
   ]);
@@ -407,7 +458,13 @@ export interface UpdateSprintInput {
   teamId?: string | null;
 }
 
-/* ---- update (partial) ---- */
+/* ---- update (partial) ----
+   状态机收口(TKT-17):status 不允许裸改绕过流程。planned→active /
+   active→completed 两种合法流转转发到 startSprint/completeSprint 的同一套
+   落库核心(applyStartSprint/applyCompleteSprint;前端 SprintModal 编辑时整体
+   PATCH,行为不变);status 不变视为无操作;其余流转(completed 回退、planned
+   直接 completed 等)一律 VALIDATION_FAILED —— 完成迭代必须走「未完成 issue
+   退回待办」的完整流程,不能裸改状态。 */
 export async function updateSprint(actor: Actor, id: string, input: UpdateSprintInput) {
   await requirePerm(actor, 'sprints', 'write');
   const [existing] = await db
@@ -416,8 +473,27 @@ export async function updateSprint(actor: Actor, id: string, input: UpdateSprint
     .where(and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('SPRINT_NOT_FOUND');
+  // 迭代须在可见范围内(同 getSprint 的过滤),范围外按不存在处理。
+  const existingProjectIds = await assertSprintWritable(actor, id);
   const projectIds = input.projectIds !== undefined ? [...new Set(input.projectIds)] : undefined;
-  if (projectIds) await assertProjectsExist(actor.companyId, projectIds);
+  if (projectIds) {
+    await assertProjectsExist(actor.companyId, projectIds);
+    // 改入的新项目也必须在可见范围内,范围外 403。
+    for (const projectId of projectIds) await assertProjectWritable(actor, projectId);
+  }
+
+  // 状态流转判定:仅 planned→active / active→completed 两种,其余拒绝。
+  let lifecycle: 'start' | 'complete' | null = null;
+  if (input.status !== undefined && input.status !== existing.status) {
+    if (existing.status === 'planned' && input.status === 'active') lifecycle = 'start';
+    else if (existing.status === 'active' && input.status === 'completed') lifecycle = 'complete';
+    else {
+      throw new ApiException(
+        'VALIDATION_FAILED',
+        `迭代状态不支持 ${existing.status} → ${input.status},请使用启动/完成流程`,
+      );
+    }
+  }
 
   const patch: Partial<typeof sprints.$inferInsert> = {};
   if (input.name !== undefined) {
@@ -425,16 +501,6 @@ export async function updateSprint(actor: Actor, id: string, input: UpdateSprint
     patch.name = input.name.trim();
   }
   if (input.goal !== undefined) patch.goal = input.goal;
-  if (input.status !== undefined) {
-    // Defense line for raw status PATCHes: activating a sprint goes through the
-    // same one-active-per-project rule as startSprint. (The UI drives planned→
-    // active→completed via the dedicated start/complete endpoints.)
-    if (input.status === 'active' && existing.status !== 'active') {
-      const effProjects = projectIds ?? (await sprintProjectIds(actor.companyId, id));
-      await assertNoOtherActive(actor.companyId, effProjects, id);
-    }
-    patch.status = input.status;
-  }
   if (input.startDate !== undefined) patch.startDate = parseDate(input.startDate, 'startDate');
   if (input.endDate !== undefined) patch.endDate = parseDate(input.endDate, 'endDate');
   // Validate the effective date range when either side changes.
@@ -443,7 +509,6 @@ export async function updateSprint(actor: Actor, id: string, input: UpdateSprint
   if (+effEnd < +effStart) throw new ApiException('VALIDATION_FAILED', '结束日期不能早于开始日期');
   if (input.capacity !== undefined) patch.capacity = input.capacity;
   if (projectIds) {
-    await setSprintProjects(actor.companyId, id, projectIds);
     // Keep the legacy teamId aligned unless explicitly overridden.
     if (input.teamId === undefined) {
       patch.teamId = await teamForProject(actor.companyId, projectIds.length === 1 ? projectIds[0] : null);
@@ -451,11 +516,46 @@ export async function updateSprint(actor: Actor, id: string, input: UpdateSprint
   }
   if (input.teamId !== undefined) patch.teamId = input.teamId;
 
-  await db.update(sprints).set(patch).where(eq(sprints.id, id));
+  // 关联替换 / 状态流转 / 字段补丁收进一个事务,不再留下半截组合状态。
+  await db.transaction(async (tx) => {
+    if (projectIds) await setSprintProjects(tx, actor.companyId, id, projectIds);
+    if (lifecycle === 'start') await applyStartSprint(tx, actor.companyId, id, projectIds ?? existingProjectIds);
+    else if (lifecycle === 'complete') await applyCompleteSprint(tx, actor.companyId, id);
+    if (Object.keys(patch).length) await tx.update(sprints).set(patch).where(eq(sprints.id, id));
+  });
+  // 启动/完成都改变燃尽锚点 → 事务提交后补记快照(同 startSprint/completeSprint)。
+  if (lifecycle) await recordSprintSnapshot(actor.companyId, id);
   const [row] = await attachProjectIds(actor.companyId, [
     (await db.select().from(sprints).where(eq(sprints.id, id)).limit(1))[0],
   ]);
   return row;
+}
+
+/* planned→active 的落库核心(在调用方的事务里执行):唯一 active 守卫 + 置
+   状态。startSprint 与 updateSprint 的合法流转转发共用;启动基线快照由调用方
+   在事务提交后补记。 */
+async function applyStartSprint(tx: Tx, companyId: string, id: string, projectIds: string[]) {
+  await assertNoOtherActive(tx, companyId, projectIds, id);
+  await tx.update(sprints).set({ status: 'active' }).where(eq(sprints.id, id));
+}
+
+/* active→completed 的落库核心(在调用方的事务里执行):未完成 issue 退回产品
+   待办(sprintId → null,保留项目),再置状态;返回退回数量。completeSprint 与
+   updateSprint 的合法流转转发共用;收尾快照由调用方在事务提交后补记。 */
+async function applyCompleteSprint(tx: Tx, companyId: string, id: string): Promise<number> {
+  const moved = await tx
+    .update(issues)
+    .set({ sprintId: null })
+    .where(
+      and(
+        eq(issues.companyId, companyId),
+        eq(issues.sprintId, id),
+        notInArray(issues.status, ['done', 'canceled']),
+      ),
+    )
+    .returning({ id: issues.id });
+  await tx.update(sprints).set({ status: 'completed' }).where(eq(sprints.id, id));
+  return moved.length;
 }
 
 /* ---- lifecycle: start (planned → active) ---- */
@@ -467,11 +567,12 @@ export async function startSprint(actor: Actor, id: string) {
     .where(and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('SPRINT_NOT_FOUND');
+  // 迭代须在可见范围内(同 getSprint 的过滤),范围外按不存在处理。
+  const projectIds = await assertSprintWritable(actor, id);
   if (existing.status !== 'planned') {
     throw new ApiException('VALIDATION_FAILED', '仅待开始的迭代可以启动');
   }
-  await assertNoOtherActive(actor.companyId, await sprintProjectIds(actor.companyId, id), id);
-  await db.update(sprints).set({ status: 'active' }).where(eq(sprints.id, id));
+  await db.transaction(async (tx) => applyStartSprint(tx, actor.companyId, id, projectIds));
   // 启动当天记基线快照,燃尽 actual 线从第 0 天起有锚点。
   await recordSprintSnapshot(actor.companyId, id);
   const [row] = await attachProjectIds(actor.companyId, [
@@ -491,27 +592,19 @@ export async function completeSprint(actor: Actor, id: string) {
     .where(and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('SPRINT_NOT_FOUND');
+  // 迭代须在可见范围内(同 getSprint 的过滤),范围外按不存在处理。
+  await assertSprintWritable(actor, id);
   if (existing.status !== 'active') {
     throw new ApiException('VALIDATION_FAILED', '仅进行中的迭代可以完成');
   }
-  const moved = await db
-    .update(issues)
-    .set({ sprintId: null })
-    .where(
-      and(
-        eq(issues.companyId, actor.companyId),
-        eq(issues.sprintId, id),
-        notInArray(issues.status, ['done', 'canceled']),
-      ),
-    )
-    .returning({ id: issues.id });
-  await db.update(sprints).set({ status: 'completed' }).where(eq(sprints.id, id));
+  // 批量退回 + 置状态同生同灭 → 一个事务(与 updateSprint 的流转转发同一核心)。
+  const movedCount = await db.transaction(async (tx) => applyCompleteSprint(tx, actor.companyId, id));
   // 收尾快照:未完成 issue 已退回待办,记录迭代最终的剩余点数。
   await recordSprintSnapshot(actor.companyId, id);
   const [row] = await attachProjectIds(actor.companyId, [
     (await db.select().from(sprints).where(eq(sprints.id, id)).limit(1))[0],
   ]);
-  return { sprint: row, movedCount: moved.length };
+  return { sprint: row, movedCount };
 }
 
 /* ---- delete ---- (committed issues detach: sprintId → null) */
@@ -523,6 +616,8 @@ export async function deleteSprint(actor: Actor, id: string) {
     .where(and(eq(sprints.companyId, actor.companyId), eq(sprints.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('SPRINT_NOT_FOUND');
+  // 迭代须在可见范围内(同 getSprint 的过滤),范围外按不存在处理。
+  await assertSprintWritable(actor, id);
   // Explicit detach (the DB FK also has onDelete: 'set null'; doing it here keeps
   // the behavior independent of migration state). Issues keep their project.
   await db

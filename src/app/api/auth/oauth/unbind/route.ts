@@ -3,7 +3,8 @@ import { db } from '@/db';
 import { users } from '@/db/schema';
 import { ok, fail } from '@/lib/envelope';
 import { requireUser } from '@/lib/session';
-import { jsonBody, route } from '@/server/http';
+import { route } from '@/server/http';
+import { jsonBodyWith, oauthUnbindSchema } from '@/server/validate';
 
 /* POST /api/auth/oauth/unbind { provider?: 'lark' | 'github' } — unlink a
    third-party identity from the current account (缺省 'lark'，即飞书/Lark 共用
@@ -12,7 +13,8 @@ import { jsonBody, route } from '@/server/http';
    left would be locked out. */
 export const POST = route(async (req) => {
   const session = await requireUser();
-  const body = await jsonBody<{ provider?: string }>(req).catch(() => ({}) as { provider?: string });
+  // provider 可省略(前端始终发 JSON 体);非法 JSON / 非法 provider 不再静默吞掉。
+  const body = await jsonBodyWith(req, oauthUnbindSchema);
   const target: 'larkUnionId' | 'githubId' = body.provider === 'github' ? 'githubId' : 'larkUnionId';
 
   const [u] = await db.select().from(users).where(eq(users.id, session.uid)).limit(1);

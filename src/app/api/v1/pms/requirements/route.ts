@@ -1,11 +1,7 @@
 import { ok } from '@/lib/envelope';
-import {
-  createRequirement,
-  listRequirements,
-  type CreateRequirementInput,
-  type RequirementType,
-} from '@/server/services/requirements';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { createRequirement, listRequirements, type RequirementType } from '@/server/services/requirements';
+import { requireActor, route } from '@/server/http';
+import { jsonBodyWith, requirementCreateSchema } from '@/server/validate';
 
 /* GET  /api/v1/pms/requirements?project&type — list (position asc).
    POST /api/v1/pms/requirements — create (auto FR-N / NFR-N key). */
@@ -22,5 +18,5 @@ export const GET = route(async (req) => {
 
 export const POST = route(async (req) => {
   const actor = await requireActor();
-  return ok(await createRequirement(actor, await jsonBody<CreateRequirementInput>(req)));
+  return ok(await createRequirement(actor, await jsonBodyWith(req, requirementCreateSchema)));
 });

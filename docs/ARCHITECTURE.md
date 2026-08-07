@@ -44,7 +44,7 @@ spms/
 ├── scripts/seed.ts             # 初始数据（admin/agent/演示数据）
 ├── src/
 │   ├── db/
-│   │   ├── schema.ts           # 24 张表 + 21 个枚举 + relations
+│   │   ├── schema.ts           # 29 张表 + 21 个枚举 + relations
 │   │   └── index.ts            # postgres-js 连接（DATABASE_URL）
 │   ├── lib/                    # 服务端基础库
 │   │   ├── env.ts              # 环境变量集中读取
@@ -57,14 +57,18 @@ spms/
 │   │   ├── rollup.ts           # 项目/版本进度派生
 │   │   ├── assignments.ts      # 指派传播代数（direct/propagated）
 │   │   ├── identity.ts         # user↔member 懒绑定 + agent 兜底播种
+│   │   ├── visibility.ts       # 指派可见性（issueVisible/assertProjectWritable/visibleSetsFor）
+│   │   ├── rateLimit.ts        # 内存滑动窗口限流（登录接口按 IP+用户名）
 │   │   └── agents.ts           # AI 演示剧本（同步写 activities）
 │   ├── server/services/        # 业务服务层（API 与 MCP 共用）
 │   │   ├── issues.ts  requirements.ts  projects.ts  sprints.ts
 │   │   ├── catalog.ts resources.ts assignments.ts testcases.ts
 │   │   ├── reports.ts            # 日报（每人每天一份,按产品拆 entries,产品/人员/负责人三维度汇总）
+│   │   ├── attachments.ts        # issue 图片附件（Vercel Blob；assertBlobMeta 校验注册 URL/pathname）
+│   │   ├── notionSync.ts         # Notion → Issues 同步（lastSyncedAt 水位增量 / ?full=1 全量，幂等靠 notion_issue_links）
 │   │   ├── platform.ts           # 平台管理（公司/成员/矩阵/MCP key）
 │   │   └── meta.ts             # bootstrap 聚合
-│   ├── mcp/server.ts           # McpServer + tools 注册
+│   ├── mcp/                    # server.ts（McpServer + 26 个 tools 注册）+ workflow.ts（审查/关单工作流自动化）
 │   ├── app/
 │   │   ├── (auth)/login/       # 登录页（密码 + 飞书/Lark/GitHub OAuth）
 │   │   ├── (app)/              # 主应用（Header + Sidebar 布局 + AuthGate）
@@ -72,15 +76,17 @@ spms/
 │   │   │   ├── projects/  projects/[id]/  resources/
 │   │   │   ├── roadmap/  backlog/  sprints/  sprints/[id]/
 │   │   │   ├── reports/          # 日报（写日报 + 产品/人员/负责人三维度汇总上报）
+│   │   │   ├── integrations/     # 集成页（Notion 连接/同步管理）
 │   │   │   ├── settings/         # 设置页（偏好 + 平台管理 Tab，平台管理仅平台管理员；旧 /platform 重定向至此）
 │   │   │   ├── agent-access/     # Agent 接入页（MCP 令牌自助管理，所有登录用户；member 仅自己的公司级 key）
 │   │   │   ├── profile/          # 个人资料页（资料/安全/已授权应用三 Tab）
 │   │   ├── api/v1/pms/**/route.ts   # 业务 API（路径与原系统一致）
+│   │   ├── api/v1/pms/integrations/**/route.ts # 集成 API（Notion OAuth authorize/callback + 连接/预览/同步）
 │   │   ├── api/v1/platform/**/route.ts # 平台管理 API（仅平台管理员；mcp-keys 支持 member 自助）
 │   │   ├── api/auth/           # login/logout/session/switch-company/change-password/[provider]/*/oauth/*
 │   │   └── mcp/route.ts        # MCP Streamable HTTP 端点
 │   ├── components/             # ui/ glyphs/ menus/ inline/ Header/ Sidebar/ profile/(改密码表单)/ platform/(设置页四个管理面板)/ 各详情抽屉
-│   ├── views/ 或 components/   # 各页面视图（IssuesView/ProjectHub/...）
+│   │                           #   + 各页面视图（IssuesView/ProjectHub/ScrumViews/ReportsView/…，无独立 views/ 目录）
 │   ├── store/                  # React Query hooks + AppDataProvider
 │   └── lib/ (前端)             # types / api client / i18n
 └── .env.local                  # DATABASE_URL / SESSION_SECRET / MCP_API_KEY / LARK_* / GITHUB_*
@@ -100,6 +106,7 @@ spms/
 `spms_session`（HttpOnly / SameSite=Lax / 7 天），payload `{ uid, username, role, cid }`。
 `username` 也接受**任一邮箱**（`user_emails` 主/备，大小写不敏感）——邮箱反查用户后共用同一密码。
 `cid` = 当前公司 id，登录时取第一个可见公司；`POST /api/auth/switch-company { companyId }` 重签 cookie 切换（要求目标公司成员或平台管理员）。
+登录接口按 IP+用户名做内存滑动窗口限流（`src/lib/rateLimit.ts`：窗口内失败超限 → 429 `RATE_LIMITED`，登录成功清零；计数存进程内 Map，serverless/多实例部署需换共享存储）。
 纯 OAuth 账号（`passwordHash='!oauth'`）可在 /profile 安全页**免旧密码直接设置密码**，设置后密码登录开通——密码与飞书/Lark/GitHub 登录由此统一到同一账号。
 
 ### 用户邮箱（user_emails）
@@ -132,7 +139,7 @@ spms/
 - **邀请外部资源（按邮箱）**：邮箱已属于平台用户（`user_emails` 主/备）→ 直接落 `userId`、转 internal/active 并授 viewer 席位（与 OAuth 认领同结果）；否则预埋 external/invited 行，等本人 OAuth 登录按 verified 邮箱认领。
 
 **角色×模块矩阵**（`src/lib/permissions.ts`）：
-- 4 个可配置角色 × 10 个模块（issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents）× 3 档（`none < read < write`）
+- 4 个可配置角色 × 11 个模块（issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents/reports）× 3 档（`none < read < write`）
 - 矩阵存 `role_permissions` 表，**两层拆分**：`companyId=''` 为全局默认（平台管理员在 /settings/matrix 配置），`companyId=<公司>` 为本公司覆盖（company_admin 在 /settings/company-matrix 配置，`/api/v1/pms/permissions-matrix`）；生效值 = 全局 + 按单元格覆盖
 - `company_admin` 与平台管理员恒全权限，不入矩阵；缺失行按 `none` 处理；进程内按公司缓存 60s
 - **项目创建/删除**额外限定 `company_admin` 或平台管理员（不受矩阵 projects=write 影响）
@@ -146,9 +153,9 @@ spms/
 
 | 角色 | write 模块 | read 模块 | none |
 |---|---|---|---|
-| product_manager | issues/products/requirements/projects/resources/roadmap/backlog | testcases/sprints/agents | — |
-| developer | issues/backlog/sprints | 其余全部 | — |
-| tester | issues/testcases | 其余大部分 | agents |
+| product_manager | issues/products/requirements/projects/resources/roadmap/backlog/reports | testcases/sprints/agents | — |
+| developer | issues/backlog/sprints/reports | 其余全部 | — |
+| tester | issues/testcases/reports | 其余大部分 | agents |
 | viewer | — | 全部 | — |
 
 ## 指派传播代数（核心复用逻辑）
@@ -180,7 +187,7 @@ issue 指派给 agent 时：挂 `AI 生成` 标签 + 把预编剧本步骤**同�
 - **公司级 key**（companyId 非空）：钉死在该公司沙箱内，自动隔离；
 - **平台级 key**（companyId NULL）：可跨公司，工具带可选 `companyId` 参数（默认第一个公司）；
 - env `MCP_API_KEY` 仅作平台级兜底（开发兼容），seed 时已迁移为平台级 DB key；
-- MCP 调用的 Actor = 目标公司的内置 `scribe` agent member，companyRole=company_admin。
+- MCP 调用的 Actor：**DB key → 令牌所属人**（`ownerId`，默认创建人，可在 /agent-access 修改），companyRole 取所属人在目标公司的真实 membership 角色（平台管理员无 membership 时按 company_admin），写操作同时受所属人 RBAC 与 key 能力上限（capabilities）约束；**env 兜底 key**（无所属人）保留遗留行为——Actor = 目标公司的内置 `scribe` agent member，companyRole=company_admin。
 
 详见 [MCP.md](./MCP.md)。
 

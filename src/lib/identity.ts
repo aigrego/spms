@@ -121,14 +121,18 @@ export async function claimExternalInvites(
       .where(and(eq(members.companyId, inv.companyId), eq(members.userId, user.id)))
       .limit(1);
     if (existing) continue;
-    await db
-      .update(members)
-      .set({ userId: user.id, origin: 'internal', status: 'active', avatarUrl: user.avatarUrl ?? null })
-      .where(eq(members.id, inv.id));
-    await db
-      .insert(companyMemberships)
-      .values({ id: crypto.randomUUID(), userId: user.id, companyId: inv.companyId, role: 'viewer' })
-      .onConflictDoNothing();
+    // 认领 = members 行回填(internal/active)+ viewer 席位授予,同生同灭 →
+    // 一个事务;失败则该邀请整体跳过,不留"已认领但无席位"的半截状态。
+    await db.transaction(async (tx) => {
+      await tx
+        .update(members)
+        .set({ userId: user.id, origin: 'internal', status: 'active', avatarUrl: user.avatarUrl ?? null })
+        .where(eq(members.id, inv.id));
+      await tx
+        .insert(companyMemberships)
+        .values({ id: crypto.randomUUID(), userId: user.id, companyId: inv.companyId, role: 'viewer' })
+        .onConflictDoNothing();
+    });
     claimed += 1;
   }
   return claimed;

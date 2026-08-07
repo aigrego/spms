@@ -182,7 +182,7 @@
 | GET | `/users` | 平台成员目录：全部系统用户 + 各自公司席位（含主邮箱 `email`） |
 | POST | `/users` | `{ username, name?, password, email? }` 新建系统账号（role=member，不含席位）；email 写入主邮箱（user_emails） |
 | DELETE | `/users/:userId` | 删除系统账号（不能删自己）：先 revoke 其在各家公司的 member 投影（移出指派、置 revoked，行保留姓名快照），再删 users 行（`members.user_id` FK set null 兜底；company_memberships/user_emails 随 cascade） |
-| GET | `/permissions-matrix` | 全量 4 角色 × 10 模块矩阵 |
+| GET | `/permissions-matrix` | 全量 4 角色 × 11 模块矩阵 |
 | PUT | `/permissions-matrix` | `{ matrix }` 整表替换（逐格校验后 upsert + 缓存失效） |
 | GET | `/mcp-keys` | MCP key 列表（不返回 keyHash/明文；含 ownerId/ownerName）；管理员见全部，member 只见自己创建的 |
 | POST | `/mcp-keys` | `{ name, companyId?, ownerId?, capabilities?, expiresInDays? }` 签发 key（管理员：companyId 省略=平台级；member 自助：companyId 省略=当前公司，且必须是其所属公司，显式 null/他人公司 → 403；ownerId=所属人，省略=创建人，公司级 key 的所属人必须是该公司成员或平台管理员；capabilities ⊆ read/write/delete，默认 `['read','write']`；expiresInDays 省略=永不过期）；**明文仅本次返回** |

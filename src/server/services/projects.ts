@@ -2,7 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { projects, teams, releases, issues, sprints } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
-import { assignMember, clearNodeAssignments, sprintsDyingWithProjects } from '@/lib/assignments';
+import { assignMember, clearNodesAssignments, sprintsDyingWithProjects } from '@/lib/assignments';
 import { requirePerm } from '@/lib/permissions';
 import type { Actor } from './types';
 
@@ -186,28 +186,36 @@ export async function deleteProject(actor: Actor, id: string) {
 
   // PMS-2: clear the polymorphic virtual-team rows for the project + the sprints
   // that die with it (shared sprints keep their own rows — they still exist).
-  await clearNodeAssignments(actor.companyId, 'project', id);
-  for (const sprintId of soleSprintIds) await clearNodeAssignments(actor.companyId, 'sprint', sprintId);
+  // clearNodesAssignments 是 lib helper(内部用全局 db),保持事务外、维持原有先后;
+  // 若随后的删除失败,代价是存活节点少了指派行(可重新指派),而非半截删除。
+  await clearNodesAssignments(actor.companyId, [
+    { nodeType: 'project', nodeId: id },
+    ...soleSprintIds.map((sid) => ({ nodeType: 'sprint' as const, nodeId: sid })),
+  ]);
 
-  // Delete the dying sprints explicitly (no projects→sprints FK cascade since
-  // the N:N move): detach their issues, then the row — snapshots/join rows
-  // cascade by FK.
-  if (soleSprintIds.length) {
-    await db
+  // 级联行写收进一个事务:垂死迭代的 detach+删除、issue 项目 detach、项目行
+  // 删除同生同灭。
+  await db.transaction(async (tx) => {
+    // Delete the dying sprints explicitly (no projects→sprints FK cascade since
+    // the N:N move): detach their issues, then the row — snapshots/join rows
+    // cascade by FK.
+    if (soleSprintIds.length) {
+      await tx
+        .update(issues)
+        .set({ sprintId: null })
+        .where(and(eq(issues.companyId, actor.companyId), inArray(issues.sprintId, soleSprintIds)));
+      await tx
+        .delete(sprints)
+        .where(and(eq(sprints.companyId, actor.companyId), inArray(sprints.id, soleSprintIds)));
+    }
+
+    // issues.projectId detaches (set null), not delete — issues survive.
+    // Requirements cascade-delete, which auto-nulls those issues' requirementId.
+    await tx
       .update(issues)
-      .set({ sprintId: null })
-      .where(and(eq(issues.companyId, actor.companyId), inArray(issues.sprintId, soleSprintIds)));
-    await db
-      .delete(sprints)
-      .where(and(eq(sprints.companyId, actor.companyId), inArray(sprints.id, soleSprintIds)));
-  }
-
-  // issues.projectId detaches (set null), not delete — issues survive.
-  // Requirements cascade-delete, which auto-nulls those issues' requirementId.
-  await db
-    .update(issues)
-    .set({ projectId: null })
-    .where(and(eq(issues.companyId, actor.companyId), eq(issues.projectId, id)));
-  await db.delete(projects).where(eq(projects.id, id));
+      .set({ projectId: null })
+      .where(and(eq(issues.companyId, actor.companyId), eq(issues.projectId, id)));
+    await tx.delete(projects).where(eq(projects.id, id));
+  });
   return { id };
 }

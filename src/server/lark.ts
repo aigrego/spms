@@ -48,10 +48,11 @@ export function providerRedirectUri(p: OAuthProvider, origin: string): string {
   return PROVIDERS[p].redirectUri ?? `${origin}/api/auth/${p}/callback`;
 }
 
-/* The authorization URL the browser is sent to (302). Login flows use a
-   one-off random state — no cross-request state check (single-tenant tool);
-   bind flows pass `bind.<nonce>` and the nonce is verified against
-   BIND_STATE_COOKIE in the callback. */
+/* The authorization URL the browser is sent to (302). Both flows carry a
+   cross-request state nonce that the callback verifies against an HttpOnly
+   cookie (login-CSRF guard): login flows pass `login.<nonce>`
+   (LOGIN_STATE_COOKIE, set by /login), bind flows pass `bind.<nonce>`
+   (BIND_STATE_COOKIE, set by /bind). */
 export function providerAuthorizeUrl(p: OAuthProvider, origin: string, state?: string): string {
   const redirect = encodeURIComponent(providerRedirectUri(p, origin));
   if (p === 'github') {
@@ -61,6 +62,11 @@ export function providerAuthorizeUrl(p: OAuthProvider, origin: string, state?: s
   }
   return `${PROVIDERS[p].apiBase}/open-apis/authen/v1/authorize?app_id=${PROVIDERS[p].appId}&redirect_uri=${redirect}&state=${state ?? crypto.randomUUID()}`;
 }
+
+/* HttpOnly cookie carrying the login-flow nonce between /api/auth/<p>/login
+   and the callback — proves the login was initiated by this browser (CSRF
+   guard), same idea as BIND_STATE_COOKIE for the bind flow. */
+export const LOGIN_STATE_COOKIE = 'spms_oauth_login';
 
 /* HttpOnly cookie carrying the bind-flow nonce between /api/auth/<p>/bind and
    the callback — proves the bind was initiated by this browser (CSRF guard). */

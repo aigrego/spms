@@ -194,7 +194,11 @@ export const companyMemberships = pgTable(
     role: text('role').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('company_memberships_user_company_uidx').on(t.userId, t.companyId)],
+  (t) => [
+    uniqueIndex('company_memberships_user_company_uidx').on(t.userId, t.companyId),
+    // 按公司列成员（listSeats/listMembers）走 companyId 过滤。
+    index('company_memberships_company_idx').on(t.companyId),
+  ],
 );
 
 /* Role permissions — the configurable per-module access matrix for the
@@ -341,17 +345,21 @@ export const sprints = pgTable('sprints', {
 });
 
 /* Daily burndown snapshot */
-export const sprintSnapshots = pgTable('sprint_snapshots', {
-  id: text('id').primaryKey(),
-  companyId: text('company_id')
-    .references(() => companies.id, { onDelete: 'cascade' })
-    .notNull(),
-  sprintId: text('sprint_id')
-    .references(() => sprints.id, { onDelete: 'cascade' })
-    .notNull(),
-  day: timestamp('day', { withTimezone: true }).notNull(),
-  remainingPoints: integer('remaining_points').notNull(),
-});
+export const sprintSnapshots = pgTable(
+  'sprint_snapshots',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    sprintId: text('sprint_id')
+      .references(() => sprints.id, { onDelete: 'cascade' })
+      .notNull(),
+    day: timestamp('day', { withTimezone: true }).notNull(),
+    remainingPoints: integer('remaining_points').notNull(),
+  },
+  (t) => [index('sprint_snapshots_sprint_idx').on(t.sprintId)],
+);
 
 /* Sprint <-> Project (many-to-many). Deleting a project removes its join rows;
    a sprint left with zero projects is deleted at the app level (deleteProject),
@@ -557,6 +565,8 @@ export const issues = pgTable(
     uniqueIndex('issues_key_uidx').on(t.companyId, t.key),
     index('issues_team_idx').on(t.teamId),
     index('issues_sprint_idx').on(t.sprintId),
+    index('issues_project_idx').on(t.projectId),
+    index('issues_assignee_idx').on(t.assigneeId),
   ],
 );
 
@@ -578,18 +588,22 @@ export const issueLabels = pgTable(
 );
 
 /* Sub-issues (checklist on an issue) */
-export const subIssues = pgTable('sub_issues', {
-  id: text('id').primaryKey(),
-  companyId: text('company_id')
-    .references(() => companies.id, { onDelete: 'cascade' })
-    .notNull(),
-  issueId: text('issue_id')
-    .references(() => issues.id, { onDelete: 'cascade' })
-    .notNull(),
-  title: text('title').notNull(),
-  status: issueStatusEnum('status').notNull().default('todo'),
-  position: integer('position').notNull().default(0),
-});
+export const subIssues = pgTable(
+  'sub_issues',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    issueId: text('issue_id')
+      .references(() => issues.id, { onDelete: 'cascade' })
+      .notNull(),
+    title: text('title').notNull(),
+    status: issueStatusEnum('status').notNull().default('todo'),
+    position: integer('position').notNull().default(0),
+  },
+  (t) => [index('sub_issues_issue_idx').on(t.issueId)],
+);
 
 /* Image attachments on an issue (Vercel Blob, client-direct upload).
    `pathname` is the blob pathname — needed to delete the blob later. */
@@ -615,19 +629,23 @@ export const issueAttachments = pgTable(
 );
 
 /* Activity / comments feed on an issue */
-export const activities = pgTable('activities', {
-  id: text('id').primaryKey(),
-  companyId: text('company_id')
-    .references(() => companies.id, { onDelete: 'cascade' })
-    .notNull(),
-  issueId: text('issue_id')
-    .references(() => issues.id, { onDelete: 'cascade' })
-    .notNull(),
-  whoId: text('who_id').references(() => members.id),
-  kind: activityKindEnum('kind').notNull().default('comment'),
-  body: text('body').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const activities = pgTable(
+  'activities',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    issueId: text('issue_id')
+      .references(() => issues.id, { onDelete: 'cascade' })
+      .notNull(),
+    whoId: text('who_id').references(() => members.id),
+    kind: activityKindEnum('kind').notNull().default('comment'),
+    body: text('body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('activities_issue_idx').on(t.issueId)],
+);
 
 /* ------------------------------------------------------------------ */
 /* Test cases (测试用例) — project-scoped, optionally validating a       */

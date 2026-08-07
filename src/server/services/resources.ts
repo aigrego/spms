@@ -6,7 +6,7 @@ import { ApiException } from '@/lib/envelope';
 import { initialsFor, colorFor, revokeMemberProjection } from '@/lib/identity';
 import { unassignMemberEverywhere } from '@/lib/assignments';
 import { requirePerm } from '@/lib/permissions';
-import { COMPANY_ROLES, type CompanyRole } from './platform';
+import { COMPANY_ROLES, assertNotLastCompanyAdmin, type CompanyRole } from './platform';
 import type { Actor } from './types';
 
 /* PMS-2 §5.1 — 研发资源池 (resource pool) business service. Ported from
@@ -101,26 +101,29 @@ export async function invite(actor: Actor, input: InviteInput) {
 
   const name = (input.name?.trim() || invitedUserName || email?.split('@')[0] || userId || '外部资源').trim();
   const id = crypto.randomUUID();
-  await db.insert(members).values({
-    id,
-    companyId: actor.companyId,
-    type: 'human',
-    name,
-    initials: initialsFor(name),
-    color: colorFor(email ?? userId ?? name),
-    role: null,
-    userId,
-    agentKey: null,
-    origin: claimedUser ? 'internal' : 'external',
-    email,
-    status: claimedUser ? 'active' : 'invited',
+  // 资源池行 + (认领用户时的)viewer 席位同生同灭 → 一个事务。
+  await db.transaction(async (tx) => {
+    await tx.insert(members).values({
+      id,
+      companyId: actor.companyId,
+      type: 'human',
+      name,
+      initials: initialsFor(name),
+      color: colorFor(email ?? userId ?? name),
+      role: null,
+      userId,
+      agentKey: null,
+      origin: claimedUser ? 'internal' : 'external',
+      email,
+      status: claimedUser ? 'active' : 'invited',
+    });
+    if (claimedUser && userId) {
+      await tx
+        .insert(companyMemberships)
+        .values({ id: crypto.randomUUID(), userId, companyId: actor.companyId, role: 'viewer' })
+        .onConflictDoNothing();
+    }
   });
-  if (claimedUser && userId) {
-    await db
-      .insert(companyMemberships)
-      .values({ id: crypto.randomUUID(), userId, companyId: actor.companyId, role: 'viewer' })
-      .onConflictDoNothing();
-  }
 
   const [row] = await db.select().from(members).where(eq(members.id, id)).limit(1);
   return serializeMember(row!);
@@ -185,6 +188,8 @@ export async function updateSeatRole(actor: Actor, membershipId: string, role: C
     throw new ApiException('VALIDATION_FAILED', `role 必须是内置角色之一（${COMPANY_ROLES.join(' / ')}）`);
   }
   await seatInCompany(actor, membershipId);
+  // BUG-11:不能把公司唯一的 company_admin 降为其他角色
+  if (role !== 'company_admin') await assertNotLastCompanyAdmin(actor.companyId, membershipId, '降级');
   await db.update(companyMemberships).set({ role }).where(eq(companyMemberships.id, membershipId));
   return { id: membershipId, role };
 }
@@ -194,6 +199,8 @@ export async function updateSeatRole(actor: Actor, membershipId: string, role: C
 export async function removeSeat(actor: Actor, membershipId: string) {
   requireSeatAdmin(actor);
   const seat = await seatInCompany(actor, membershipId);
+  // BUG-11:不能移除公司唯一的 company_admin
+  await assertNotLastCompanyAdmin(actor.companyId, membershipId, '移除');
   await db.delete(companyMemberships).where(eq(companyMemberships.id, membershipId));
   await revokeMemberProjection(actor.companyId, seat.userId);
   return { id: membershipId };

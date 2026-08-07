@@ -7,7 +7,7 @@
 ## 功能
 
 - **多公司沙箱**：公司即独立数据空间（编号/成员/业务数据全隔离），Header 一键切换；现有数据在「默认公司」，另有「示例公司」空沙箱
-- **RBAC 权限**：平台角色（管理员/普通用户）+ 公司内 5 角色（管理员/产品/开发/测试/访客）；4 角色 × 10 模块 × 3 档权限矩阵拆两层——全局默认（平台管理员配）+ 本公司覆盖（公司管理员在 设置 → 权限矩阵·本公司 配）；侧边栏与按钮按权限过滤
+- **RBAC 权限**：平台角色（管理员/普通用户）+ 公司内 5 角色（管理员/产品/开发/测试/访客）；4 角色 × 11 模块 × 3 档权限矩阵拆两层——全局默认（平台管理员配）+ 本公司覆盖（公司管理员在 设置 → 权限矩阵·本公司 配）；侧边栏与按钮按权限过滤
 - **席位体系**：平台管理员在 设置 → 成员管理 看全部系统用户并新建账号；公司卡片 → 席位 抽屉把用户分配进/回收出公司沙箱（默认访客）；公司管理员在 研发资源 → 内部成员 调整公司角色/移除席位
 - **平台管理**：`/settings` 设置页 Tab——公司管理（含席位）、成员管理（平台成员目录）、权限矩阵·全局、Agent 接入（仅平台管理员可见，旧 `/platform` 路由重定向至此）
 - **Issue 统一工作项**：缺陷（bug）/ 工单（ticket）/ 备忘（backlog）三合一；列表/看板双视图、分组（状态/优先级/重要度/负责人）、看板拖拽、行内编辑、详情抽屉（子任务/评论/@提及/活动流/AI 工作区）
@@ -16,8 +16,12 @@
 - **敏捷**：Backlog 拖拽规划、迭代看板、燃尽图、速度图；迭代 CRUD
 - **产品目录**：产品线 → 产品 → 版本三级生命周期管理（级联删除确认）
 - **研发资源池**：内部成员 / 外部挂名资源 / 4 个内置 AI Agent；虚拟团队指派沿生命周期传播（direct/propagated）
+- **日报系统**：每人每天一份、按产品拆条目（按 项目→版本→产品 推导归属）；产品/人员/负责人三维度汇总 + 提交统计与未提交名单；MCP 可按项目上报
+- **图片附件**：issue 图片附件存 Vercel Blob（jpeg/png/gif/webp/avif，≤10MB）；MCP 可 base64 上传，`spms_get_issue` 把图片以 image 内容块内联返回给 Agent 识别
+- **Notion 集成**：`/integrations` 页公共 OAuth 连接（每公司一条，token 仅服务端保存），同步数据库/目标项目/状态映射可配；手动增量同步（`lastSyncedAt` 水位）或全量重同步（`?full=1`），单向 Notion → Issues
+- **登录认证**：账号密码（用户名可填任一邮箱）+ 飞书 / Lark / GitHub OAuth 登录（对应 env 未配置时入口自动隐藏）；`/profile` 支持绑定/解绑第三方身份与改密
 - **全局**：52px 全局 Header（公司切换器 + 角色 Badge + 全局搜索 ⌘K + 用户下拉[个人资料/浅色模式/退出登录]）、侧边栏底部「设置 / 个人资料」入口、快速新建（`c`）、浅色主题（可在设置页切深色/跟随系统）、中文界面；`/profile` 个人资料页（资料/安全/已授权应用三 Tab）支持改名与改密码
-- **MCP**：20 个 `spms_*` tools（11 读 + 9 写），DB key 鉴权（公司级自动隔离 / 平台级跨公司），见 [docs/MCP.md](docs/MCP.md)
+- **MCP**：26 个 `spms_*` tools（11 读 + 15 写），DB key 鉴权（公司级自动隔离 / 平台级跨公司），见 [docs/MCP.md](docs/MCP.md)
 
 ## 快速开始
 
@@ -45,8 +49,12 @@ npm run dev
 | `DATABASE_URL` | PostgreSQL 连接串（如 `postgres://postgres:postgres@localhost:5432/spms`） |
 | `SESSION_SECRET` | session cookie 签名密钥（随机长串） |
 | `MCP_API_KEY` | MCP 鉴权 key 的**平台级兜底**（逗号分隔多个，均视为平台级）；seed 时已迁移为 DB 平台级 key。**推荐使用 DB key**（见下） |
-| `LARK_APP_ID` / `LARK_APP_SECRET` / `LARK_REDIRECT_URI` | 可选，飞书扫码登录；未配置时登录页不显示飞书入口 |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_REDIRECT_URI` | 可选，飞书扫码登录；未配置时登录页不显示飞书入口 |
+| `LARK_APP_ID` / `LARK_APP_SECRET` / `LARK_REDIRECT_URI` | 可选，Lark（国际版）扫码登录；未配置时登录页不显示 Lark 入口 |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `GITHUB_REDIRECT_URI` | 可选，GitHub OAuth 登录；未配置时登录页不显示 GitHub 入口 |
+| `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` / `NOTION_REDIRECT_URI` | 可选，Notion 集成（公共 OAuth）；未配置时 `/integrations` 页连接按钮禁用 |
 | `SEED_ADMIN_PASSWORD` | 可选，覆盖种子 admin 密码（默认 admin123） |
+| `BLOB_READ_WRITE_TOKEN` | issue 图片附件的 Vercel Blob token（Vercel 控制台 → Storage → Blob 获取） |
 
 ## MCP 接入
 
@@ -76,7 +84,7 @@ Next.js 16（App Router）· TypeScript · Tailwind v4 · React Query · Drizzle
 
 - [docs/PLAN.md](docs/PLAN.md) — 项目规划与实施阶段（一期 + 二期多公司沙箱/RBAC/Header）
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 架构设计（分层 / 认证与 RBAC / 多公司沙箱 / 指派传播 / 进度派生）
-- [docs/DATA-MODEL.md](docs/DATA-MODEL.md) — 数据模型（22 表 + 枚举 + 级联）
+- [docs/DATA-MODEL.md](docs/DATA-MODEL.md) — 数据模型（29 表 + 枚举 + 级联）
 - [docs/API.md](docs/API.md) — REST API 清单（业务 + 平台管理）
 - [docs/MCP.md](docs/MCP.md) — MCP 服务与 tools
 

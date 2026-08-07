@@ -1,6 +1,7 @@
 import { ok } from '@/lib/envelope';
-import { deleteProduct, updateProduct, type UpdateProductInput } from '@/server/services/catalog';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { deleteProduct, updateProduct } from '@/server/services/catalog';
+import { requireActor, route } from '@/server/http';
+import { jsonBodyWith, productUpdateSchema } from '@/server/validate';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -8,7 +9,7 @@ type Ctx = { params: Promise<{ id: string }> };
    DELETE /api/v1/pms/products/:id — clears subtree assignments, cascades. */
 export const PATCH = route(async (req, ctx: Ctx) => {
   const actor = await requireActor();
-  return ok(await updateProduct(actor, (await ctx.params).id, await jsonBody<UpdateProductInput>(req)));
+  return ok(await updateProduct(actor, (await ctx.params).id, await jsonBodyWith(req, productUpdateSchema)));
 });
 
 export const DELETE = route(async (_req, ctx: Ctx) => {

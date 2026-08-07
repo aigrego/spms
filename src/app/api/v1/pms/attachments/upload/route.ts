@@ -1,23 +1,27 @@
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { ApiException, fail } from '@/lib/envelope';
-import { requireActor } from '@/server/http';
+import { requireActor, route } from '@/server/http';
 import { MAX_ATTACHMENT_SIZE } from '@/server/services/attachments';
-import { ALLOWED_ATTACHMENT_TYPES } from '@/lib/attachments';
+import { ALLOWED_ATTACHMENT_TYPES, ATTACHMENT_PATH_PREFIX } from '@/lib/attachments';
 
 /* POST /api/v1/pms/attachments/upload — client-direct upload token for
    @vercel/blob/client's upload(). The blob SDK expects its own response
    shape, so this endpoint returns NextResponse.json(jsonResponse) directly
-   instead of the ok() envelope; ApiExceptions still map to fail().
+   instead of the ok() envelope; ApiExceptions still map to fail() via route().
    Registration happens explicitly via /issues/:key/attachments —
    onUploadCompleted is a no-op (webhooks don't fire in local dev). */
-export async function POST(req: Request) {
+export const POST = route(async (req: NextRequest) => {
   try {
     const jsonResponse = await handleUpload({
       body: (await req.json()) as HandleUploadBody,
       request: req,
-      onBeforeGenerateToken: async () => {
+      onBeforeGenerateToken: async (pathname) => {
         await requireActor(); // session gate — throws when logged out
+        // pathname 前缀约定:签发的 token 只允许落在该前缀下,注册端按同一约定校验。
+        if (!pathname.startsWith(ATTACHMENT_PATH_PREFIX)) {
+          throw new ApiException('VALIDATION_FAILED', '附件 pathname 与签发前缀不一致');
+        }
         return {
           allowedContentTypes: ALLOWED_ATTACHMENT_TYPES,
           maximumSizeInBytes: MAX_ATTACHMENT_SIZE,
@@ -28,8 +32,10 @@ export async function POST(req: Request) {
     });
     return NextResponse.json(jsonResponse);
   } catch (e) {
-    if (e instanceof ApiException) return fail(e.code, e.message, e.status);
+    // ApiException(鉴权/前缀校验)交给 route() 统一映射 envelope;blob SDK 的
+    // 客户端错误不再裸抛内部 message,统一成 fail() envelope(HTTP 400)。
+    if (e instanceof ApiException) throw e;
     console.error('[api] blob upload error:', e);
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    return fail('VALIDATION_FAILED', '附件上传请求不合法', 400);
   }
-}
+});

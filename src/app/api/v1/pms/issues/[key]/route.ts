@@ -1,6 +1,7 @@
 import { ok } from '@/lib/envelope';
-import { deleteIssue, getIssue, updateIssue, type UpdateIssueInput } from '@/server/services/issues';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { deleteIssue, getIssue, updateIssue } from '@/server/services/issues';
+import { requireActor, route } from '@/server/http';
+import { issueUpdateSchema, jsonBodyWith } from '@/server/validate';
 
 type Ctx = { params: Promise<{ key: string }> };
 
@@ -14,7 +15,7 @@ export const GET = route(async (_req, ctx: Ctx) => {
 
 export const PATCH = route(async (req, ctx: Ctx) => {
   const actor = await requireActor();
-  return ok(await updateIssue(actor, (await ctx.params).key, await jsonBody<UpdateIssueInput>(req)));
+  return ok(await updateIssue(actor, (await ctx.params).key, await jsonBodyWith(req, issueUpdateSchema)));
 });
 
 export const DELETE = route(async (_req, ctx: Ctx) => {

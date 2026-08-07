@@ -398,7 +398,6 @@ export const api = {
 
   /* ---- 研发资源池 (PMS-2 §5.1) ---- */
   resources: () => request<Member[]>('/resources'),
-  syncDirectory: () => request<{ synced: number; members: Member[] }>('/resources/sync-directory', { method: 'POST' }),
   inviteResource: (input: InviteResourceInput) => request<Member>('/resources/invite', json('POST', input)),
   revokeResource: (id: string) =>
     request<{ id: string; status: string }>(`/resources/${id}/revoke`, { method: 'POST' }),
