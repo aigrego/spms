@@ -33,9 +33,12 @@ export default function RootLayout({
     <html
       lang="zh-CN"
       data-theme="light"
+      // 内联脚本会在水合前按用户偏好改写 data-theme —— 告知 React 以 DOM 为准，
+      // 否则属性失配触发水合恢复（整树客户端重建），进而报 script 警告。
+      suppressHydrationWarning
       className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} ${iceland.variable} h-full antialiased`}
     >
-      <body className="h-full">
+      <head>
         {/* Anti-flash theme bootstrap: resolve the persisted preference
             ('light' | 'dark' | 'system', default light) before first paint.
             Kept in sync with src/lib/theme.ts. */}
@@ -45,6 +48,8 @@ export default function RootLayout({
               "try{var t=localStorage.getItem('theme');var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light'}catch(e){}",
           }}
         />
+      </head>
+      <body className="h-full">
         <Providers>{children}</Providers>
       </body>
     </html>
