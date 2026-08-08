@@ -191,6 +191,7 @@ function SecurityTab() {
   const qc = useQueryClient();
   const { session } = useAppData();
   const sp = useSearchParams();
+  const feishuBound = session?.user.feishuBound ?? false;
   const larkBound = session?.user.larkBound ?? false;
   const githubBound = session?.user.githubBound ?? false;
   const [busy, setBusy] = React.useState(false);
@@ -201,7 +202,7 @@ function SecurityTab() {
   // OAuth 绑定回调跳回 /profile/security?oauth=bound|taken|failed。
   const oauthResult = sp.get('oauth');
 
-  const unbind = async (provider?: 'lark' | 'github') => {
+  const unbind = async (provider: 'feishu' | 'lark' | 'github') => {
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -228,6 +229,20 @@ function SecurityTab() {
       {p === 'feishu' ? <FeishuMark size={15} /> : p === 'lark' ? <LarkMark size={15} /> : <GitHubMark size={15} />}
       {p === 'feishu' ? '飞书' : p === 'lark' ? 'Lark' : 'GitHub'}
     </Button>
+  );
+
+  // 已绑定行：飞书与 Lark 是两个独立平台（身份分列存储），各占一行。
+  const boundRow = (p: 'feishu' | 'lark' | 'github') => (
+    <div key={p} className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5">
+      {p === 'feishu' ? <FeishuMark size={15} /> : p === 'lark' ? <LarkMark size={15} /> : <GitHubMark size={15} />}
+      <span className="text-[13px] font-medium text-fg-1">
+        {p === 'feishu' ? '飞书' : p === 'lark' ? 'Lark' : 'GitHub'}
+      </span>
+      <div className="flex-1" />
+      <Button variant="secondary" size="md" disabled={busy} onClick={() => unbind(p)}>
+        {t('profile.unbind')}
+      </Button>
+    </div>
   );
 
   return (
@@ -267,27 +282,12 @@ function SecurityTab() {
             {t('profile.unbindOk')}
           </div>
         )}
-        {larkBound && (
-          <div className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5">
-            <FeishuMark size={15} />
-            <span className="text-[13px] font-medium text-fg-1">{t('profile.lark')} / Lark</span>
-            <div className="flex-1" />
-            <Button variant="secondary" size="md" disabled={busy} onClick={() => unbind('lark')}>
-              {t('profile.unbind')}
-            </Button>
-          </div>
-        )}
-        {githubBound && (
-          <div className="mt-2 flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5">
-            <GitHubMark size={15} />
-            <span className="text-[13px] font-medium text-fg-1">GitHub</span>
-            <div className="flex-1" />
-            <Button variant="secondary" size="md" disabled={busy} onClick={() => unbind('github')}>
-              {t('profile.unbind')}
-            </Button>
-          </div>
-        )}
-        {!larkBound && !githubBound && (
+        <div className="flex flex-col gap-2">
+          {feishuBound && boundRow('feishu')}
+          {larkBound && boundRow('lark')}
+          {githubBound && boundRow('github')}
+        </div>
+        {!feishuBound && !larkBound && !githubBound && (
           <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-[12.5px] text-fg-3">
             {t('profile.noBound')}
           </div>

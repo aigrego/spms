@@ -12,7 +12,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 | 枚举 | 取值 |
 |---|---|
 | member_type | `human \| agent` |
-| member_origin | `internal \| external`（external=邮箱挂名外部资源；该邮箱的飞书/Lark 账号首次登录时自动认领：回填 userId、转 internal/active 并补 viewer 席位） |
+| member_origin | `internal \| external`（external=邮箱/手机号挂名外部资源；本人飞书/Lark 登录时按 IdP 回传的邮箱（个人+企业）或手机号自动认领：回填 userId、转 internal/active 并补 viewer 席位，每次登录都会重试） |
 | member_status | `active \| invited \| revoked` |
 | issue_status | `backlog \| todo \| in_progress \| testing \| done \| canceled` |
 | issue_priority | `urgent \| high \| medium \| low \| none`（紧急度） |
@@ -38,7 +38,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 > 表中 `key`/`email`/`userId`/`agentKey` 等原全局唯一约束一律改为 **(companyId, …) 复合唯一**（如 members `(companyId, email)`、issues `(companyId, key)`），下表不再逐一标注 companyId。
 
 ### users（登录账号）
-`id` PK · `username` unique NN · `passwordHash` NN（`'!oauth'`=纯 OAuth 账号，可在 /profile 补设密码）· `name` NN · `role` NN 默认 `member`（admin=平台管理员 | member=普通用户，**平台级角色**）· `larkUnionId` unique（飞书/Lark 共享 union_id）· `githubId` unique（GitHub 数字 id 转字符串）· `createdAt` NN
+`id` PK · `username` unique NN · `passwordHash` NN（`'!oauth'`=纯 OAuth 账号，可在 /profile 补设密码）· `name` NN · `role` NN 默认 `member`（admin=平台管理员 | member=普通用户，**平台级角色**）· `feishuUnionId` unique（飞书 CN 平台 union_id）· `larkUnionId` unique（Lark 国际平台 union_id；两平台互独立、同一自然人各有一个，故分列）· `githubId` unique（GitHub 数字 id 转字符串）· `createdAt` NN
 
 ### user_emails（新增，用户邮箱：主邮箱 + 备用邮箱）
 `id` PK · `userId` NN → users cascade · `email` NN · `isPrimary` bool NN 默认 false · `verified` bool NN 默认 false（仅 Lark/飞书/GitHub OAuth 回写 true）· `createdAt` NN · `email` 全表唯一 · `(userId) WHERE isPrimary` 部分唯一（每人一个主邮箱）。平台级表，不随公司隔离；verified 邮箱才可认领外部邀请/授席位，自填邮箱仅作登录标识与 Notion 指派人匹配。
@@ -60,7 +60,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 复合 PK `(companyId, name)` · `companyId` NN → companies cascade · `name` NN · `value` int NN 默认 0 —— `INSERT ... ON CONFLICT DO UPDATE SET value = counters.value + 1 RETURNING value`；同一前缀（如 BUG）在不同公司各自从 1 起编。
 
 ### members（人 + AI agent 同表）
-`id` PK · `type` NN 默认 human · `name` NN · `initials` NN · `color` · `role` · `userId`（→ users.id **ON DELETE SET NULL**：删用户时行保留作"前成员"，姓名快照+历史归属不丢）· `agentKey` unique（atlas|forge|sentry|scribe）· `origin` NN 默认 internal · `email` unique · `status` NN 默认 active
+`id` PK · `type` NN 默认 human · `name` NN · `initials` NN · `color` · `role` · `userId`（→ users.id **ON DELETE SET NULL**：删用户时行保留作"前成员"，姓名快照+历史归属不丢）· `agentKey` unique（atlas|forge|sentry|scribe）· `origin` NN 默认 internal · `email` unique · `phone` unique（外部邀请手机号，归一化纯数字，与 email 并列的认领匹配键）· `status` NN 默认 active
 
 ### teams（遗留概念，UI 已隐藏）
 `id` PK · `key` unique NN · `name` NN · `color` NN

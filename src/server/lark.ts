@@ -1,4 +1,5 @@
 import { env } from '@/lib/env';
+import { normalizePhone } from '@/lib/identity';
 
 /* OAuth provider helpers. Feishu (飞书, CN) / Lark (international) run on
    separate open platforms (open.feishu.cn vs open.larksuite.com); GitHub is an
@@ -75,11 +76,17 @@ export const BIND_STATE_COOKIE = 'spms_oauth_bind';
 export interface OAuthProfile {
   unionId: string;
   name: string;
-  // 邮箱用于匹配「邀请外部资源」预埋的 members.email。飞书/Lark user_info 的
-  // email / enterprise_email 字段需要应用开通对应 scope 并重新发布后才返回；
-  // GitHub 用户隐藏邮箱时 /user 返回 null（改走 /user/emails）。拿不到时为
-  // undefined（退化为仅按稳定 id 匹配）。
+  // 首选邮箱（个人邮箱优先，其次企业邮箱）：仅作 username 候选与展示。
+  // 飞书/Lark user_info 的 email / enterprise_email 字段需要应用开通对应
+  // scope 并重新发布后才返回；GitHub 用户隐藏邮箱时 /user 返回 null（改走
+  // /user/emails）。拿不到时为 undefined。
   email?: string;
+  // IdP 返回的全部邮箱（个人 + 企业，去重）：每个都登记 verified、都参与
+  // 邀请认领匹配。无邮箱账号（如豆包系飞书账号）为空数组。
+  emails: string[];
+  // 手机号（飞书/Lark 需 contact:user.phone:readonly scope），归一化为纯
+  // 数字；无邮箱账号的主要认领键。
+  mobile?: string;
   // 头像；基础资料字段，无需额外 scope。
   avatarUrl?: string;
 }
@@ -132,6 +139,7 @@ export async function fetchOAuthProfile(p: OAuthProvider, code: string): Promise
       name?: string;
       email?: string;
       enterprise_email?: string;
+      mobile?: string;
       avatar_url?: string;
       avatar_middle?: string;
       avatar_big?: string;
@@ -139,10 +147,19 @@ export async function fetchOAuthProfile(p: OAuthProvider, code: string): Promise
   };
   const unionId = info.data?.union_id;
   if (info.code !== 0 || !unionId) throw new Error(`user_info failed (code=${info.code})`);
+  const emails = [
+    ...new Set(
+      [info.data?.email?.trim(), info.data?.enterprise_email?.trim()].filter(
+        (v): v is string => !!v,
+      ),
+    ),
+  ];
   return {
     unionId,
     name: info.data?.name?.trim() || '',
-    email: info.data?.email?.trim() || info.data?.enterprise_email?.trim() || undefined,
+    email: emails[0],
+    emails,
+    mobile: normalizePhone(info.data?.mobile) || undefined,
     avatarUrl: info.data?.avatar_big || info.data?.avatar_middle || info.data?.avatar_url || undefined,
   };
 }
@@ -203,6 +220,7 @@ async function fetchGithubProfile(code: string): Promise<OAuthProfile> {
     unionId: String(user.id),
     name: user.name?.trim() || user.login,
     email,
+    emails: email ? [email] : [],
     avatarUrl: user.avatar_url || undefined,
   };
 }

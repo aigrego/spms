@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { members, labels, companyMemberships } from '@/db/schema';
 import { unassignMemberEverywhere } from '@/lib/assignments';
@@ -87,29 +87,60 @@ export async function ensureAiLabel(companyId: string): Promise<string> {
 }
 
 // Claim pending external invites (研发资源页「邀请外部资源」写入的 members 行:
-// origin='external', status='invited', userId=null) whose email matches the
-// OAuth-verified identity. For every claimed row: backfill userId, flip to
-// internal/active, and grant a company seat (company_memberships, 默认
-// 'viewer' — 与平台管理员手动分配席位的默认角色一致). One email may be
+// origin='external', status='invited', userId=null) whose email OR phone
+// matches the OAuth-verified identity. For every claimed row: backfill userId,
+// flip to internal/active, and grant a company seat (company_memberships, 默认
+// 'viewer' — 与平台管理员手动分配席位的默认角色一致). One identity may be
 // invited by several companies — every inviting company gets a seat.
 // Returns the number of claimed invites.
+
+/* 手机号归一化为纯数字（飞书 user_info 返回带国家码如 +86138…；邀请人可能填
+   不带国家码的本地号）。 */
+export function normalizePhone(raw: string | null | undefined): string {
+  return (raw ?? '').replace(/\D/g, '');
+}
+
+/* 手机号匹配：全等，或短串（≥7 位防误配）作为长串后缀——兼容「有无国家码」
+   两种写法（8613800138000 vs 13800138000）。 */
+export function phoneMatches(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  return shorter.length >= 7 && longer.endsWith(shorter);
+}
+
 export async function claimExternalInvites(
   user: { id: string; avatarUrl?: string | null },
-  email: string,
+  ids: { emails?: string[]; mobile?: string },
 ): Promise<number> {
-  const normalized = email.trim().toLowerCase();
-  if (!normalized) return 0;
-  const invites = await db
-    .select({ id: members.id, companyId: members.companyId })
+  const normalizedEmails = [
+    ...new Set((ids.emails ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean)),
+  ];
+  const mobileDigits = normalizePhone(ids.mobile);
+  if (!normalizedEmails.length && !mobileDigits) return 0;
+  // 先按邮箱精确命中 + 有手机号的待认领行取回，手机号后缀匹配在 JS 侧做
+  // （SQL 表达后缀匹配反而更绕；待认领行量级极小）。
+  const candidates = await db
+    .select({ id: members.id, companyId: members.companyId, email: members.email, phone: members.phone })
     .from(members)
     .where(
       and(
-        sql`lower(${members.email}) = ${normalized}`,
         eq(members.origin, 'external'),
         eq(members.status, 'invited'),
         isNull(members.userId),
+        or(
+          normalizedEmails.length
+            ? inArray(sql`lower(${members.email})`, normalizedEmails)
+            : undefined,
+          mobileDigits ? isNotNull(members.phone) : undefined,
+        ),
       ),
     );
+  const invites = candidates.filter(
+    (c) =>
+      (c.email && normalizedEmails.includes(c.email.trim().toLowerCase())) ||
+      (mobileDigits && c.phone && phoneMatches(normalizePhone(c.phone), mobileDigits)),
+  );
   let claimed = 0;
   for (const inv of invites) {
     // Skip companies where the user already projects a member row — the

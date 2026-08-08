@@ -28,13 +28,13 @@
 | DELETE | `/api/auth/emails` | `{ email }` 删除备用邮箱（主邮箱不可删） |
 | GET | `/api/auth/oauth/config` | `{ feishu: { configured, url? }, lark: {...}, github: {...} }`（各第三方登录是否已配置） |
 | GET | `/api/auth/feishu/login` | 302 跳转飞书授权页（未配置 → 404） |
-| GET | `/api/auth/feishu/callback` | 飞书 OAuth 回调：union_id 命中→直接登录；否则 IdP 邮箱匹配已有账号（user_emails 主/备，其次用户名）→绑定身份；仍无匹配则建 users 账号；IdP 邮箱登记进 user_emails（verified）并按其认领「邀请外部资源」（回填 userId、转 internal、每邀请公司补 viewer 席位）→ 跳 `/issues`；失败跳 `/login?error=feishu` |
+| GET | `/api/auth/feishu/callback` | 飞书 OAuth 回调：union_id 命中（`feishuUnionId`）→直接登录；否则 IdP 邮箱（个人+企业逐个）匹配已有账号（user_emails 主/备，其次用户名）→绑定身份；仍无匹配则建 users 账号；IdP 全部邮箱登记进 user_emails（verified）并按全部邮箱+手机号认领「邀请外部资源」（回填 userId、转 internal、每邀请公司补 viewer 席位；老用户每次登录重试）→ 跳 `/issues`；失败跳 `/login?error=feishu` |
 | GET | `/api/auth/lark/login` | 302 跳转 Lark（国际版）授权页（未配置 → 404） |
 | GET | `/api/auth/lark/callback` | Lark OAuth 回调，逻辑同飞书 callback；失败跳 `/login?error=lark` |
 | GET | `/api/auth/github/login` | 302 跳转 GitHub 授权页（OAuth App，scope `read:user user:email`；未配置 → 404） |
 | GET | `/api/auth/github/callback` | GitHub OAuth 回调，逻辑同飞书 callback（身份按数字 id 存 `users.githubId`，邮箱取自 `/user/emails` 的 verified 邮箱）；失败跳 `/login?error=github` |
 | GET | `/api/auth/<provider>/bind` | 已登录用户发起绑定：写 nonce cookie 后 302 跳授权页（`state=bind.<nonce>`） |
-| GET | `/api/auth/<provider>/callback` | 绑定模式（`state=bind.*`）：校验 nonce + session 后把身份挂到当前用户（飞书/Lark → `larkUnionId`，GitHub → `githubId`）→ 302 `/profile/security?oauth=bound\|taken\|failed` |
+| GET | `/api/auth/<provider>/callback` | 绑定模式（`state=bind.*`）：校验 nonce + session 后把身份挂到当前用户（飞书 → `feishuUnionId`，Lark → `larkUnionId`，GitHub → `githubId`）→ 302 `/profile/security?oauth=bound\|taken\|failed` |
 | POST | `/api/auth/oauth/unbind` | `{ provider?: 'lark' \| 'github' }` 解绑当前账号的对应身份（缺省 lark）；无密码账号解绑最后一个身份时拒绝，防止锁死 |
 
 ## Meta
@@ -109,7 +109,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/resources` | 全部 members（type,name 排序），含 origin/email/status |
-| POST | `/resources/invite` | `{ name?, email?, userId? }`，email/userId 至少其一；重复 → INVITE_FAILED；origin=external, status=invited |
+| POST | `/resources/invite` | `{ name?, email?, phone?, userId? }`，email/phone/userId 至少其一；重复 → INVITE_FAILED；origin=external, status=invited；phone 归一化纯数字存储，与 email 并列作认领匹配键 |
 | POST | `/resources/:id/revoke` | 仅 external；unassignMemberEverywhere + status=revoked |
 | GET | `/seats` | 当前公司席位列表（memberships ⋈ users，研发资源"内部成员"段数据源） |
 | PATCH | `/seats/:id` | `{ role }` 改席位的公司角色（company_admin 或平台管理员） |

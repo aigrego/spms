@@ -131,6 +131,9 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash').notNull(),
   name: text('name').notNull(),
   role: text('role').notNull().default('member'), // 'admin' | 'member'
+  // 飞书(CN) 与 Lark(国际) 是两个独立平台,同一自然人在两边各有一个
+  // union_id —— 分列存储,绑定互绑不覆盖。
+  feishuUnionId: text('feishu_union_id').unique(),
   larkUnionId: text('lark_union_id').unique(),
   // GitHub OAuth 身份（数字 id 转字符串，跨应用稳定）。
   githubId: text('github_id').unique(),
@@ -281,6 +284,8 @@ export const members = pgTable(
     // resource pool (only meaningful for humans):
     origin: memberOriginEnum('origin').notNull().default('internal'),
     email: text('email'),
+    // 外部邀请手机号（与 email 并列的认领匹配键；归一化为纯数字存储）。
+    phone: text('phone'),
     status: memberStatusEnum('status').notNull().default('active'),
     // OAuth 头像（随 users.avatarUrl 同步）；空则展示首字母色块。
     avatarUrl: text('avatar_url'),
@@ -291,6 +296,8 @@ export const members = pgTable(
     // External invitees may have no userId yet → fall back to email for de-dup.
     // NULL emails are distinct in Postgres, so internal rows are fine.
     uniqueIndex('members_email_uidx').on(t.companyId, t.email),
+    // 手机号同理：NULL 互不相等，仅外部邀请行有值。
+    uniqueIndex('members_phone_uidx').on(t.companyId, t.phone),
   ],
 );
 

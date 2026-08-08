@@ -61,6 +61,8 @@ export interface Member {
   // PMS-2 资源池: internal portal users vs invited external resources.
   origin?: MemberOrigin;
   email?: string | null;
+  // 外部邀请手机号（认领匹配键，归一化纯数字）。
+  phone?: string | null;
   homeTenantId?: string | null;
   status?: MemberStatus;
   // OAuth（飞书/Lark）头像；空则展示首字母色块。

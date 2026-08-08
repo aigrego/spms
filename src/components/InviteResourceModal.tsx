@@ -31,6 +31,7 @@ export function InviteResourceModal({
   const invite = useInviteResource();
   const [name, setName] = React.useState('');
   const [email, setEmail] = React.useState('');
+  const [phone, setPhone] = React.useState('');
   const [userId, setUserId] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
 
@@ -38,12 +39,13 @@ export function InviteResourceModal({
     if (open) {
       setName('');
       setEmail('');
+      setPhone('');
       setUserId('');
       setError(null);
     }
   }, [open]);
 
-  const canSubmit = (email.trim() || userId.trim()) && !invite.isPending;
+  const canSubmit = (email.trim() || phone.trim() || userId.trim()) && !invite.isPending;
 
   const submit = async () => {
     setError(null);
@@ -51,6 +53,7 @@ export function InviteResourceModal({
       const m = await invite.mutateAsync({
         name: name.trim() || undefined,
         email: email.trim() || undefined,
+        phone: phone.trim() || undefined,
         userId: userId.trim() || undefined,
       });
       onInvited?.(m);
@@ -85,9 +88,13 @@ export function InviteResourceModal({
               <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('invite.emailPlaceholder')} className={inputCls} />
             </div>
             <div className="flex-1">
-              <span className={fieldLabel}>{t('invite.userId')}</span>
-              <input value={userId} onChange={(e) => setUserId(e.target.value)} className={inputCls} />
+              <span className={fieldLabel}>{t('invite.phone')}</span>
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t('invite.phonePlaceholder')} className={inputCls} />
             </div>
+          </div>
+          <div>
+            <span className={fieldLabel}>{t('invite.userId')}</span>
+            <input value={userId} onChange={(e) => setUserId(e.target.value)} className={inputCls} />
           </div>
           <p className="text-[11.5px] leading-relaxed text-fg-3">{t('invite.hint')}</p>
           {error && (

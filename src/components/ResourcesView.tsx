@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Users, Globe, Sparkles, Mail } from 'lucide-react';
+import { Plus, Users, Globe, Sparkles, Mail, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar } from '@/components/glyphs/Avatar';
@@ -118,9 +118,10 @@ function RevokeButton({ id }: { id: string }) {  const t = useT();
 
 function MemberRow({ m, you, children }: { m: Member; you?: boolean; children?: React.ReactNode }) {
   const t = useT();
-  // Subtitle: external/synced humans show their email; agents show their role
-  // descriptor. A human's free-form `role` ("lead") is not an agentRole key.
-  const sub = m.email ?? (m.type === 'agent' && m.role ? t(`agentRole.${m.role}`) : '');
+  // Subtitle: external/synced humans show their email (or invite phone); agents
+  // show their role descriptor. A human's free-form `role` ("lead") is not an
+  // agentRole key.
+  const sub = m.email ?? m.phone ?? (m.type === 'agent' && m.role ? t(`agentRole.${m.role}`) : '');
   return (
     <div className="flex items-center gap-3 bg-surface px-3 py-2">
       <Avatar person={m} size={28} />
@@ -131,7 +132,7 @@ function MemberRow({ m, you, children }: { m: Member; you?: boolean; children?: 
         </div>
         {sub && (
           <div className="mt-0.5 flex items-center gap-1 truncate text-[11.5px] text-fg-3">
-            {m.email && <Mail size={11} className="flex-none" />}
+            {m.email ? <Mail size={11} className="flex-none" /> : m.phone ? <Phone size={11} className="flex-none" /> : null}
             <span className="truncate">{sub}</span>
           </div>
         )}

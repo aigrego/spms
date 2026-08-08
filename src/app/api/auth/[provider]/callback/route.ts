@@ -8,9 +8,10 @@ import { createSessionCookie, getSession } from '@/lib/session';
 import { defaultCompanyForUser } from '@/server/http';
 import { BIND_STATE_COOKIE, LOGIN_STATE_COOKIE, fetchOAuthProfile, parseProvider, providerConfigured, type OAuthProvider } from '@/server/lark';
 
-/* 各 provider 的稳定身份存哪个字段：飞书/Lark 共享 union_id，GitHub 用数字 id。 */
-function identityKey(p: OAuthProvider): 'larkUnionId' | 'githubId' {
-  return p === 'github' ? 'githubId' : 'larkUnionId';
+/* 各 provider 的稳定身份存哪个字段：飞书与 Lark 分列入库（两个独立平台，
+   同一自然人的 union_id 各自独立），GitHub 用数字 id。 */
+function identityKey(p: OAuthProvider): 'feishuUnionId' | 'larkUnionId' | 'githubId' {
+  return p === 'feishu' ? 'feishuUnionId' : p === 'lark' ? 'larkUnionId' : 'githubId';
 }
 
 function providerLabel(p: OAuthProvider): string {
@@ -53,15 +54,16 @@ async function pickUsername(preferred: string | undefined, fallback: string): Pr
      account, no re-login) → 302 /profile/security?oauth=bound|taken|failed.
    - state=login.<nonce> (from /api/auth/<p>/login): verify the nonce cookie
      (login CSRF guard), then:
-     1) 身份命中 users.larkUnionId / githubId → 老用户直接登录;
-     2) 身份未命中但 IdP 邮箱匹配任一已有邮箱（user_emails 主/备，其次用户名）
-        → 把身份绑到该账号（IdP 已证明邮箱归属），邮箱升级 verified 并认领邀请;
+     1) 身份命中 users.feishuUnionId / larkUnionId / githubId → 老用户直接登录;
+     2) 身份未命中但 IdP 邮箱（个人/企业逐个试）匹配任一已有邮箱（user_emails
+        主/备，其次用户名）→ 把身份绑到该账号（IdP 已证明邮箱归属）;
      3) 都无匹配则创建 users 账号（'!oauth' 禁用密码登录，可在 /profile 安全页
-        补设密码开通密码登录），IdP 邮箱登记进 user_emails（verified），并用该
-        邮箱认领「邀请外部资源」预埋的 members 行 —— 回填 userId、转
+        补设密码开通密码登录）;
+        随后 IdP 回传的全部邮箱登记进 user_emails（verified），并按全部邮箱 +
+        手机号认领「邀请外部资源」预埋的 members 行 —— 回填 userId、转
         internal/active，为每个邀请公司自动分配 viewer 席位（见
-        identity.claimExternalInvites）;
-        邮箱无匹配则只是平台成员（无公司席位，等平台管理员分配）。
+        identity.claimExternalInvites；老用户每次登录也会重试认领）;
+        无标识命中则只是平台成员（无公司席位，等平台管理员分配）。
      → session cookie → 302 /issues。任何失败跳 /login?error=<provider>。 */
 export async function GET(
   req: NextRequest,
@@ -92,11 +94,16 @@ export async function GET(
         .limit(1);
       if (taken && taken.id !== session.uid) return bindResult(req, 'taken');
       await db.update(users).set({ [idKey]: profile.unionId }).where(eq(users.id, session.uid));
-      // IdP 邮箱登记为 verified 邮箱;绑定的身份同样按邮箱认领外部邀请
-      //(邀请 = 公司希望此人加入的意图)。
-      if (profile.email) {
-        await upsertVerifiedEmail(session.uid, profile.email);
-        await claimExternalInvites({ id: session.uid }, profile.email);
+      // IdP 回传的邮箱逐个登记为 verified；绑定的身份同样按全部邮箱 + 手机号
+      // 认领外部邀请（邀请 = 公司希望此人加入的意图）。
+      for (const email of profile.emails) {
+        await upsertVerifiedEmail(session.uid, email);
+      }
+      if (profile.emails.length || profile.mobile) {
+        await claimExternalInvites(
+          { id: session.uid },
+          { emails: profile.emails, mobile: profile.mobile },
+        );
       }
       return bindResult(req, 'bound');
     } catch (e) {
@@ -116,18 +123,19 @@ export async function GET(
     const idKey = identityKey(p);
 
     let [u] = await db.select().from(users).where(eq(users[idKey], profile.unionId)).limit(1);
-    let matchedByEmail = false;
-    if (!u && profile.email) {
-      // 邮箱匹配：IdP 已证明该邮箱归本人所有，命中任一已有账号（user_emails
+    if (!u) {
+      // 邮箱匹配：IdP 已证明这些邮箱归本人所有，命中任一已有账号（user_emails
       // 主/备优先，其次用户名恰为该邮箱）就把身份绑到该账号，而不是新建重复账号。
-      const email = profile.email.trim().toLowerCase();
-      const uid = await findUserByEmail(email);
-      if (uid) [u] = await db.select().from(users).where(eq(users.id, uid)).limit(1);
-      if (!u) [u] = await db.select().from(users).where(eq(users.username, email)).limit(1);
-      if (u) {
-        await db.update(users).set({ [idKey]: profile.unionId }).where(eq(users.id, u.id));
-        matchedByEmail = true;
-        console.info(`[auth/${p}] bound identity to existing user ${u.username} via email ${email}`);
+      for (const raw of profile.emails) {
+        const email = raw.trim().toLowerCase();
+        const uid = await findUserByEmail(email);
+        if (uid) [u] = await db.select().from(users).where(eq(users.id, uid)).limit(1);
+        if (!u) [u] = await db.select().from(users).where(eq(users.username, email)).limit(1);
+        if (u) {
+          await db.update(users).set({ [idKey]: profile.unionId }).where(eq(users.id, u.id));
+          console.info(`[auth/${p}] bound identity to existing user ${u.username} via email ${email}`);
+          break;
+        }
       }
     }
     if (!u) {
@@ -148,9 +156,14 @@ export async function GET(
         .onConflictDoNothing();
       [u] = await db.select().from(users).where(eq(users[idKey], profile.unionId)).limit(1);
       if (!u) throw new Error('user upsert failed');
-      if (profile.email) {
-        await upsertVerifiedEmail(u.id, profile.email);
-        const claimed = await claimExternalInvites(u, profile.email);
+      for (const email of profile.emails) {
+        await upsertVerifiedEmail(u.id, email);
+      }
+      if (profile.emails.length || profile.mobile) {
+        const claimed = await claimExternalInvites(u, {
+          emails: profile.emails,
+          mobile: profile.mobile,
+        });
         if (claimed > 0) {
           console.info(`[auth/${p}] ${u.username} claimed ${claimed} external invite(s)`);
         }
@@ -160,14 +173,18 @@ export async function GET(
     } else {
       // 老用户登录：name 只在首次建号时写入，之后不再覆盖（用户可自行修改）；
       // 仅头像跟随 OAuth 资料刷新并同步 member 投影。
-      if (profile.email) {
-        await upsertVerifiedEmail(u.id, profile.email);
-        // 邮箱匹配绑定视同一次验证事件：该邮箱升级为 verified 后立即认领邀请。
-        if (matchedByEmail) {
-          const claimed = await claimExternalInvites(u, profile.email);
-          if (claimed > 0) {
-            console.info(`[auth/${p}] ${u.username} claimed ${claimed} external invite(s)`);
-          }
+      for (const email of profile.emails) {
+        await upsertVerifiedEmail(u.id, email);
+      }
+      // 每次登录都重试认领：邀请可能晚于首次建号（先登录后被邀请的场景）；
+      // 认领本身幂等（已有 member 投影的公司在 claimExternalInvites 内跳过）。
+      if (profile.emails.length || profile.mobile) {
+        const claimed = await claimExternalInvites(u, {
+          emails: profile.emails,
+          mobile: profile.mobile,
+        });
+        if (claimed > 0) {
+          console.info(`[auth/${p}] ${u.username} claimed ${claimed} external invite(s)`);
         }
       }
       const avatarUrl = profile.avatarUrl ?? null;

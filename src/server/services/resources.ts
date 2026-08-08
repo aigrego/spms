@@ -3,7 +3,7 @@ import { db } from '@/db';
 import { companyMemberships, members, users } from '@/db/schema';
 import { findUserByEmail, primaryEmailsFor } from '@/lib/emails';
 import { ApiException } from '@/lib/envelope';
-import { initialsFor, colorFor, revokeMemberProjection } from '@/lib/identity';
+import { initialsFor, colorFor, normalizePhone, revokeMemberProjection } from '@/lib/identity';
 import { unassignMemberEverywhere } from '@/lib/assignments';
 import { requirePerm } from '@/lib/permissions';
 import { COMPANY_ROLES, assertNotLastCompanyAdmin, type CompanyRole } from './platform';
@@ -33,6 +33,7 @@ export function serializeMember(m: MemberRow) {
     agentKey: m.agentKey,
     origin: m.origin,
     email: m.email,
+    phone: m.phone,
     status: m.status,
     avatarUrl: m.avatarUrl,
   };
@@ -57,21 +58,26 @@ export async function listMembers(actor: Actor) {
 export interface InviteInput {
   name?: string;
   email?: string;
+  phone?: string; // 手机号（归一化纯数字存储，与 email 并列的认领匹配键）
   userId?: string; // a local users.id not yet projected into the pool
 }
 
 /* ---- invite an external resource (email, or a local user from outside the pool) ----
-   At least one of email / userId is required; the pool is de-duped on both.
+   At least one of email / phone / userId is required; the pool is de-duped on all.
    邮箱已属于某个平台用户(user_emails 主/备)→ 直接落 userId、转
    internal/active 并授 viewer 席位,与 Lark 认领(claimExternalInvites)的
-   结果一致;否则维持"外部邀请预埋"流程,等本人 Lark 登录认领。 */
+   结果一致;否则维持"外部邀请预埋"流程,等本人 Lark 登录按邮箱/手机号认领
+   (手机号无平台级 user_phones 表,认领只走 OAuth 回传,邀请时不做即时匹配)。 */
 export async function invite(actor: Actor, input: InviteInput) {
   await requirePerm(actor, 'resources', 'write');
   const email = input.email?.trim() || null;
+  const phone = normalizePhone(input.phone) || null;
   let userId = input.userId?.trim() || null;
-  if (!email && !userId) throw new ApiException('VALIDATION_FAILED', '请提供邮箱或用户 ID');
+  if (!email && !phone && !userId) {
+    throw new ApiException('VALIDATION_FAILED', '请提供邮箱、手机号或用户 ID');
+  }
 
-  // De-dup against the company pool (members.(companyId,email) / (companyId,userId)).
+  // De-dup against the company pool (members.(companyId,email) / (companyId,phone) / (companyId,userId)).
   if (email) {
     const [dupe] = await db
       .select({ id: members.id })
@@ -79,6 +85,14 @@ export async function invite(actor: Actor, input: InviteInput) {
       .where(and(eq(members.companyId, actor.companyId), eq(members.email, email)))
       .limit(1);
     if (dupe) throw new ApiException('INVITE_FAILED', '该邮箱已在资源池中');
+  }
+  if (phone) {
+    const [dupe] = await db
+      .select({ id: members.id })
+      .from(members)
+      .where(and(eq(members.companyId, actor.companyId), eq(members.phone, phone)))
+      .limit(1);
+    if (dupe) throw new ApiException('INVITE_FAILED', '该手机号已在资源池中');
   }
   // 邮箱 → 平台用户:外部邀请与内部成员在此统一。
   let claimedUser = false;
@@ -99,7 +113,7 @@ export async function invite(actor: Actor, input: InviteInput) {
     invitedUserName = u?.name ?? null;
   }
 
-  const name = (input.name?.trim() || invitedUserName || email?.split('@')[0] || userId || '外部资源').trim();
+  const name = (input.name?.trim() || invitedUserName || email?.split('@')[0] || phone || userId || '外部资源').trim();
   const id = crypto.randomUUID();
   // 资源池行 + (认领用户时的)viewer 席位同生同灭 → 一个事务。
   await db.transaction(async (tx) => {
@@ -109,12 +123,13 @@ export async function invite(actor: Actor, input: InviteInput) {
       type: 'human',
       name,
       initials: initialsFor(name),
-      color: colorFor(email ?? userId ?? name),
+      color: colorFor(email ?? phone ?? userId ?? name),
       role: null,
       userId,
       agentKey: null,
       origin: claimedUser ? 'internal' : 'external',
       email,
+      phone,
       status: claimedUser ? 'active' : 'invited',
     });
     if (claimedUser && userId) {

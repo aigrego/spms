@@ -117,8 +117,8 @@ spms/
 1. 登录页按钮跳转各 provider 授权页：飞书/Lark → `<apiBase>/open-apis/authen/v1/authorize?app_id=...&redirect_uri=...`（飞书页面展示扫码）；GitHub → `https://github.com/login/oauth/authorize?client_id=...&scope=read:user user:email`
 2. 回调 `/api/auth/<provider>/callback?code=...`：
    - 飞书/Lark：`app_access_token`（tenant 凭证）→ 用 code 换 `user_access_token` → 拉 `user_info`；GitHub：code 换 `access_token` → 拉 `/user` + `/user/emails`（邮箱取 primary+verified 优先）
-   - 按稳定身份找 user（飞书/Lark → `larkUnionId`，GitHub → `githubId`，数字 id 转字符串）；不存在则**按 IdP 邮箱匹配已有账号**（user_emails 主/备优先，其次用户名恰为该邮箱——IdP 已证明邮箱归属），命中即把身份绑到该账号而非新建；仍无匹配才自动创建 user（同名 member 懒绑定）
-   - IdP 邮箱经 `upsertVerifiedEmail` 登记进 `user_emails`（verified，首个邮箱自动成为主邮箱），并按该邮箱认领「邀请外部资源」预埋的 members 行
+   - 按稳定身份找 user（飞书 → `feishuUnionId`，Lark → `larkUnionId`——两个独立平台、同一自然人各有一个 union_id，分列存储互绑不覆盖；GitHub → `githubId`，数字 id 转字符串）；不存在则**按 IdP 邮箱逐个匹配已有账号**（个人+企业邮箱，user_emails 主/备优先，其次用户名恰为该邮箱——IdP 已证明邮箱归属），命中即把身份绑到该账号而非新建；仍无匹配才自动创建 user（同名 member 懒绑定）
+   - IdP 回传的全部邮箱经 `upsertVerifiedEmail` 登记进 `user_emails`（verified，首个邮箱自动成为主邮箱），并按全部邮箱 + 手机号认领「邀请外部资源」预埋的 members 行（无邮箱账号——如豆包系飞书账号——走手机号认领，需应用开通 `contact:user.phone:readonly`；老用户每次登录都会重试认领）
    - 写 session cookie，跳 `/issues`
 3. 某个 provider 的 env（`FEISHU_APP_ID/FEISHU_APP_SECRET`、`LARK_APP_ID/LARK_APP_SECRET`、`GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET`，均可选 `*_REDIRECT_URI` 覆盖）未配置时，登录页隐藏对应入口（前端通过 `/api/auth/oauth/config` 探测）
 4. 绑定模式：已登录用户经 `/api/auth/<provider>/bind`（nonce cookie 防 CSRF）把身份挂到当前账号；解绑 `POST /api/auth/oauth/unbind { provider }`，无密码账号解绑最后一个身份时拒绝（防锁死）
@@ -136,7 +136,7 @@ spms/
 - 公司管理员在 **研发资源 → 内部成员** 给本公司席位成员调整公司角色 / 移除席位（`/api/v1/pms/seats`）。
 - 席位分配时把用户幂等投影进本公司资源池（`members` 表，供指派）；席位移除时同步撤销该投影（移出所有节点指派、状态置 revoked，重新分配席位时自动重激活）。仅持席位的用户才会被懒投影——无席位的平台管理员进入公司沙箱不再产生 `members` 行（其 `Actor.memberId` 为 null）。
 - **删除用户**（成员管理页，`DELETE /api/v1/platform/users/:userId`，不能删自己）：先把该用户在各家公司的投影逐一 revoke（同席位移除的善后），再删 `users` 行；`members.user_id` 外键 `ON DELETE SET NULL` 兜底——member 行永不随用户硬删，历史 issue/活动的归属与姓名快照保留。
-- **邀请外部资源（按邮箱）**：邮箱已属于平台用户（`user_emails` 主/备）→ 直接落 `userId`、转 internal/active 并授 viewer 席位（与 OAuth 认领同结果）；否则预埋 external/invited 行，等本人 OAuth 登录按 verified 邮箱认领。
+- **邀请外部资源（按邮箱/手机号）**：邮箱已属于平台用户（`user_emails` 主/备）→ 直接落 `userId`、转 internal/active 并授 viewer 席位（与 OAuth 认领同结果）；否则预埋 external/invited 行，等本人 OAuth 登录按 verified 邮箱或手机号认领（手机号无平台级 user_phones 表，邀请时不做即时匹配，认领只走 OAuth 回传）。
 
 **角色×模块矩阵**（`src/lib/permissions.ts`）：
 - 4 个可配置角色 × 11 个模块（issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents/reports）× 3 档（`none < read < write`）

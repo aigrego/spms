@@ -152,6 +152,8 @@ export interface ReleaseInput {
 export interface InviteResourceInput {
   name?: string;
   email?: string;
+  // 手机号：与邮箱并列的认领匹配键（本人飞书/Lark 登录时自动认领）。
+  phone?: string;
   // Standalone rewrite: the pool keys off a local users.id (server resources
   // service: invite requires email or userId). portalUserId/homeTenantId are
   // kept for portal parity but unused by the rewritten server.
@@ -470,7 +472,9 @@ export interface SessionUser {
   // Multi-company sandbox: platform admins see every company and the
   // /platform console. Absent while the backend rolls out — treated as false.
   isPlatformAdmin?: boolean;
-  // Whether a Lark identity is linked (profile page security tab).
+  // Whether a Feishu (飞书, CN) identity is linked (profile page security tab).
+  feishuBound?: boolean;
+  // Whether a Lark (international) identity is linked.
   larkBound?: boolean;
   // Whether a GitHub identity is linked.
   githubBound?: boolean;
@@ -601,7 +605,7 @@ export const authApi = {
       return null;
     }
   },
-  // 解绑当前账号的第三方身份（个人资料-安全页；缺省解飞书/Lark）。
-  unbindOauth: (provider?: 'lark' | 'github') =>
+  // 解绑当前账号的第三方身份（个人资料-安全页；缺省解飞书）。
+  unbindOauth: (provider?: 'feishu' | 'lark' | 'github') =>
     authRequest<unknown>('/api/auth/oauth/unbind', json('POST', { provider })),
 };
