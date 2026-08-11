@@ -6,6 +6,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api';
 import { useCreateCompany, useUpdateCompany } from '@/store/platform';
+import { useT } from '@/lib/i18n';
 import type { PlatformCompany } from '@/lib/platformApi';
 import { fieldLabel, inputCls } from './common';
 
@@ -23,6 +24,7 @@ export function CompanyModal({
   onOpenChange: (o: boolean) => void;
   company?: PlatformCompany | null;
 }) {
+  const t = useT();
   const create = useCreateCompany();
   const update = useUpdateCompany();
   const editing = !!company;
@@ -63,7 +65,7 @@ export function CompanyModal({
       }
       onOpenChange(false);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '保存失败，请重试');
+      setError(e instanceof ApiError ? e.message : t('platform.common.saveFailed'));
     }
   };
 
@@ -71,35 +73,35 @@ export function CompanyModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent aria-describedby={undefined} className="w-[min(480px,92vw)]">
         <DialogPrimitive.Title className="px-[18px] pb-1 pt-4 text-[15px] font-semibold text-fg-1">
-          {editing ? '编辑公司' : '新建公司'}
+          {editing ? t('companies.edit') : t('companies.new')}
         </DialogPrimitive.Title>
         <div className="flex flex-col gap-3 px-[18px] py-3">
           <div>
-            <span className={fieldLabel}>名称</span>
+            <span className={fieldLabel}>{t('form.name')}</span>
             <input
               autoFocus
               className={inputCls}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="例如：灵核科技"
+              placeholder={t('companies.namePlaceholder')}
             />
           </div>
           <div>
-            <span className={fieldLabel}>Key（小写字母 / 数字 / 连字符，唯一）</span>
+            <span className={fieldLabel}>{t('companies.keyLabel')}</span>
             <input
               className={inputCls}
               value={key}
               onChange={(e) => setKey(e.target.value)}
-              placeholder="例如：innev"
+              placeholder={t('companies.keyPlaceholder')}
               disabled={editing}
               style={editing ? { opacity: 0.5 } : undefined}
             />
             {!keyValid && (
-              <div className="mt-1 text-[12px] text-danger">key 只能包含小写字母、数字和连字符</div>
+              <div className="mt-1 text-[12px] text-danger">{t('companies.keyInvalid')}</div>
             )}
           </div>
           <div>
-            <span className={fieldLabel}>颜色</span>
+            <span className={fieldLabel}>{t('form.color')}</span>
             <div className="flex gap-1.5">
               {SWATCHES.map((c) => (
                 <button
@@ -113,7 +115,7 @@ export function CompanyModal({
             </div>
           </div>
           <div>
-            <span className={fieldLabel}>描述（可选）</span>
+            <span className={fieldLabel}>{t('companies.descOptional')}</span>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -126,10 +128,10 @@ export function CompanyModal({
         <div className="flex items-center gap-2 border-t border-border px-[18px] py-3">
           <div className="flex-1" />
           <Button variant="ghost" size="md" onClick={() => onOpenChange(false)}>
-            取消
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" size="md" onClick={submit} disabled={!canSubmit}>
-            {editing ? '保存' : '新建公司'}
+            {editing ? t('common.save') : t('companies.new')}
           </Button>
         </div>
       </DialogContent>

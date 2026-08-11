@@ -1,0 +1,115 @@
+import type { Locale } from '@/lib/i18n';
+
+// 登录页 / 个人资料 / 路线图 / 需求·资源·用例视图杂项文案
+// (TKT-27 抽取自 src/app/(auth)/login/page.tsx、src/app/(app)/profile/ProfileClient.tsx、
+//  src/app/(app)/roadmap/page.tsx、src/components/{RequirementsView,ResourcesView,TestCasesView,LoginArtwork}.tsx)
+export const dict: Record<Locale, Record<string, string>> = {
+  'zh-CN': {
+    'login.welcome': '欢迎回来',
+    'login.subtitle': '登录 {app}，继续你的研发协作',
+    'login.username': '用户名或邮箱',
+    'login.password': '密码',
+    'login.submit': '登录',
+    'login.submitting': '登录中…',
+    'login.or': '或使用以下方式登录',
+    'login.oauthFailed': '{provider} 登录失败，请重试',
+    'login.oauthButton': '{provider} 登录',
+    'login.heroTitle1': '产品线 → 产品 → 版本',
+    'login.heroTitle2': '一站式研发生命周期管理',
+    'login.heroDesc': 'Issue、迭代、需求、测试用例与研发资源统一规划，让团队交付节奏一目了然。',
+    'login.artwork': '产品插画',
+
+    'provider.feishu': '飞书',
+    'provider.lark': 'Lark',
+    'provider.github': 'GitHub',
+    'provider.google': 'Google',
+    'provider.apple': 'Apple',
+    'provider.wechat': '微信',
+    'provider.dingtalk': '钉钉',
+
+    'roadmap.m5': '5月',
+    'roadmap.m6': '6月',
+    'roadmap.m7': '7月',
+    'roadmap.m8': '8月',
+
+    'common.createFailed': '创建失败，请重试',
+    'requirements.decomposeFailed': '拆分失败，请重试',
+
+    'resources.seatAssigned': '已分配席位',
+    'resources.removeNote': '移除后该用户将无法再进入本公司沙箱(账号与其他公司席位保留)。',
+    'resources.seatNote': '席位成员从平台成员中分配(设置 → 公司管理 → 席位);公司角色决定其在本公司的模块权限。',
+    'resources.emptySeats': '暂无席位成员,请到 设置 → 公司管理 → 席位 分配。',
+  },
+  en: {
+    'login.welcome': 'Welcome back',
+    'login.subtitle': 'Sign in to {app} to continue your work',
+    'login.username': 'Username or email',
+    'login.password': 'Password',
+    'login.submit': 'Sign in',
+    'login.submitting': 'Signing in…',
+    'login.or': 'or sign in with',
+    'login.oauthFailed': '{provider} sign-in failed, please try again',
+    'login.oauthButton': 'Sign in with {provider}',
+    'login.heroTitle1': 'Product lines → Products → Releases',
+    'login.heroTitle2': 'End-to-end R&D lifecycle management',
+    'login.heroDesc': 'Plan issues, sprints, requirements, test cases, and resources in one place — your team’s delivery rhythm at a glance.',
+    'login.artwork': 'Product illustration',
+
+    'provider.feishu': 'Feishu',
+    'provider.lark': 'Lark',
+    'provider.github': 'GitHub',
+    'provider.google': 'Google',
+    'provider.apple': 'Apple',
+    'provider.wechat': 'WeChat',
+    'provider.dingtalk': 'DingTalk',
+
+    'roadmap.m5': 'May',
+    'roadmap.m6': 'Jun',
+    'roadmap.m7': 'Jul',
+    'roadmap.m8': 'Aug',
+
+    'common.createFailed': 'Create failed, please try again',
+    'requirements.decomposeFailed': 'Decompose failed, please try again',
+
+    'resources.seatAssigned': 'Seat assigned',
+    'resources.removeNote': 'Once removed, this user can no longer enter this company workspace (their account and seats in other companies are kept).',
+    'resources.seatNote': 'Seat members are assigned from platform members (Settings → Companies → Seats); the company role decides their module permissions here.',
+    'resources.emptySeats': 'No seat members yet — assign them in Settings → Companies → Seats.',
+  },
+  'zh-TW': {
+    'login.welcome': '歡迎回來',
+    'login.subtitle': '登入 {app}，繼續你的研發協作',
+    'login.username': '用戶名或電郵',
+    'login.password': '密碼',
+    'login.submit': '登入',
+    'login.submitting': '登入中…',
+    'login.or': '或使用以下方式登入',
+    'login.oauthFailed': '{provider} 登入失敗，請重試',
+    'login.oauthButton': '{provider} 登入',
+    'login.heroTitle1': '產品線 → 產品 → 版本',
+    'login.heroTitle2': '一站式研發生命週期管理',
+    'login.heroDesc': 'Issue、迭代、需求、測試用例與研發資源統一規劃，讓團隊交付節奏一目瞭然。',
+    'login.artwork': '產品插畫',
+
+    'provider.feishu': '飛書',
+    'provider.lark': 'Lark',
+    'provider.github': 'GitHub',
+    'provider.google': 'Google',
+    'provider.apple': 'Apple',
+    'provider.wechat': '微信',
+    'provider.dingtalk': '釘釘',
+
+    'roadmap.m5': '5月',
+    'roadmap.m6': '6月',
+    'roadmap.m7': '7月',
+    'roadmap.m8': '8月',
+
+    'common.createFailed': '建立失敗，請重試',
+    'requirements.decomposeFailed': '拆分失敗，請重試',
+
+    'resources.seatAssigned': '已分配席位',
+    'resources.removeNote': '移除後該用戶將無法再進入本公司沙箱(帳號與其他公司席位保留)。',
+    'resources.seatNote': '席位成員從平台成員中分配(設定 → 公司管理 → 席位);公司角色決定其在本公司的模組權限。',
+    'resources.emptySeats': '暫無席位成員,請到 設定 → 公司管理 → 席位 分配。',
+  },
+};

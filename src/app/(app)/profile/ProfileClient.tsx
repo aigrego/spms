@@ -227,7 +227,7 @@ function SecurityTab() {
       }}
     >
       {p === 'feishu' ? <FeishuMark size={15} /> : p === 'lark' ? <LarkMark size={15} /> : <GitHubMark size={15} />}
-      {p === 'feishu' ? '飞书' : p === 'lark' ? 'Lark' : 'GitHub'}
+      {t(`provider.${p}`)}
     </Button>
   );
 
@@ -236,7 +236,7 @@ function SecurityTab() {
     <div key={p} className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5">
       {p === 'feishu' ? <FeishuMark size={15} /> : p === 'lark' ? <LarkMark size={15} /> : <GitHubMark size={15} />}
       <span className="text-[13px] font-medium text-fg-1">
-        {p === 'feishu' ? '飞书' : p === 'lark' ? 'Lark' : 'GitHub'}
+        {t(`provider.${p}`)}
       </span>
       <div className="flex-1" />
       <Button variant="secondary" size="md" disabled={busy} onClick={() => unbind(p)}>
@@ -298,8 +298,8 @@ function SecurityTab() {
             {oauth?.feishu && bindButton('feishu')}
             {oauth?.lark && bindButton('lark')}
             {oauth?.github && bindButton('github')}
-            {['Google', 'Apple', '微信', '钉钉'].map((p) => (
-              <SoonButton key={p}>{p}</SoonButton>
+            {(['google', 'apple', 'wechat', 'dingtalk'] as const).map((p) => (
+              <SoonButton key={p}>{t(`provider.${p}`)}</SoonButton>
             ))}
           </div>
         </div>

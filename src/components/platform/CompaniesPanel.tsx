@@ -10,9 +10,11 @@ import type { PlatformCompany } from '@/lib/platformApi';
 import { CompanyModal } from '@/components/platform/CompanyModal';
 import { SeatsDrawer } from '@/components/platform/SeatsDrawer';
 import { PlatformHeader, fmtDate } from '@/components/platform/common';
+import { useT } from '@/lib/i18n';
 
 export function CompaniesPanel() {
   const router = useRouter();
+  const t = useT();
   const { data: companies, isLoading, isError } = useCompanies();
   const enter = useEnterCompany();
   const [modalOpen, setModalOpen] = React.useState(false);
@@ -34,23 +36,23 @@ export function CompaniesPanel() {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <PlatformHeader title="公司" count={companies?.length}>
+      <PlatformHeader title={t('companies.title')} count={companies?.length}>
         <Button variant="primary" size="md" onClick={openNew}>
-          <Plus size={14} /> 新建公司
+          <Plus size={14} /> {t('companies.new')}
         </Button>
       </PlatformHeader>
       <div className="flex-1 overflow-y-auto p-6">
         {isLoading ? (
           <Skeleton rows={5} />
         ) : isError ? (
-          <StateBlock icon="alert" tone="danger" title="公司列表加载失败" body="请确认你具有平台管理员权限，或稍后重试。" />
+          <StateBlock icon="alert" tone="danger" title={t('companies.loadFailed')} body={t('companies.loadFailedBody')} />
         ) : !companies?.length ? (
           <StateBlock
-            title="还没有公司"
-            body="创建第一个公司安全沙箱，创建者将自动成为公司管理员。"
+            title={t('companies.empty')}
+            body={t('companies.emptyBody')}
             action={
               <Button variant="primary" size="md" onClick={openNew}>
-                <Plus size={14} /> 新建公司
+                <Plus size={14} /> {t('companies.new')}
               </Button>
             }
           />
@@ -67,23 +69,23 @@ export function CompaniesPanel() {
                   <button
                     onClick={() => openEdit(c)}
                     className="grid h-7 w-7 place-items-center rounded-md text-fg-3 opacity-0 transition-opacity hover:bg-surface-2 group-hover:opacity-100"
-                    aria-label="编辑"
+                    aria-label={t('platform.common.edit')}
                   >
                     <Pencil size={14} />
                   </button>
                 </div>
                 <p className="mb-3 min-h-[20px] truncate text-[13px] leading-normal text-fg-2">
-                  {c.description || <span className="text-fg-3">暂无描述</span>}
+                  {c.description || <span className="text-fg-3">{t('companies.noDesc')}</span>}
                 </p>
                 <div className="flex items-center gap-3 border-t border-border pt-3 text-[12px] text-fg-3">
                   <span className="inline-flex items-center gap-1">
                     <Users size={13} />
-                    {c.memberCount} 名成员
+                    {t('companies.memberCount', { n: c.memberCount })}
                   </span>
-                  <span>创建于 {fmtDate(c.createdAt)}</span>
+                  <span>{t('companies.createdAt', { date: fmtDate(c.createdAt) })}</span>
                   <div className="flex-1" />
                   <Button variant="secondary" size="sm" onClick={() => setSeatsCompany(c)}>
-                    席位
+                    {t('seats.seat')}
                   </Button>
                   <Button
                     variant="primary"
@@ -91,7 +93,7 @@ export function CompaniesPanel() {
                     onClick={() => enterSandbox(c)}
                     disabled={enter.isPending && enter.variables === c.id}
                   >
-                    <LogIn size={13} /> 进入沙箱
+                    <LogIn size={13} /> {t('companies.enter')}
                   </Button>
                 </div>
               </div>

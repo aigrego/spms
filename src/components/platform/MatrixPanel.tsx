@@ -8,6 +8,7 @@ import { useCompanyMatrix, usePermissionsMatrix, useSaveCompanyMatrix, useSavePe
 import { MODULE_LABELS, PERM_LEVEL_LABELS, ROLE_LABELS } from '@/lib/platformApi';
 import type { CompanyRole, PermLevel } from '@/lib/platformApi';
 import { PlatformHeader, tdCls, thCls } from '@/components/platform/common';
+import { useT } from '@/lib/i18n';
 
 type MatrixDraft = Record<string, Record<string, PermLevel>>;
 
@@ -22,6 +23,7 @@ const LEVEL_TONE: Record<PermLevel, string> = {
    scope='global' 编辑全局默认(平台管理员);scope='company' 编辑本公司覆盖
    (company_admin,生效值为 全局 + 覆盖 的合并)。 */
 export function MatrixPanel({ scope = 'global' }: { scope?: 'global' | 'company' }) {
+  const t = useT();
   const isGlobal = scope === 'global';
   const globalQ = usePermissionsMatrix(isGlobal);
   const companyQ = useCompanyMatrix(!isGlobal);
@@ -55,35 +57,33 @@ export function MatrixPanel({ scope = 'global' }: { scope?: 'global' | 'company'
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <PlatformHeader title={isGlobal ? '权限矩阵 · 全局' : '权限矩阵 · 本公司'}>
+      <PlatformHeader title={isGlobal ? t('matrix.titleGlobal') : t('matrix.titleCompany')}>
         {savedAt && (
           <span className="inline-flex items-center gap-1 text-[12.5px] font-medium" style={{ color: 'var(--success-500)' }}>
-            <Check size={13} /> 已保存
+            <Check size={13} /> {t('profile.saved')}
           </span>
         )}
         <Button variant="primary" size="md" onClick={submit} disabled={!dirty || save.isPending}>
-          <Save size={14} /> 保存
+          <Save size={14} /> {t('common.save')}
         </Button>
       </PlatformHeader>
       <div className="flex-1 overflow-y-auto p-6">
         {isLoading ? (
           <Skeleton rows={6} />
         ) : isError || !data || !draft ? (
-          <StateBlock icon="alert" tone="danger" title="权限矩阵加载失败" body="请稍后重试。" />
+          <StateBlock icon="alert" tone="danger" title={t('matrix.loadFailed')} body={t('platform.common.retry')} />
         ) : (
           <div className="max-w-[860px]">
             <p className="mb-4 mt-0 rounded-lg bg-surface-2 px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">
-              {isGlobal
-                ? '全局默认矩阵,对所有公司生效;公司可在「权限矩阵 · 本公司」按单元格覆盖。公司管理员恒为全部权限。'
-                : '本公司矩阵在全局默认的基础上按单元格覆盖生效。公司管理员恒为全部权限。'}
+              {isGlobal ? t('matrix.descGlobal') : t('matrix.descCompany')}
             </p>
             <table className="w-full border-collapse rounded-lg border border-border bg-surface">
               <thead>
                 <tr className="border-b border-border">
-                  <th className={thCls} style={{ paddingLeft: 16 }}>模块</th>
+                  <th className={thCls} style={{ paddingLeft: 16 }}>{t('matrix.module')}</th>
                   {data.roles.map((r) => (
                     <th key={r} className={thCls} style={{ textAlign: 'center' }}>
-                      {ROLE_LABELS[r as CompanyRole] ?? r}
+                      {r in ROLE_LABELS ? t(`role.${r}`) : r}
                     </th>
                   ))}
                 </tr>
@@ -92,7 +92,7 @@ export function MatrixPanel({ scope = 'global' }: { scope?: 'global' | 'company'
                 {data.modules.map((mod) => (
                   <tr key={mod} className="border-b border-border last:border-b-0 hover:bg-surface-2/60">
                     <td className={tdCls} style={{ paddingLeft: 16 }}>
-                      <span className="font-medium">{MODULE_LABELS[mod] ?? mod}</span>
+                      <span className="font-medium">{mod in MODULE_LABELS ? t(`platform.module.${mod}`) : mod}</span>
                     </td>
                     {data.roles.map((r) => {
                       const level = draft[r]?.[mod] ?? 'none';
@@ -106,7 +106,7 @@ export function MatrixPanel({ scope = 'global' }: { scope?: 'global' | 'company'
                           >
                             {(Object.keys(PERM_LEVEL_LABELS) as PermLevel[]).map((lv) => (
                               <option key={lv} value={lv} style={{ color: 'var(--fg-1)' }}>
-                                {PERM_LEVEL_LABELS[lv]}
+                                {t(`platform.permLevel.${lv}`)}
                               </option>
                             ))}
                           </select>
@@ -118,7 +118,7 @@ export function MatrixPanel({ scope = 'global' }: { scope?: 'global' | 'company'
               </tbody>
             </table>
             {save.isError && (
-              <div className="mt-3 rounded-lg bg-danger-50 px-3 py-2 text-[12.5px] text-danger">保存失败，请重试。</div>
+              <div className="mt-3 rounded-lg bg-danger-50 px-3 py-2 text-[12.5px] text-danger">{t('platform.common.saveFailed')}</div>
             )}
           </div>
         )}

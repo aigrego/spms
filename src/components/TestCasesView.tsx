@@ -323,7 +323,7 @@ function NewTestCaseModal({
       onOpenChange(false);
       onCreated(tc.id);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '创建失败，请重试');
+      setError(e instanceof ApiError ? e.message : t('common.createFailed'));
     }
   };
 

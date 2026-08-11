@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton, StateBlock } from '@/components/StateBlock';
 import { useAddMember, usePlatformUsers, useRemoveMember } from '@/store/platform';
 import { LetterAvatar, PopoverConfirm } from './common';
+import { useT } from '@/lib/i18n';
 import type { PlatformCompany } from '@/lib/platformApi';
 
 /* 席位管理抽屉:列出平台全部用户,把用户加入(分配)或移出(回收)某个
@@ -17,6 +18,7 @@ export function SeatsDrawer({
   company: PlatformCompany | null;
   onClose: () => void;
 }) {
+  const t = useT();
   const { data: users, isLoading, isError } = usePlatformUsers();
   const add = useAddMember(company?.id ?? '');
   const remove = useRemoveMember(company?.id ?? '');
@@ -37,13 +39,13 @@ export function SeatsDrawer({
       <aside className="fixed inset-y-0 right-0 z-50 flex w-[min(560px,92vw)] flex-col border-l border-border bg-surface shadow-3">
         <div className="flex flex-none items-start gap-3 border-b border-border px-5 py-4">
           <div className="min-w-0 flex-1">
-            <h2 className="text-[16px] font-semibold text-fg-1">席位管理</h2>
+            <h2 className="text-[16px] font-semibold text-fg-1">{t('seats.title')}</h2>
             <p className="mt-0.5 truncate text-[12.5px] text-fg-3">{company.name}</p>
           </div>
           <button
             onClick={onClose}
             className="grid h-7 w-7 flex-none place-items-center rounded-md text-fg-3 hover:bg-surface-2"
-            aria-label="关闭"
+            aria-label={t('platform.common.close')}
           >
             <X size={15} />
           </button>
@@ -53,16 +55,16 @@ export function SeatsDrawer({
           {isLoading ? (
             <Skeleton rows={6} />
           ) : isError ? (
-            <StateBlock icon="alert" tone="danger" title="用户列表加载失败" body="请稍后重试。" />
+            <StateBlock icon="alert" tone="danger" title={t('seats.loadFailed')} body={t('platform.common.retry')} />
           ) : !users?.length ? (
-            <StateBlock title="暂无用户" body="先在「成员管理」新建系统账号。" />
+            <StateBlock title={t('members.empty')} body={t('seats.emptyBody')} />
           ) : (
             <table className="w-full border-collapse">
               <thead className="sticky top-0 bg-surface">
                 <tr className="border-b border-border">
-                  <th className="px-5 py-2 text-left text-[11.5px] font-semibold text-fg-3">成员</th>
-                  <th className="px-3 py-2 text-left text-[11.5px] font-semibold text-fg-3">状态</th>
-                  <th className="px-3 py-2 text-left text-[11.5px] font-semibold text-fg-3">席位</th>
+                  <th className="px-5 py-2 text-left text-[11.5px] font-semibold text-fg-3">{t('members.title')}</th>
+                  <th className="px-3 py-2 text-left text-[11.5px] font-semibold text-fg-3">{t('menu.status')}</th>
+                  <th className="px-3 py-2 text-left text-[11.5px] font-semibold text-fg-3">{t('seats.seat')}</th>
                   <th className="px-3 py-2 text-left text-[11.5px] font-semibold text-fg-3" style={{ width: 64 }} />
                 </tr>
               </thead>
@@ -82,28 +84,28 @@ export function SeatsDrawer({
                       </td>
                       <td className="px-3 py-2.5">
                         <Badge tone="success" dot>
-                          正常
+                          {t('seats.statusOk')}
                         </Badge>
                       </td>
                       <td className="px-3 py-2.5">
                         {seat ? (
                           <Badge tone="blue" dot>
-                            已分配
+                            {t('seats.assigned')}
                           </Badge>
                         ) : (
-                          <Badge tone="neutral">未分配</Badge>
+                          <Badge tone="neutral">{t('seats.unassigned')}</Badge>
                         )}
                       </td>
                       <td className="px-3 py-2.5">
                         {seat ? (
                           <PopoverConfirm
-                            title={`回收「${u.name}」的席位?`}
-                            body={`回收后该用户将无法再进入「${company.name}」沙箱。`}
-                            confirmLabel="回收"
+                            title={t('seats.revokeTitle', { name: u.name })}
+                            body={t('seats.revokeBody', { name: company.name })}
+                            confirmLabel={t('seats.revoke')}
                             busy={remove.isPending}
                             onConfirm={() => remove.mutate(seat.membershipId)}
                             trigger={
-                              <button className="text-[13px] font-medium text-danger hover:underline">回收</button>
+                              <button className="text-[13px] font-medium text-danger hover:underline">{t('seats.revoke')}</button>
                             }
                           />
                         ) : (
@@ -112,7 +114,7 @@ export function SeatsDrawer({
                             disabled={add.isPending && add.variables?.username === u.username}
                             className="text-[13px] font-medium text-brand-blue hover:underline disabled:opacity-40"
                           >
-                            分配
+                            {t('seats.assign')}
                           </button>
                         )}
                       </td>
@@ -126,7 +128,7 @@ export function SeatsDrawer({
 
         {users && users.length > 0 && (
           <div className="flex-none border-t border-border px-5 py-2.5 text-[12px] text-fg-3">
-            共 {users.length} 条
+            {t('seats.total', { n: users.length })}
           </div>
         )}
       </aside>

@@ -7,7 +7,8 @@ import { CompaniesPanel } from '@/components/platform/CompaniesPanel';
 import { MembersPanel } from '@/components/platform/MembersPanel';
 import { MatrixPanel } from '@/components/platform/MatrixPanel';
 import { useAppData } from '@/store/AppData';
-import { useT } from '@/lib/i18n';
+import { useT, useLocale, useSetLocale, type Locale } from '@/lib/i18n';
+import { usePersistentState } from '@/lib/prefs';
 import { applyTheme, readThemePref, type ThemePref } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
@@ -37,14 +38,15 @@ function Row({ label, desc, control }: { label: string; desc?: string; control: 
   );
 }
 
-/* Toggle used by the placeholder preference switches (disabled, "coming
-   soon" tooltip via the wrapping span — disabled buttons swallow events). */
-function Toggle({ on, disabledTitle }: { on: boolean; disabledTitle?: string }) {
+/* 偏好开关:传了 onToggle 即可点击;否则为占位的禁用态("即将上线"
+   tooltip 由外层 span 提供 —— disabled 按钮不触发事件)。 */
+function Toggle({ on, disabledTitle, onToggle }: { on: boolean; disabledTitle?: string; onToggle?: () => void }) {
   return (
     <span title={disabledTitle} className="inline-flex">
       <button
         type="button"
         disabled={!!disabledTitle}
+        onClick={onToggle}
         className={cn(
           'relative h-[22px] w-[40px] flex-none rounded-full transition-colors disabled:cursor-not-allowed',
           on ? 'bg-brand-blue' : 'bg-surface-sunken',
@@ -62,6 +64,10 @@ function Toggle({ on, disabledTitle }: { on: boolean; disabledTitle?: string }) 
 
 function PreferencesPanel() {
   const t = useT();
+  const locale = useLocale();
+  const setLocale = useSetLocale();
+  // 顶栏语言切换器的显隐属于浏览器记忆(TKT-27),随「重置浏览器记忆」一起清。
+  const [showLangSwitcher, setShowLangSwitcher] = usePersistentState('showLangSwitcher', true);
   // Lazy init mirrors the header toggle: this panel only renders after the
   // client session resolves, so localStorage is already readable.
   const [theme, setTheme] = React.useState<ThemePref>(() =>
@@ -81,11 +87,15 @@ function PreferencesPanel() {
         <Row
           label={t('settingsPage.language')}
           control={
-            <span title={soon} className="inline-flex">
-              <select className={selectCls} disabled>
-                <option>简体中文</option>
-              </select>
-            </span>
+            <select
+              className={selectCls}
+              value={locale}
+              onChange={(e) => setLocale(e.target.value as Locale)}
+            >
+              <option value="zh-CN">{t('lang.zh-CN')}</option>
+              <option value="en">{t('lang.en')}</option>
+              <option value="zh-TW">{t('lang.zh-TW')}</option>
+            </select>
           }
         />
         <Row
@@ -115,7 +125,7 @@ function PreferencesPanel() {
         <Row
           label={t('settingsPage.langSwitcher')}
           desc={t('settingsPage.langSwitcherDesc')}
-          control={<Toggle on disabledTitle={soon} />}
+          control={<Toggle on={showLangSwitcher} onToggle={() => setShowLangSwitcher((v) => !v)} />}
         />
       </Card>
 

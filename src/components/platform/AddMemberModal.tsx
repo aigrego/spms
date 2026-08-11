@@ -6,6 +6,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api';
 import { useAddMember } from '@/store/platform';
+import { useT } from '@/lib/i18n';
 import { ROLE_LABELS } from '@/lib/platformApi';
 import type { CompanyRole } from '@/lib/platformApi';
 import { fieldLabel, inputCls } from './common';
@@ -22,6 +23,7 @@ export function AddMemberModal({
   companyId: string;
 }) {
   const add = useAddMember(companyId);
+  const t = useT();
 
   const [username, setUsername] = React.useState('');
   const [role, setRole] = React.useState<CompanyRole>('developer');
@@ -52,7 +54,7 @@ export function AddMemberModal({
       });
       onOpenChange(false);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '添加失败，请重试');
+      setError(e instanceof ApiError ? e.message : t('members.addFailed'));
     }
   };
 
@@ -60,26 +62,26 @@ export function AddMemberModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent aria-describedby={undefined} className="w-[min(480px,92vw)]">
         <DialogPrimitive.Title className="px-[18px] pb-1 pt-4 text-[15px] font-semibold text-fg-1">
-          添加成员
+          {t('members.add')}
         </DialogPrimitive.Title>
         <div className="flex flex-col gap-3 px-[18px] py-3">
           <div className="flex gap-3">
             <div className="flex-1">
-              <span className={fieldLabel}>用户名（必填）</span>
+              <span className={fieldLabel}>{t('members.usernameRequired')}</span>
               <input
                 autoFocus
                 className={inputCls}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="登录用户名"
+                placeholder={t('members.usernamePlaceholder')}
               />
             </div>
             <div className="w-[140px]">
-              <span className={fieldLabel}>角色</span>
+              <span className={fieldLabel}>{t('settings.role')}</span>
               <select className={inputCls} value={role} onChange={(e) => setRole(e.target.value as CompanyRole)}>
                 {(Object.keys(ROLE_LABELS) as CompanyRole[]).map((r) => (
                   <option key={r} value={r}>
-                    {ROLE_LABELS[r]}
+                    {t(`role.${r}`)}
                   </option>
                 ))}
               </select>
@@ -87,32 +89,32 @@ export function AddMemberModal({
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
-              <span className={fieldLabel}>姓名（可选）</span>
+              <span className={fieldLabel}>{t('members.nameOptional')}</span>
               <input
                 className={inputCls}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="缺省 = 用户名"
+                placeholder={t('members.namePlaceholder')}
               />
             </div>
             <div className="flex-1">
-              <span className={fieldLabel}>初始密码（可选）</span>
+              <span className={fieldLabel}>{t('members.passwordOptional')}</span>
               <input
                 type="password"
                 className={inputCls}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="留空则用户名必须已存在"
+                placeholder={t('members.passwordPlaceholder')}
               />
             </div>
           </div>
           <div>
-            <span className={fieldLabel}>邮箱（可选）</span>
+            <span className={fieldLabel}>{t('members.emailOptional')}</span>
             <input
               className={inputCls}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@example.com，可用于登录与指派人匹配"
+              placeholder={t('members.emailPlaceholder')}
             />
           </div>
           {error && <div className="rounded-lg bg-danger-50 px-3 py-2 text-[12.5px] text-danger">{error}</div>}
@@ -120,10 +122,10 @@ export function AddMemberModal({
         <div className="flex items-center gap-2 border-t border-border px-[18px] py-3">
           <div className="flex-1" />
           <Button variant="ghost" size="md" onClick={() => onOpenChange(false)}>
-            取消
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" size="md" onClick={submit} disabled={!username.trim() || add.isPending}>
-            添加成员
+            {t('members.add')}
           </Button>
         </div>
       </DialogContent>

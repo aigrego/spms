@@ -47,7 +47,7 @@ function WriteReport({ me, products }: { me: Member | undefined; products: Produ
   const { data: existing, isLoading } = useMyReport(me ? date : null);
 
   if (!me) {
-    return <div className="py-16 text-center text-[13px] text-fg-3">需要公司席位才能提交日报,请联系管理员分配。</div>;
+    return <div className="py-16 text-center text-[13px] text-fg-3">{t('reports.form.noSeat')}</div>;
   }
 
   return (
@@ -55,10 +55,10 @@ function WriteReport({ me, products }: { me: Member | undefined; products: Produ
       <div className="mb-4 flex items-center gap-3">
         <CalendarDays size={15} className="text-fg-3" />
         <input type="date" value={date} max={localToday()} onChange={(e) => setDate(e.target.value)} className={dateInputCls} />
-        {date === localToday() && <span className="text-[12px] text-fg-3">今天</span>}
+        {date === localToday() && <span className="text-[12px] text-fg-3">{t('reports.form.today')}</span>}
         <div className="flex-1" />
         {existing && (
-          <span className="text-[12px] text-fg-3">上次更新 {relativeTime(existing.updatedAt, t)}</span>
+          <span className="text-[12px] text-fg-3">{t('reports.form.lastUpdated', { time: relativeTime(existing.updatedAt, t) })}</span>
         )}
       </div>
       {/* 按日期 key 重挂载:切日期时用该日已有日报初始化编辑器,避免 effect 同步。 */}
@@ -115,22 +115,22 @@ function ReportEditor({
       const saved = await save.mutateAsync({ date, entries });
       setReportId(saved.id);
       setSavedSnapshot(snapshotOf(blocks));
-      setFeedback({ kind: 'ok', text: '已保存' });
+      setFeedback({ kind: 'ok', text: t('reports.form.saved') });
     } catch (e) {
-      setFeedback({ kind: 'err', text: e instanceof Error ? e.message : '保存失败' });
+      setFeedback({ kind: 'err', text: e instanceof Error ? e.message : t('reports.form.saveFailed') });
     }
   };
 
   const onDelete = async () => {
-    if (!reportId || !window.confirm(`删除 ${date} 的日报?`)) return;
+    if (!reportId || !window.confirm(t('reports.form.deleteConfirm', { date }))) return;
     try {
       await del.mutateAsync(reportId);
       setReportId(null);
       setBlocks([]);
       setSavedSnapshot('[]');
-      setFeedback({ kind: 'ok', text: '已删除' });
+      setFeedback({ kind: 'ok', text: t('reports.form.deleted') });
     } catch (e) {
-      setFeedback({ kind: 'err', text: e instanceof Error ? e.message : '删除失败' });
+      setFeedback({ kind: 'err', text: e instanceof Error ? e.message : t('reports.form.deleteFailed') });
     }
   };
 
@@ -140,11 +140,11 @@ function ReportEditor({
         <div className="flex-1" />
         {reportId && (
           <Button variant="ghost" size="sm" onClick={onDelete} disabled={del.isPending}>
-            <Trash2 size={13} className="text-fg-3" /> 删除
+            <Trash2 size={13} className="text-fg-3" /> {t('reports.form.delete')}
           </Button>
         )}
         <Button size="sm" onClick={onSave} disabled={!canSave}>
-          {save.isPending ? '保存中…' : reportId ? '更新日报' : '提交日报'}
+          {save.isPending ? t('reports.form.saving') : reportId ? t('reports.form.update') : t('reports.form.submit')}
         </Button>
       </div>
 
@@ -264,18 +264,19 @@ function FilterMenu({
   onChange: (id: string | null) => void;
 }) {
   const [open, setOpen] = React.useState(false);
+  const t = useT();
   const current = options.find((o) => o.id === value);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-strong bg-surface px-2.5 text-[13px] text-fg-2 hover:bg-surface-2">
           <span className="text-fg-3">{label}</span>
-          <span className="max-w-[140px] truncate font-medium text-fg-1">{current?.name ?? '全部'}</span>
+          <span className="max-w-[140px] truncate font-medium text-fg-1">{current?.name ?? t('common.all')}</span>
           <ChevronDown size={13} className="text-fg-3" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="max-h-[320px] w-[200px] overflow-y-auto">
-        <MenuItem label="全部" selected={value === null} onClick={() => { onChange(null); setOpen(false); }} />
+        <MenuItem label={t('common.all')} selected={value === null} onClick={() => { onChange(null); setOpen(false); }} />
         {options.map((o) => (
           <MenuItem key={o.id} label={o.name} selected={o.id === value} onClick={() => { onChange(o.id); setOpen(false); }} />
         ))}
@@ -297,9 +298,10 @@ function buildCopyText(
   productName: (id: string) => string,
   memberName: (id: string) => string,
   noLeadLabel: string,
+  workSummaryLabel: string,
 ): string {
   const [y, m, d] = date.split('-').map(Number);
-  const out: string[] = [`**${d}/${m}/${y} 工作总结:**`, ''];
+  const out: string[] = [`**${d}/${m}/${y} ${workSummaryLabel}:**`, ''];
   const outerName = (g: SummaryGroup) =>
     mode === 'product' ? productName(g.id) : g.id === NO_LEAD ? noLeadLabel : memberName(g.id);
   const pushTasks = (rows: FlatRow[], indent: string) => {
@@ -344,9 +346,10 @@ function buildCopyHtml(
   productName: (id: string) => string,
   memberName: (id: string) => string,
   noLeadLabel: string,
+  workSummaryLabel: string,
 ): string {
   const [y, m, d] = date.split('-').map(Number);
-  const out: string[] = [`<p><b>${d}/${m}/${y} 工作总结:</b></p>`];
+  const out: string[] = [`<p><b>${d}/${m}/${y} ${inlineToHtml(workSummaryLabel)}:</b></p>`];
   const outerName = (g: SummaryGroup) =>
     mode === 'product' ? productName(g.id) : g.id === NO_LEAD ? noLeadLabel : memberName(g.id);
   const tasksHtml = (rows: FlatRow[]) => rows.map((r) => contentToHtmlList(r.entry.content)).join('');
@@ -395,7 +398,7 @@ function ReportsSummary({ products, humans }: { products: Product[]; humans: Mem
 
   const { productById, memberById } = useAppData();
   const productName = (id: string) => productById(id)?.name ?? t('reports.form.unknownProduct');
-  const memberName = (id: string) => memberById(id)?.name ?? '未知成员';
+  const memberName = (id: string) => memberById(id)?.name ?? t('reports.summary.unknownMember');
 
   const rows: FlatRow[] = React.useMemo(
     () => (reports ?? []).flatMap((report) => report.entries.map((entry) => ({ report, entry }))),
@@ -438,8 +441,8 @@ function ReportsSummary({ products, humans }: { products: Product[]; humans: Mem
   }, [rows, mode]);
 
   const onCopy = async () => {
-    const text = buildCopyText(date, groups, mode, productName, memberName, t('reports.noLead'));
-    const html = buildCopyHtml(date, groups, mode, productName, memberName, t('reports.noLead'));
+    const text = buildCopyText(date, groups, mode, productName, memberName, t('reports.noLead'), t('reports.summary.workSummary'));
+    const html = buildCopyHtml(date, groups, mode, productName, memberName, t('reports.noLead'), t('reports.summary.workSummary'));
     try {
       /* 同时写 text/html + text/plain:飞书/Lark 取 HTML 得富文本列表,其余目标拿到 markdown 纯文本。 */
       await navigator.clipboard.write([
@@ -472,22 +475,22 @@ function ReportsSummary({ products, humans }: { products: Product[]; humans: Mem
       {stats && (
         <div className="mb-4 grid grid-cols-3 gap-3">
           <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-fg-3">今日已提交</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-fg-3">{t('reports.stats.todaySubmitted')}</div>
             <div className="mt-1 text-[20px] font-bold text-fg-1">
               {stats.todayCount}
               <span className="text-[13px] font-medium text-fg-3"> / {stats.memberCount}</span>
             </div>
           </div>
           <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-fg-3">累计日报</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-fg-3">{t('reports.stats.total')}</div>
             <div className="mt-1 text-[20px] font-bold text-fg-1">{stats.totalReports}</div>
           </div>
           <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-fg-3">近 7 日</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-fg-3">{t('reports.stats.last7Days')}</div>
             <div className="mt-1.5 flex h-[22px] items-end gap-1">
-              {stats.trend.map((t) => (
-                <div key={t.date} className="flex-1 rounded-sm" title={`${t.date}: ${t.count} 份`}
-                  style={{ height: `${Math.max(8, (t.count / maxTrend) * 100)}%`, background: t.count ? 'var(--brand-blue)' : 'var(--surface-2)' }} />
+              {stats.trend.map((tp) => (
+                <div key={tp.date} className="flex-1 rounded-sm" title={t('reports.stats.trendTitle', { date: tp.date, n: tp.count })}
+                  style={{ height: `${Math.max(8, (tp.count / maxTrend) * 100)}%`, background: tp.count ? 'var(--brand-blue)' : 'var(--surface-2)' }} />
               ))}
             </div>
           </div>
@@ -497,7 +500,7 @@ function ReportsSummary({ products, humans }: { products: Product[]; humans: Mem
       {/* 未提交提醒(仅看今天时) */}
       {stats && date === today && stats.unsubmitted.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-surface px-3.5 py-2.5">
-          <span className="mr-1 text-[12.5px] font-medium text-fg-3">今日未提交:</span>
+          <span className="mr-1 text-[12.5px] font-medium text-fg-3">{t('reports.stats.unsubmittedToday')}</span>
           {stats.unsubmitted.map((m) => (
             <span key={m.id} className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2 py-0.5 text-[12px] text-fg-2">
               <Avatar person={memberById(m.id) ?? null} size={16} />
@@ -525,7 +528,7 @@ function ReportsSummary({ products, humans }: { products: Product[]; humans: Mem
         </div>
         <Button variant="secondary" size="sm" onClick={onCopy} disabled={rows.length === 0}>
           {copied ? <Check size={13} /> : <ClipboardCopy size={13} />}
-          {copied ? '已复制' : '复制汇总'}
+          {copied ? t('reports.summary.copied') : t('reports.summary.copySummary')}
         </Button>
       </div>
 
@@ -534,7 +537,7 @@ function ReportsSummary({ products, humans }: { products: Product[]; humans: Mem
         <Skeleton rows={7} />
       ) : groups.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border-strong py-14 text-center text-[13px] text-fg-3">
-          {date} 暂无日报
+          {t('reports.summary.empty', { date })}
         </div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -619,11 +622,11 @@ export function ReportsView() {
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="flex-none px-6 pt-5">
         <div className="mx-auto max-w-[860px]">
-          <h1 className="text-[17px] font-bold text-fg-1">日报</h1>
+          <h1 className="text-[17px] font-bold text-fg-1">{t('reports.title')}</h1>
           <p className="mb-3 mt-0.5 text-[12.5px] text-fg-3">{t('reports.subtitle')}</p>
           <div className="flex gap-4 border-b border-border">
-            {canWrite && <TabBtn active={tab === 'write'} onClick={() => setTab('write')}>写日报</TabBtn>}
-            <TabBtn active={tab === 'summary'} onClick={() => setTab('summary')}>日报汇总</TabBtn>
+            {canWrite && <TabBtn active={tab === 'write'} onClick={() => setTab('write')}>{t('reports.tab.write')}</TabBtn>}
+            <TabBtn active={tab === 'summary'} onClick={() => setTab('summary')}>{t('reports.tab.summary')}</TabBtn>
           </div>
         </div>
       </div>

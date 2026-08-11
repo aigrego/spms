@@ -1,10 +1,13 @@
 'use client';
 
 // App-level i18n dictionaries (zh-CN default / en / zh-TW), ported from the
-// portal app. The standalone Next.js app has no host-driven locale switching —
-// the locale is fixed to zh-CN via LocaleProvider. `t(key, params?)`
-// interpolates {placeholder} tokens; unknown keys fall back to the key itself.
+// portal app. 语言由用户切换(TKT-27),顶栏语言菜单或设置页切换,持久化在
+// localStorage `spms.locale`。`t(key, params?)` interpolates {placeholder}
+// tokens; unknown keys fall back to zh-CN, then to the key itself.
 import * as React from 'react';
+import { dict as platformDict } from './i18n/platform';
+import { dict as sprintReportsDict } from './i18n/sprint-reports';
+import { dict as miscDict } from './i18n/misc';
 
 export type Locale = 'zh-CN' | 'en' | 'zh-TW';
 
@@ -653,6 +656,16 @@ const zhCN: Dict = {
 
   // ProjectHub tabs
   'hub.testcases': '测试用例',
+
+  // TKT-27 语言切换 + TKT-30 issue 侧栏派生字段
+  'header.language': '语言',
+  'lang.zh-CN': '简体中文',
+  'lang.en': 'English',
+  'lang.zh-TW': '繁體中文',
+  'detail.reporter': '提出人',
+  'detail.dueDate': '截止日期',
+  'detail.dueDateEmpty': '年/月/日',
+  'detail.updatedAt': '更新日期',
 };
 
 const en: Dict = {
@@ -1258,6 +1271,16 @@ const en: Dict = {
   'inline.titlePlaceholder': 'Type a title, Enter to create…',
 
   'hub.testcases': 'Test cases',
+
+  // TKT-27 language switcher + TKT-30 issue sidebar derived fields
+  'header.language': 'Language',
+  'lang.zh-CN': '简体中文',
+  'lang.en': 'English',
+  'lang.zh-TW': '繁體中文',
+  'detail.reporter': 'Reporter',
+  'detail.dueDate': 'Due date',
+  'detail.dueDateEmpty': 'YYYY/M/D',
+  'detail.updatedAt': 'Updated',
 };
 
 const zhTW: Dict = {
@@ -1863,9 +1886,25 @@ const zhTW: Dict = {
   'inline.titlePlaceholder': '輸入標題，Enter 建立…',
 
   'hub.testcases': '測試用例',
+
+  // TKT-27 語言切換 + TKT-30 issue 側欄派生欄位
+  'header.language': '語言',
+  'lang.zh-CN': '简体中文',
+  'lang.en': 'English',
+  'lang.zh-TW': '繁體中文',
+  'detail.reporter': '提出人',
+  'detail.dueDate': '截止日期',
+  'detail.dueDateEmpty': '年/月/日',
+  'detail.updatedAt': '更新日期',
 };
 
-const DICTS: Record<Locale, Dict> = { 'zh-CN': zhCN, en, 'zh-TW': zhTW };
+/* TKT-27:按域拆分的补充词典(src/lib/i18n/*.ts)在主词典之后展开,
+   新 key 均带域前缀,不与主词典冲突(有冲突时补充词典优先)。 */
+const DICTS: Record<Locale, Dict> = {
+  'zh-CN': { ...zhCN, ...platformDict['zh-CN'], ...sprintReportsDict['zh-CN'], ...miscDict['zh-CN'] },
+  en: { ...en, ...platformDict.en, ...sprintReportsDict.en, ...miscDict.en },
+  'zh-TW': { ...zhTW, ...platformDict['zh-TW'], ...sprintReportsDict['zh-TW'], ...miscDict['zh-TW'] },
+};
 
 export type TFn = (key: string, params?: Record<string, string | number>) => string;
 
@@ -1878,22 +1917,78 @@ export function makeT(locale: Locale): TFn {
   };
 }
 
-/* ---- React binding (standalone app: zh-CN by default) ---- */
+/* ---- React binding ----
+   语言可由用户切换(TKT-27):顶栏语言菜单 / 设置页语言下拉,选择持久化在
+   localStorage 的 `spms.locale`(独立于 `spms.prefs.` 前缀,个人资料页的
+   「重置浏览器记忆」不会清掉它)。读取走 useSyncExternalStore(与 prefs.ts
+   同款模式):SSR 与首次客户端渲染都用 zh-CN,挂载后套用存储值,跨标签页
+   通过 storage 事件同步,无 SSR/水合不一致。 */
+
+const LOCALE_STORAGE_KEY = 'spms.locale';
+
+let localeCache: Locale | null | undefined; // undefined = 尚未读 storage
+
+function readLocaleSnapshot(): Locale | null {
+  if (localeCache === undefined) {
+    try {
+      const v = localStorage.getItem(LOCALE_STORAGE_KEY);
+      localeCache = v === 'zh-CN' || v === 'en' || v === 'zh-TW' ? v : null;
+    } catch {
+      localeCache = null; // 隐私模式等场景下不可读,按未设置处理
+    }
+  }
+  return localeCache;
+}
+
+const localeListeners = new Set<() => void>();
+
+function subscribeLocale(cb: () => void) {
+  localeListeners.add(cb);
+  const onStorage = (e: StorageEvent) => {
+    if (e.key == null || e.key === LOCALE_STORAGE_KEY) {
+      localeCache = undefined; // 丢弃缓存,下次 snapshot 重新读
+      cb();
+    }
+  };
+  window.addEventListener('storage', onStorage);
+  return () => {
+    localeListeners.delete(cb);
+    window.removeEventListener('storage', onStorage);
+  };
+}
 
 const LocaleContext = React.createContext<Locale>('zh-CN');
+const SetLocaleContext = React.createContext<(locale: Locale) => void>(() => {});
 
-export function LocaleProvider({
-  locale = 'zh-CN',
-  children,
-}: {
-  locale?: Locale;
-  children: React.ReactNode;
-}) {
-  return React.createElement(LocaleContext.Provider, { value: locale }, children);
+export function LocaleProvider({ children }: { children: React.ReactNode }) {
+  const stored = React.useSyncExternalStore(
+    subscribeLocale,
+    readLocaleSnapshot,
+    (): Locale | null => null, // 服务端快照:恒为未设置 → zh-CN
+  );
+  const locale = stored ?? 'zh-CN';
+  const setLocale = React.useCallback((next: Locale) => {
+    try {
+      localStorage.setItem(LOCALE_STORAGE_KEY, next);
+    } catch {
+      /* 不可写时仅本次会话生效 */
+    }
+    localeCache = next;
+    for (const l of localeListeners) l();
+  }, []);
+  return React.createElement(
+    LocaleContext.Provider,
+    { value: locale },
+    React.createElement(SetLocaleContext.Provider, { value: setLocale }, children),
+  );
 }
 
 export function useLocale(): Locale {
   return React.useContext(LocaleContext);
+}
+
+export function useSetLocale(): (locale: Locale) => void {
+  return React.useContext(SetLocaleContext);
 }
 
 export function useT(): TFn {

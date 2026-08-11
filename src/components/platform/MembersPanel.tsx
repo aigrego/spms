@@ -9,7 +9,7 @@ import { ConfirmDestructive } from '@/components/ConfirmDestructive';
 import { useDeleteUser, usePlatformUsers } from '@/store/platform';
 import { useAppData } from '@/store/AppData';
 import { ApiError } from '@/lib/api';
-import { ROLE_LABELS } from '@/lib/platformApi';
+import { useT } from '@/lib/i18n';
 import type { PlatformUser } from '@/lib/platformApi';
 import { CreateUserModal } from '@/components/platform/CreateUserModal';
 import { LetterAvatar, PlatformHeader, fmtDate, tdCls, thCls } from '@/components/platform/common';
@@ -19,6 +19,7 @@ import { LetterAvatar, PlatformHeader, fmtDate, tdCls, thCls } from '@/component
    删除用户 = 销账号:先 revoke 其在各家公司的资源池投影(历史记录保留姓名
    快照),再删 users 行;不能删除当前登录账号。 */
 export function MembersPanel() {
+  const t = useT();
   const { data: users, isLoading, isError } = usePlatformUsers();
   const { session } = useAppData();
   const del = useDeleteUser();
@@ -39,27 +40,27 @@ export function MembersPanel() {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <PlatformHeader title="成员" count={users?.length}>
+      <PlatformHeader title={t('members.title')} count={users?.length}>
         <Button variant="primary" size="md" onClick={() => setModalOpen(true)}>
-          <Plus size={14} /> 新建用户
+          <Plus size={14} /> {t('members.newUser')}
         </Button>
       </PlatformHeader>
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <Skeleton rows={5} />
         ) : isError ? (
-          <StateBlock icon="alert" tone="danger" title="成员列表加载失败" body="请稍后重试。" />
+          <StateBlock icon="alert" tone="danger" title={t('members.loadFailed')} body={t('platform.common.retry')} />
         ) : !users?.length ? (
-          <StateBlock title="暂无用户" body="新建系统账号后,再到公司卡片分配席位。" />
+          <StateBlock title={t('members.empty')} body={t('members.emptyBody')} />
         ) : (
           <table className="w-full border-collapse">
             <thead className="sticky top-0 bg-bg">
               <tr className="border-b border-border">
-                <th className={thCls}>成员</th>
-                <th className={thCls}>用户名</th>
-                <th className={thCls}>平台角色</th>
-                <th className={thCls}>公司席位</th>
-                <th className={thCls}>创建时间</th>
+                <th className={thCls}>{t('members.title')}</th>
+                <th className={thCls}>{t('settings.username')}</th>
+                <th className={thCls}>{t('members.colPlatformRole')}</th>
+                <th className={thCls}>{t('members.colSeats')}</th>
+                <th className={thCls}>{t('members.colCreated')}</th>
                 <th className={thCls} />
               </tr>
             </thead>
@@ -77,9 +78,9 @@ export function MembersPanel() {
                   </td>
                   <td className={tdCls}>
                     {u.platformRole === 'admin' ? (
-                      <Badge tone="purple">管理员</Badge>
+                      <Badge tone="purple">{t('members.admin')}</Badge>
                     ) : (
-                      <span className="text-fg-3">普通用户</span>
+                      <span className="text-fg-3">{t('members.regular')}</span>
                     )}
                   </td>
                   <td className={tdCls}>
@@ -91,12 +92,12 @@ export function MembersPanel() {
                               className="h-1.5 w-1.5 rounded-full"
                               style={{ background: s.companyColor || 'var(--slate-500)' }}
                             />
-                            {s.companyName} · {ROLE_LABELS[s.role] ?? s.role}
+                            {s.companyName} · {t(`role.${s.role}`)}
                           </Badge>
                         ))}
                       </span>
                     ) : (
-                      <span className="text-fg-3">未加入任何公司</span>
+                      <span className="text-fg-3">{t('members.noCompany')}</span>
                     )}
                   </td>
                   <td className={tdCls}>
@@ -106,7 +107,7 @@ export function MembersPanel() {
                     {u.userId !== session?.user.id && (
                       <button
                         className="text-fg-3 hover:text-danger disabled:opacity-40"
-                        title="删除用户"
+                        title={t('members.deleteUser')}
                         disabled={del.isPending}
                         onClick={() => {
                           setError(null);
@@ -130,8 +131,8 @@ export function MembersPanel() {
         onOpenChange={(o) => !o && setTarget(null)}
         name={target?.username ?? ''}
         chips={[
-          ...(target?.seats.length ? [`${target.seats.length} 个公司席位`] : []),
-          '各公司资源池投影(revoke,历史记录保留)',
+          ...(target?.seats.length ? [t('members.chipSeats', { n: target.seats.length })] : []),
+          t('members.chipProjection'),
         ]}
         busy={del.isPending}
         onConfirm={confirmDelete}

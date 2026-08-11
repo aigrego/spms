@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronLeft, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2, Archive, ArchiveRestore, Pencil } from 'lucide-react';
+import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronLeft, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2, Archive, ArchiveRestore, Pencil, Calendar } from 'lucide-react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +16,7 @@ import { AISlaBadge, LabelChip, ProjectIcon } from '@/components/glyphs/misc';
 import { Markdown } from '@/components/Markdown';
 import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, ScopedAssigneeMenu, RequirementMenu, LabelMenu } from '@/components/menus';
 import { useT, useLocale } from '@/lib/i18n';
-import { formatActivityTime } from '@/lib/time';
+import { formatActivityTime, formatDate } from '@/lib/time';
 import { useAppData } from '@/store/AppData';
 import { useIssue, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue, useArchiveIssue, useRegisterAttachment, useDeleteAttachment } from '@/store/issues';
 import { useIssueCandidates } from '@/store/resources';
@@ -233,6 +233,7 @@ export function IssueDetail({
 }) {
   const { memberById, projectById, labelById, sprintById, me, labelByKey, releaseById, productById, productLineById, can } = useAppData();
   const t = useT();
+  const locale = useLocale();
   const { data: issue } = useIssue(id);
   const update = useUpdateIssue();
   const addComment = useAddComment();
@@ -301,6 +302,8 @@ export function IssueDetail({
   const patch = (p: Parameters<typeof update.mutate>[0]['input']) => update.mutate({ id, input: p });
   // 描述仅创建人可编辑(TKT-25,Notion 同步的 issue 需要订正内容);创建人 = created 活动的 whoId。
   const creatorId = issue.activities.find((a) => a.kind === 'created')?.whoId ?? null;
+  // 提出人(TKT-30):创建人,只读展示。
+  const reporter = memberById(creatorId);
   const canEditDesc = !!me && me.id === creatorId && can('issues', 'write');
   const descEditing = descEdit?.id === issue.id;
   const saveDesc = () => {
@@ -810,6 +813,28 @@ export function IssueDetail({
                     </button>
                   }
                 />
+              </PropRow>
+              {/* TKT-30:提出人 / 截止日期 / 更新日期,均为只读派生值。
+                  截止日期:未加入迭代为空;加入迭代后取迭代截止日期。 */}
+              <PropRow label={t('detail.reporter')}>
+                <span className="inline-flex max-w-full items-center gap-1.5 whitespace-nowrap px-2 py-1 text-[13px] text-fg-1">
+                  <Avatar person={reporter} size={20} /> {reporter ? reporter.name : '—'}
+                </span>
+              </PropRow>
+              <PropRow label={t('detail.dueDate')}>
+                <span className="inline-flex max-w-full items-center gap-1.5 whitespace-nowrap px-2 py-1 text-[13px] text-fg-1">
+                  {sprint ? (
+                    formatDate(sprint.endDate, locale)
+                  ) : (
+                    <span className="text-fg-3">{t('detail.dueDateEmpty')}</span>
+                  )}
+                  <Calendar size={14} className="text-fg-3" />
+                </span>
+              </PropRow>
+              <PropRow label={t('detail.updatedAt')}>
+                <span className="inline-flex max-w-full items-center gap-1.5 whitespace-nowrap px-2 py-1 text-[13px] text-fg-1">
+                  {formatActivityTime(issue.updatedAt, locale)}
+                </span>
               </PropRow>
               {issue.estimate != null && (
                 <PropRow label={t('detail.estimate')}>

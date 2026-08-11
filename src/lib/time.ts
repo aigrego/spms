@@ -30,3 +30,12 @@ export function formatActivityTime(iso: string, locale: Locale): string {
   }
   return `${d.getMonth() + 1}月${d.getDate()}日 ${hh}:${mi}`;
 }
+
+/* Date-only rendering. zh → "2026/8/14"; en → "Aug 14, 2026". */
+export function formatDate(iso: string, locale: Locale): string {
+  const d = new Date(iso);
+  if (locale === 'en') {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}

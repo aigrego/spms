@@ -61,18 +61,18 @@ function SeatRow({ seat, you, canAdmin }: { seat: Seat; you: boolean; canAdmin: 
         ))}
       </select>
       <Badge tone="success" dot>
-        已分配席位
+        {t('resources.seatAssigned')}
       </Badge>
       {canAdmin && (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <button className="hover-surface rounded-md px-2 py-1 text-[12px] font-medium text-fg-3 hover:text-danger">
-              移除
+              {t('team.remove')}
             </button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-[220px] p-2">
             <p className="px-1 pb-2 pt-1 text-[12px] leading-relaxed text-fg-2">
-              移除后该用户将无法再进入本公司沙箱(账号与其他公司席位保留)。
+              {t('resources.removeNote')}
             </p>
             <Button
               variant="danger"
@@ -81,7 +81,7 @@ function SeatRow({ seat, you, canAdmin }: { seat: Seat; you: boolean; canAdmin: 
               disabled={remove.isPending}
               onClick={() => remove.mutate(seat.membershipId, { onSuccess: () => setOpen(false) })}
             >
-              移除
+              {t('team.remove')}
             </Button>
           </PopoverContent>
         </Popover>
@@ -207,11 +207,11 @@ export function ResourcesView() {
           icon={<Users size={15} />}
           label={t('resources.section.internal')}
           count={seats.length}
-          note="席位成员从平台成员中分配(设置 → 公司管理 → 席位);公司角色决定其在本公司的模块权限。"
+          note={t('resources.seatNote')}
         >
           {seats.length === 0 ? (
             <div className="rounded-[12px] border border-dashed border-border px-4 py-7 text-center text-[12.5px] text-fg-3">
-              暂无席位成员,请到 设置 → 公司管理 → 席位 分配。
+              {t('resources.emptySeats')}
             </div>
           ) : (
             <div className={listCls}>

@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, LogOut, NotebookPen, Search, Settings, Shield, Sun } from 'lucide-react';
+import { Check, ChevronDown, Languages, LogOut, NotebookPen, Search, Settings, Shield, Sun } from 'lucide-react';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { Logo } from '@/components/Logo';
 import { Badge } from '@/components/ui/badge';
@@ -20,7 +20,8 @@ import {
 import { useShell } from '@/components/AppShell';
 import { useAppData } from '@/store/AppData';
 import { authApi, type CompanyRole, type SessionCompany } from '@/lib/api';
-import { useT } from '@/lib/i18n';
+import { useT, useLocale, useSetLocale, type Locale } from '@/lib/i18n';
+import { usePersistentState } from '@/lib/prefs';
 import { applyTheme } from '@/lib/theme';
 import type { Member } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -159,6 +160,48 @@ function CompanySwitcher() {
   );
 }
 
+/* 语言切换器(TKT-27):顶栏左侧的小地球按钮,弹出 简体中文/English/繁體中文
+   菜单,选择即持久化(localStorage `spms.locale`)。可在 设置→偏好 里关掉。 */
+const LOCALE_OPTIONS: Locale[] = ['zh-CN', 'en', 'zh-TW'];
+
+function LanguageSwitcher() {
+  const t = useT();
+  const locale = useLocale();
+  const setLocale = useSetLocale();
+  const [open, setOpen] = React.useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          className="grid h-8 w-8 flex-none place-items-center rounded-lg border border-border bg-surface text-fg-2 hover:bg-surface-2"
+          title={t('header.language')}
+          aria-label={t('header.language')}
+        >
+          <Languages size={15} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent style={{ width: 168 }} align="start">
+        <div className="px-2.5 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-fg-3">
+          {t('header.language')}
+        </div>
+        {LOCALE_OPTIONS.map((l) => (
+          <div
+            key={l}
+            onClick={() => {
+              setLocale(l);
+              setOpen(false);
+            }}
+            className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-fg-1 hover:bg-surface-2"
+          >
+            <span className="flex-1 truncate">{t(`lang.${l}`)}</span>
+            {l === locale && <Check size={14} style={{ color: 'var(--brand-blue)' }} />}
+          </div>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /* Small light/dark toggle rendered inside the user menu. */
 function ThemeSwitch({ light }: { light: boolean }) {
   return (
@@ -282,6 +325,7 @@ export function Header() {
   const t = useT();
   const { openCmd } = useShell();
   const { session, sessionLoading } = useAppData();
+  const [showLangSwitcher] = usePersistentState('showLangSwitcher', true);
 
   return (
     <header
@@ -302,6 +346,7 @@ export function Header() {
         ) : (
           <CompanySwitcher />
         )}
+        {showLangSwitcher && <LanguageSwitcher />}
       </div>
 
       {/* Center: command palette trigger styled as a search box */}

@@ -20,7 +20,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, []);
   return (
     <QueryClientProvider client={queryClient}>
-      <LocaleProvider locale="zh-CN">
+      <LocaleProvider>
         <AppDataProvider>{children}</AppDataProvider>
       </LocaleProvider>
     </QueryClientProvider>

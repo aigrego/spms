@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { ProjectIcon } from '@/components/glyphs/misc';
 import { ViewHeader } from '@/components/ScrumViews';
-import { useLocale, useT } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 
 /* Roadmap — 1:1 port of spms-app's RoadmapView (OtherViews.tsx).
@@ -15,10 +15,9 @@ import { useAppData } from '@/store/AppData';
    project target dates / release targetDate once the roadmap API exists. */
 export default function RoadmapPage() {
   const t = useT();
-  const locale = useLocale();
   const router = useRouter();
   const { projects, memberById } = useAppData();
-  const months = locale === 'en' ? ['May', 'Jun', 'Jul', 'Aug', t('roadmap.q3')] : ['5月', '6月', '7月', '8月', t('roadmap.q3')];
+  const months = [t('roadmap.m5'), t('roadmap.m6'), t('roadmap.m7'), t('roadmap.m8'), t('roadmap.q3')];
   // TODO(data): hardcoded lane placement (project index → grid offset/span)
   const lanes = [
     { i: 0, start: 0, span: 2 },

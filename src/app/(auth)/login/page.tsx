@@ -19,9 +19,9 @@ export default function LoginPage() {
   const [error, setError] = React.useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
     const p = new URLSearchParams(window.location.search).get('error');
-    if (p === 'feishu') return '飞书登录失败，请重试';
-    if (p === 'lark') return 'Lark 登录失败，请重试';
-    if (p === 'github') return 'GitHub 登录失败，请重试';
+    if (p === 'feishu') return t('login.oauthFailed', { provider: t('provider.feishu') });
+    if (p === 'lark') return t('login.oauthFailed', { provider: t('provider.lark') });
+    if (p === 'github') return t('login.oauthFailed', { provider: t('provider.github') });
     return null;
   });
   const [busy, setBusy] = React.useState(false);
@@ -76,12 +76,12 @@ export default function LoginPage() {
 
         <div className="relative mt-10">
           <h2 className="m-0 text-[30px] font-semibold leading-snug tracking-tight text-white">
-            产品线 → 产品 → 版本
+            {t('login.heroTitle1')}
             <br />
-            一站式研发生命周期管理
+            {t('login.heroTitle2')}
           </h2>
           <p className="mt-3 max-w-[420px] text-[14px] leading-relaxed text-white/75">
-            Issue、迭代、需求、测试用例与研发资源统一规划，让团队交付节奏一目了然。
+            {t('login.heroDesc')}
           </p>
         </div>
 
@@ -97,15 +97,15 @@ export default function LoginPage() {
             <Logo size={44} />
           </div>
           <h1 className="m-0 text-center text-[22px] font-semibold tracking-tight text-fg-1 lg:text-left">
-            欢迎回来
+            {t('login.welcome')}
           </h1>
           <p className="mb-6 mt-1.5 text-center text-[12.5px] text-fg-3 lg:text-left">
-            登录 {t('app.title')}，继续你的研发协作
+            {t('login.subtitle', { app: t('app.title') })}
           </p>
 
           <form onSubmit={submit} className="flex flex-col gap-3">
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] font-medium text-fg-2">用户名或邮箱</span>
+              <span className="text-[12px] font-medium text-fg-2">{t('login.username')}</span>
               <Input
                 autoFocus
                 autoComplete="username"
@@ -115,7 +115,7 @@ export default function LoginPage() {
               />
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] font-medium text-fg-2">密码</span>
+              <span className="text-[12px] font-medium text-fg-2">{t('login.password')}</span>
               <Input
                 type="password"
                 autoComplete="current-password"
@@ -130,7 +130,7 @@ export default function LoginPage() {
               </div>
             )}
             <Button type="submit" variant="primary" size="lg" disabled={!username.trim() || !password || busy}>
-              {busy ? '登录中…' : '登录'}
+              {busy ? t('login.submitting') : t('login.submit')}
             </Button>
           </form>
 
@@ -138,7 +138,7 @@ export default function LoginPage() {
             <>
               <div className="my-5 flex items-center gap-3">
                 <div className="h-px flex-1 bg-border" />
-                <span className="text-[11px] text-fg-3">或使用以下方式登录</span>
+                <span className="text-[11px] text-fg-3">{t('login.or')}</span>
                 <div className="h-px flex-1 bg-border" />
               </div>
               <div className="flex flex-col gap-2.5">
@@ -153,7 +153,7 @@ export default function LoginPage() {
                       window.location.href = '/api/auth/feishu/login';
                     }}
                   >
-                    <FeishuMark size={16} /> 飞书登录
+                    <FeishuMark size={16} /> {t('login.oauthButton', { provider: t('provider.feishu') })}
                   </Button>
                 )}
                 {oauth.lark && (
@@ -165,7 +165,7 @@ export default function LoginPage() {
                       window.location.href = '/api/auth/lark/login';
                     }}
                   >
-                    <LarkMark size={16} /> Lark 登录
+                    <LarkMark size={16} /> {t('login.oauthButton', { provider: t('provider.lark') })}
                   </Button>
                 )}
                 {oauth.github && (
@@ -177,7 +177,7 @@ export default function LoginPage() {
                       window.location.href = '/api/auth/github/login';
                     }}
                   >
-                    <GitHubMark size={16} /> GitHub 登录
+                    <GitHubMark size={16} /> {t('login.oauthButton', { provider: t('provider.github') })}
                   </Button>
                 )}
               </div>

@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useT } from '@/lib/i18n';
 
 /* Shared bits for the /platform admin pages (kept out of components/ui —
    these are platform-specific compositions, not generic primitives). */
@@ -64,7 +65,7 @@ export function PopoverConfirm({
   trigger,
   title,
   body,
-  confirmLabel = '确认',
+  confirmLabel,
   busy,
   onConfirm,
 }: {
@@ -75,6 +76,7 @@ export function PopoverConfirm({
   busy?: boolean;
   onConfirm: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = React.useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -84,7 +86,7 @@ export function PopoverConfirm({
         {body && <p className="mb-2 mt-0 text-[12px] leading-relaxed text-fg-3">{body}</p>}
         <div className="mt-2 flex justify-end gap-1.5">
           <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
-            取消
+            {t('common.cancel')}
           </Button>
           <Button
             variant="danger"
@@ -95,7 +97,7 @@ export function PopoverConfirm({
               setOpen(false);
             }}
           >
-            {confirmLabel}
+            {confirmLabel ?? t('platform.common.confirm')}
           </Button>
         </div>
       </PopoverContent>

@@ -18,20 +18,20 @@ import { useT } from '@/lib/i18n';
 import { relativeTime } from '@/lib/time';
 import type { McpKey } from '@/lib/platformApi';
 
-const CAP_LABEL: Record<string, string> = { read: '读取', write: '写入', delete: '删除' };
 const CAP_TONE: Record<string, 'blue' | 'orange' | 'danger'> = {
   read: 'blue',
   write: 'orange',
   delete: 'danger',
 };
 
-function statusOf(k: McpKey): { label: string; tone: 'success' | 'warning' | 'neutral' } {
-  if (k.revokedAt) return { label: '已吊销', tone: 'neutral' };
-  if (k.expiresAt && new Date(k.expiresAt).getTime() <= Date.now()) return { label: '已过期', tone: 'warning' };
-  return { label: '有效', tone: 'success' };
+function statusOf(k: McpKey): { key: 'revoked' | 'expired' | 'active'; tone: 'success' | 'warning' | 'neutral' } {
+  if (k.revokedAt) return { key: 'revoked', tone: 'neutral' };
+  if (k.expiresAt && new Date(k.expiresAt).getTime() <= Date.now()) return { key: 'expired', tone: 'warning' };
+  return { key: 'active', tone: 'success' };
 }
 
 function CodeBox({ text, children }: { text: string; children: React.ReactNode }) {
+  const t = useT();
   const [copied, setCopied] = React.useState(false);
   const copy = async () => {
     try {
@@ -48,8 +48,8 @@ function CodeBox({ text, children }: { text: string; children: React.ReactNode }
       <button
         type="button"
         onClick={copy}
-        title="复制"
-        aria-label="复制"
+        title={t('keys.copy')}
+        aria-label={t('keys.copy')}
         className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-md border border-border bg-surface text-fg-3 opacity-0 shadow-1 transition-opacity hover:text-fg-1 group-hover:opacity-100"
       >
         {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
@@ -95,7 +95,7 @@ export function KeysPanel() {
       <div className="flex flex-none items-start gap-4 px-6 pb-4 pt-5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h1 className="text-[20px] font-bold text-fg-1">Agent 接入</h1>
+            <h1 className="text-[20px] font-bold text-fg-1">{t('nav.agentAccess')}</h1>
             {keys != null && (
               <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[12px] font-semibold text-fg-3">
                 {keys.length}
@@ -103,11 +103,11 @@ export function KeysPanel() {
             )}
           </div>
           <p className="mt-1 max-w-[640px] text-[13px] leading-relaxed text-fg-3">
-            让 Claude Code / Cursor 等编码 Agent 经 MCP 协议接入,在授权公司内读写需求、Issue 与测试用例,并完成修复闭环。
+            {t('keys.subtitle')}
           </p>
         </div>
         <Button variant="primary" size="md" onClick={() => setModalOpen(true)} className="flex-none">
-          <Plus size={14} /> 新建令牌
+          <Plus size={14} /> {t('keys.new')}
         </Button>
       </div>
 
@@ -115,10 +115,10 @@ export function KeysPanel() {
       {isPlatformAdmin && (
         <div className="flex flex-none items-center gap-4 border-b border-border px-6">
           <TabBtn active={tab === 'mine'} onClick={() => setTab('mine')}>
-            我的令牌
+            {t('keys.tabMine')}
           </TabBtn>
           <TabBtn active={tab === 'all'} onClick={() => setTab('all')}>
-            全租户令牌
+            {t('keys.tabAll')}
           </TabBtn>
         </div>
       )}
@@ -127,19 +127,19 @@ export function KeysPanel() {
         {isLoading ? (
           <Skeleton rows={5} />
         ) : isError ? (
-          <StateBlock icon="alert" tone="danger" title="令牌列表加载失败" body="请稍后重试。" />
+          <StateBlock icon="alert" tone="danger" title={t('keys.loadFailed')} body={t('platform.common.retry')} />
         ) : (
           <table className="w-full border-collapse">
             <thead className="sticky top-0 bg-bg">
               <tr className="border-b border-border">
-                <th className={thCls}>名称</th>
-                <th className={`${thCls} whitespace-nowrap`}>所属人</th>
-                <th className={`${thCls} whitespace-nowrap`}>能力</th>
-                <th className={`${thCls} whitespace-nowrap`}>范围</th>
-                <th className={`${thCls} whitespace-nowrap`}>项目</th>
-                <th className={`${thCls} whitespace-nowrap`}>有效期至</th>
-                <th className={`${thCls} whitespace-nowrap`}>最近使用</th>
-                <th className={`${thCls} whitespace-nowrap`}>状态</th>
+                <th className={thCls}>{t('form.name')}</th>
+                <th className={`${thCls} whitespace-nowrap`}>{t('keys.colOwner')}</th>
+                <th className={`${thCls} whitespace-nowrap`}>{t('keys.colCaps')}</th>
+                <th className={`${thCls} whitespace-nowrap`}>{t('keys.scope')}</th>
+                <th className={`${thCls} whitespace-nowrap`}>{t('group.project')}</th>
+                <th className={`${thCls} whitespace-nowrap`}>{t('keys.colExpires')}</th>
+                <th className={`${thCls} whitespace-nowrap`}>{t('keys.colLastUsed')}</th>
+                <th className={`${thCls} whitespace-nowrap`}>{t('menu.status')}</th>
                 <th className={`${thCls} whitespace-nowrap text-right`} />
               </tr>
             </thead>
@@ -147,7 +147,7 @@ export function KeysPanel() {
               {!shown.length && (
                 <tr className="border-b border-border">
                   <td colSpan={9} className="px-4 py-10 text-center text-[13px] text-fg-3">
-                    {tab === 'mine' ? '你还没有令牌' : '还没有任何令牌'}
+                    {tab === 'mine' ? t('keys.emptyMine') : t('keys.emptyAll')}
                   </td>
                 </tr>
               )}
@@ -169,33 +169,33 @@ export function KeysPanel() {
                       <span className="inline-flex gap-1.5">
                         {caps.map((c) => (
                           <Badge key={c} tone={CAP_TONE[c] ?? 'neutral'}>
-                            {CAP_LABEL[c] ?? c}
+                            {t(`keys.cap.${c}`)}
                           </Badge>
                         ))}
                       </span>
                     </td>
-                    <td className={`${tdCls} whitespace-nowrap`}>{k.companyId ? (k.companyName ?? '—') : '全平台'}</td>
+                    <td className={`${tdCls} whitespace-nowrap`}>{k.companyId ? (k.companyName ?? '—') : t('keys.scopeAll')}</td>
                     <td className={`${tdCls} whitespace-nowrap`}>
                       {k.projectIds ? (
                         <span
                           className="text-fg-2"
                           title={k.projectIds.map((id) => projectById(id)?.name ?? id).join('、')}
                         >
-                          {k.projectIds.length} 个项目
+                          {t('keys.nProjects', { n: k.projectIds.length })}
                         </span>
                       ) : (
-                        <span className="text-fg-2">全部项目</span>
+                        <span className="text-fg-2">{t('keys.allProjects')}</span>
                       )}
                     </td>
                     <td className={`${tdCls} whitespace-nowrap`}>
-                      <span className="text-fg-2">{k.expiresAt ? fmtDate(k.expiresAt) : '永久'}</span>
+                      <span className="text-fg-2">{k.expiresAt ? fmtDate(k.expiresAt) : t('keys.forever')}</span>
                     </td>
                     <td className={`${tdCls} whitespace-nowrap`}>
                       <span className="text-fg-3">{k.lastUsedAt ? relativeTime(k.lastUsedAt, t) : '—'}</span>
                     </td>
                     <td className={`${tdCls} whitespace-nowrap`}>
                       <Badge tone={st.tone} dot>
-                        {st.label}
+                        {t(`keys.status.${st.key}`)}
                       </Badge>
                     </td>
                     <td className={`${tdCls} whitespace-nowrap text-right`}>
@@ -203,8 +203,8 @@ export function KeysPanel() {
                         {/* 项目白名单只能在 key 归属当前公司时编辑（项目列表来自当前公司 bootstrap） */}
                         {k.companyId === currentCompany?.id && projects.length > 0 && (
                           <button
-                            title="编辑项目白名单"
-                            aria-label="编辑项目白名单"
+                            title={t('keys.editWhitelist')}
+                            aria-label={t('keys.editWhitelist')}
                             className="grid h-7 w-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-2 hover:text-fg-1"
                             onClick={() => setEditingProjects(k)}
                           >
@@ -212,8 +212,8 @@ export function KeysPanel() {
                           </button>
                         )}
                         <button
-                          title="改所属人"
-                          aria-label="改所属人"
+                          title={t('keys.changeOwner')}
+                          aria-label={t('keys.changeOwner')}
                           className="grid h-7 w-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-2 hover:text-fg-1"
                           onClick={() => setEditing(k)}
                         >
@@ -221,15 +221,15 @@ export function KeysPanel() {
                         </button>
                         {!k.revokedAt && (
                           <PopoverConfirm
-                            title={`吊销「${k.name}」?`}
-                            body="吊销后使用该令牌的调用将立即失效。"
-                            confirmLabel="吊销"
+                            title={t('keys.revokeTitle', { name: k.name })}
+                            body={t('keys.revokeBody')}
+                            confirmLabel={t('keys.revoke')}
                             busy={revoke.isPending}
                             onConfirm={() => revoke.mutate(k.id)}
                             trigger={
                               <button
-                                title="吊销"
-                                aria-label="吊销"
+                                title={t('keys.revoke')}
+                                aria-label={t('keys.revoke')}
                                 className="grid h-7 w-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-danger-50 hover:text-danger"
                               >
                                 <Ban size={14} />
@@ -238,15 +238,15 @@ export function KeysPanel() {
                           />
                         )}
                         <PopoverConfirm
-                          title={`删除「${k.name}」?`}
-                          body="删除后该令牌立即失效且不可恢复,列表中也不再保留记录。"
-                          confirmLabel="删除"
+                          title={t('keys.deleteTitle', { name: k.name })}
+                          body={t('keys.deleteBody')}
+                          confirmLabel={t('keys.delete')}
                           busy={remove.isPending}
                           onConfirm={() => remove.mutate(k.id)}
                           trigger={
                             <button
-                              title="删除"
-                              aria-label="删除"
+                              title={t('keys.delete')}
+                              aria-label={t('keys.delete')}
                               className="grid h-7 w-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-danger-50 hover:text-danger"
                             >
                               <Trash2 size={14} />
@@ -266,11 +266,11 @@ export function KeysPanel() {
         <div className="mx-6 my-5 max-w-[860px] rounded-[14px] border border-border bg-surface px-5 py-4 shadow-1">
           <div className="mb-3 flex items-center gap-2">
             <BookOpen size={15} className="text-fg-3" />
-            <h2 className="text-[14.5px] font-semibold text-fg-1">接入指引</h2>
+            <h2 className="text-[14.5px] font-semibold text-fg-1">{t('keys.guide')}</h2>
           </div>
           <div className="flex flex-col gap-3.5">
             <div>
-              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-fg-3">MCP 端点</div>
+              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-fg-3">{t('keys.endpoint')}</div>
               <CodeBox text={endpoint}>{endpoint}</CodeBox>
             </div>
             <div>
@@ -284,8 +284,7 @@ export function KeysPanel() {
               <CodeBox text={cursorConfig}>{cursorConfig}</CodeBox>
             </div>
             <p className="text-[12.5px] leading-relaxed text-fg-3">
-              工具清单与工作流详见平台文档 docs/MCP.md。令牌即以该 Key 的能力与范围调用
-              MCP,请勿写入代码仓库或明文分享;泄露请立即吊销。
+              {t('keys.guideNote')}
             </p>
           </div>
         </div>
@@ -302,6 +301,7 @@ export function KeysPanel() {
 /* 编辑令牌的项目白名单：全部选中保存为 null（不限制，与存量令牌一致），
    至少选一个。项目列表来自当前公司 bootstrap。 */
 function EditProjectsModal({ k, onClose }: { k: McpKey; onClose: () => void }) {
+  const t = useT();
   const { projects } = useAppData();
   const update = useUpdateMcpKey();
   const [sel, setSel] = React.useState<string[]>(
@@ -322,7 +322,7 @@ function EditProjectsModal({ k, onClose }: { k: McpKey; onClose: () => void }) {
       });
       onClose();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '保存失败,请重试');
+      setError(e instanceof ApiError ? e.message : t('platform.common.saveFailed'));
     }
   };
 
@@ -330,20 +330,20 @@ function EditProjectsModal({ k, onClose }: { k: McpKey; onClose: () => void }) {
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent aria-describedby={undefined} className="w-[min(420px,92vw)]">
         <DialogPrimitive.Title className="px-[18px] pb-1 pt-4 text-[15px] font-semibold text-fg-1">
-          项目白名单「{k.name}」
+          {t('keys.whitelistTitle', { name: k.name })}
         </DialogPrimitive.Title>
         <div className="flex flex-col gap-3 px-[18px] py-3">
-          <div className="text-[12px] text-fg-3">Agent 只能访问选中项目内的实体(全部选中 = 不限制)</div>
+          <div className="text-[12px] text-fg-3">{t('keys.whitelistHint')}</div>
           <ProjectCheckList projects={projects} selected={sel} onToggle={toggle} maxH="max-h-64" />
           {error && <div className="rounded-lg bg-danger-50 px-3 py-2 text-[12.5px] text-danger">{error}</div>}
         </div>
         <div className="flex items-center gap-2 border-t border-border px-[18px] py-3">
           <div className="flex-1" />
           <Button variant="ghost" size="md" onClick={onClose}>
-            取消
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" size="md" onClick={submit} disabled={sel.length === 0 || update.isPending}>
-            保存
+            {t('common.save')}
           </Button>
         </div>
       </DialogContent>
@@ -362,6 +362,7 @@ function EditOwnerModal({
   platformAdmin: boolean;
   onClose: () => void;
 }) {
+  const t = useT();
   const update = useUpdateMcpKey();
   const [ownerId, setOwnerId] = React.useState(k.ownerId ?? '');
   const [error, setError] = React.useState<string | null>(null);
@@ -373,7 +374,7 @@ function EditOwnerModal({
       await update.mutateAsync({ id: k.id, ownerId });
       onClose();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '保存失败,请重试');
+      setError(e instanceof ApiError ? e.message : t('platform.common.saveFailed'));
     }
   };
 
@@ -381,14 +382,14 @@ function EditOwnerModal({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent aria-describedby={undefined} className="w-[min(420px,92vw)]">
         <DialogPrimitive.Title className="px-[18px] pb-1 pt-4 text-[15px] font-semibold text-fg-1">
-          修改所属人「{k.name}」
+          {t('keys.ownerTitle', { name: k.name })}
         </DialogPrimitive.Title>
         <div className="flex flex-col gap-3 px-[18px] py-3">
           <div>
-            <span className={fieldLabel}>所属人(Agent 以此身份操作)</span>
+            <span className={fieldLabel}>{t('keys.ownerLabel')}</span>
             <select className={inputCls} value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
               {!options.some((o) => o.id === ownerId) && (
-                <option value={ownerId}>{k.ownerName ?? '当前所属人'}</option>
+                <option value={ownerId}>{k.ownerName ?? t('keys.currentOwner')}</option>
               )}
               {options.map((o) => (
                 <option key={o.id} value={o.id}>
@@ -402,10 +403,10 @@ function EditOwnerModal({
         <div className="flex items-center gap-2 border-t border-border px-[18px] py-3">
           <div className="flex-1" />
           <Button variant="ghost" size="md" onClick={onClose}>
-            取消
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" size="md" onClick={submit} disabled={!ownerId || update.isPending}>
-            保存
+            {t('common.save')}
           </Button>
         </div>
       </DialogContent>

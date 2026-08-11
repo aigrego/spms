@@ -158,7 +158,7 @@ function NewRequirementModal({
       onCreated(req.id);
     } catch (e) {
       // Surface the failure instead of the click looking like a no-op.
-      setError(e instanceof ApiError ? e.message : '创建失败，请重试');
+      setError(e instanceof ApiError ? e.message : t('common.createFailed'));
     }
   };
 
@@ -374,7 +374,7 @@ function DecomposeDialog({
       const issues = await decompose.mutateAsync(req.id);
       setCreatedKeys(issues.map((i) => i.id));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '拆分失败，请重试');
+      setError(e instanceof ApiError ? e.message : t('requirements.decomposeFailed'));
     }
   };
 

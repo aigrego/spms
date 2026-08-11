@@ -1,10 +1,12 @@
 import * as React from 'react';
+import { useT } from '@/lib/i18n';
 
 /* 登录页左侧宣传插画：抽象的产品界面（看板 + 路线图 + 进度）线稿。
    纯 SVG、无依赖，配色跟随品牌蓝，在深色面板上以白色半透明描边呈现。 */
 export function LoginArtwork({ className }: { className?: string }) {
+  const t = useT();
   return (
-    <svg viewBox="0 0 520 400" fill="none" className={className} role="img" aria-label="产品插画">
+    <svg viewBox="0 0 520 400" fill="none" className={className} role="img" aria-label={t('login.artwork')}>
       {/* 背景装饰圆 */}
       <circle cx="430" cy="60" r="90" stroke="white" strokeOpacity="0.12" strokeWidth="1.5" />
       <circle cx="430" cy="60" r="58" stroke="white" strokeOpacity="0.18" strokeWidth="1.5" strokeDasharray="4 6" />
