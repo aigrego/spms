@@ -75,6 +75,12 @@ export const issueArchiveSchema = z.object({
   archived: z.boolean().optional(),
 });
 
+/* ---- labels ---- */
+export const labelCreateSchema = z.object({
+  name: z.string().trim().min(1, '标签名称不能为空').max(50),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, '颜色需为 #RRGGBB 格式'),
+});
+
 /* ---- requirements ---- */
 export const requirementCreateSchema = z.object({
   projectId: z.string().min(1),

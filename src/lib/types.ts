@@ -55,6 +55,9 @@ export interface Member {
   initials: string;
   color: string | null;
   role: string | null;
+  // TKT-31: 在本公司的角色岗位（company_memberships.role，如 'developer' /
+  // 'tester'）；无席位（外部邀请未认领）或 agent 为 null。负责人选择器展示用。
+  companyRole?: string | null;
   // PLAN-5: humans project a portal user; agents carry a stable key.
   portalUserId?: string | null;
   agentKey?: string | null;

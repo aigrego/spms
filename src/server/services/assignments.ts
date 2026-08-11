@@ -2,7 +2,7 @@ import { and, asc, eq, ne } from 'drizzle-orm';
 import { db } from '@/db';
 import { resourceAssignments, members, issues, products, projects } from '@/db/schema';
 import { ApiException, type ErrorCode } from '@/lib/envelope';
-import { serializeMember } from './resources';
+import { serializeMember, companyRolesFor, withCompanyRole } from './resources';
 import {
   assignMember,
   unassignMember,
@@ -87,11 +87,13 @@ export async function candidates(actor: Actor, nodeType: AssignmentNodeType, nod
     .where(and(eq(members.companyId, companyId), ne(members.status, 'revoked')))
     .orderBy(asc(members.type), asc(members.name));
 
+  // TKT-31: 候选人携带在本公司的角色岗位，供负责人选择器展示。
+  const companyRoleMap = await companyRolesFor(companyId);
   return {
     node: { nodeType, nodeId },
     hasParent: parents.length > 0,
     candidates: pool.map((m) => ({
-      ...serializeMember(m),
+      ...withCompanyRole(serializeMember(m), companyRoleMap),
       assignedHere: assignedIds.has(m.id),
       inParentPool: parentIds ? parentIds.has(m.id) : true,
     })),
@@ -125,11 +127,13 @@ export async function issueCandidates(actor: Actor, issueKey: string) {
   const poolIds = node ? await nodeMemberIds(companyId, node.nodeType, node.nodeId) : null;
   const list = pool.filter((m) => !poolIds || m.type === 'agent' || poolIds.has(m.id));
 
+  // TKT-31: 候选人携带在本公司的角色岗位，供负责人选择器展示。
+  const companyRoleMap = await companyRolesFor(companyId);
   return {
     // 'tenant' kept from the blueprint contract (frontend branches on it); in the
     // company sandbox it simply means "no node scope — the whole pool".
     source: node ? node.nodeType : 'tenant',
-    candidates: list.map(serializeMember),
+    candidates: list.map((m) => withCompanyRole(serializeMember(m), companyRoleMap)),
   };
 }
 

@@ -12,6 +12,7 @@ import { ProjectIcon } from '@/components/glyphs/misc';
 import { STATUS_ORDER, PRIORITY_ORDER, IMPORTANCE_ORDER, ISSUE_TYPE_ORDER } from '@/lib/constants';
 import { useAppData } from '@/store/AppData';
 import { useRequirements } from '@/store/requirements';
+import { useCreateLabel } from '@/store/issues';
 import { useT } from '@/lib/i18n';
 import type { IssueStatus, IssuePriority, Importance, IssueType, Member } from '@/lib/types';
 
@@ -319,6 +320,7 @@ export function ScopedAssigneeMenu({
               key={u.id}
               glyph={<Avatar person={u} size={20} />}
               label={u.name}
+              meta={u.companyRole ? t(`role.${u.companyRole}`) : undefined}
               selected={current === u.id}
               onClick={() => {
                 onPick(u.id);
@@ -352,8 +354,12 @@ export function ScopedAssigneeMenu({
   );
 }
 
+/* 现场创建标签的备选色板（BUG-17）。 */
+const LABEL_COLORS = ['#0063D3', '#FF6B02', '#1F9D55', '#E5484D', '#8E4EC6', '#E93D82', '#12A594', '#697177'];
+
 /* Multi-select label editor — toggles a tenant label on/off the issue. Stays open
-   while you toggle (does NOT call close), unlike the single-select menus. */
+   while you toggle (does NOT call close), unlike the single-select menus.
+   BUG-17: 底部内联创建自定义标签，创建成功即选中到当前 issue。 */
 export function LabelMenu({
   current,
   onToggle,
@@ -365,6 +371,20 @@ export function LabelMenu({
 }) {
   const t = useT();
   const { labels } = useAppData();
+  const createLabel = useCreateLabel();
+  const [draft, setDraft] = React.useState('');
+  const [color, setColor] = React.useState(LABEL_COLORS[0]);
+  const submit = () => {
+    const name = draft.trim();
+    if (!name || createLabel.isPending) return;
+    createLabel.mutate(
+      { name, color },
+      { onSuccess: (l) => {
+        setDraft('');
+        onToggle(l.id);
+      } },
+    );
+  };
   return (
     <InlinePopover trigger={trigger} width={220}>
       {() => (
@@ -382,6 +402,40 @@ export function LabelMenu({
               onClick={() => onToggle(l.id)}
             />
           ))}
+          <div className="mt-1 border-t border-border px-2.5 py-2">
+            <div className="mb-1.5 flex items-center gap-1.5">
+              {LABEL_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-label={c}
+                  onClick={() => setColor(c)}
+                  className="h-4 w-4 rounded-full transition-transform"
+                  style={{ background: c, boxShadow: c === color ? `0 0 0 2px var(--surface), 0 0 0 4px ${c}` : 'none' }}
+                />
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submit();
+                }}
+                placeholder={t('labels.namePh')}
+                className="h-7 min-w-0 flex-1 rounded-md border border-border-strong bg-surface px-2 text-[12.5px] text-fg-1 outline-none placeholder:text-fg-3 focus:border-brand-blue"
+              />
+              <button
+                type="button"
+                onClick={submit}
+                disabled={!draft.trim() || createLabel.isPending}
+                className="h-7 flex-none rounded-md bg-brand-blue px-2 text-[12px] font-medium text-white disabled:opacity-40"
+              >
+                {t('labels.create')}
+              </button>
+            </div>
+            {createLabel.isError && <div className="mt-1 text-[11.5px] text-danger">{t('common.createFailed')}</div>}
+          </div>
         </>
       )}
     </InlinePopover>
@@ -418,6 +472,7 @@ export function AssigneeMenu({
               key={u.id}
               glyph={<Avatar person={u} size={20} />}
               label={u.name}
+              meta={u.companyRole ? t(`role.${u.companyRole}`) : undefined}
               selected={current === u.id}
               onClick={() => {
                 onPick(u.id);

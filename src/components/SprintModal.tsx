@@ -32,8 +32,6 @@ export function useSprintDict() {
     status: t('sprintModal.status'),
     start: t('sprintModal.start'),
     end: t('sprintModal.end'),
-    capacity: t('sprintModal.capacity'),
-    capacityPh: t('sprintModal.capacityPh'),
     dateErr: t('sprintModal.dateErr'),
     submit: t('sprintModal.submit'),
     del: t('sprintModal.del'),
@@ -131,7 +129,6 @@ export function SprintModal({
   const [status, setStatus] = React.useState<SprintStatus>('planned');
   const [startDate, setStartDate] = React.useState('');
   const [endDate, setEndDate] = React.useState('');
-  const [capacity, setCapacity] = React.useState('');
   const [statusOpen, setStatusOpen] = React.useState(false);
   const [confirmDel, setConfirmDel] = React.useState(false);
 
@@ -144,7 +141,6 @@ export function SprintModal({
       // API 返回 ISO 时间戳,date input 需要 yyyy-MM-dd
       setStartDate(sprint?.startDate?.slice(0, 10) ?? '');
       setEndDate(sprint?.endDate?.slice(0, 10) ?? '');
-      setCapacity(sprint?.capacity != null ? String(sprint.capacity) : '');
       setStatusOpen(false);
       setConfirmDel(false);
     }
@@ -153,9 +149,7 @@ export function SprintModal({
   const toggleProject = (id: string) =>
     setProjectIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
   const dateErr = !!startDate && !!endDate && endDate < startDate;
-  const cap = capacity.trim() === '' ? null : Number(capacity);
-  const capValid = cap === null || (Number.isFinite(cap) && cap >= 0);
-  const valid = !!name.trim() && projectIds.length > 0 && !!startDate && !!endDate && !dateErr && capValid;
+  const valid = !!name.trim() && projectIds.length > 0 && !!startDate && !!endDate && !dateErr;
   const busy = create.isPending || update.isPending;
 
   const submit = async () => {
@@ -170,7 +164,6 @@ export function SprintModal({
           status,
           startDate,
           endDate,
-          capacity: cap,
         },
       });
       onOpenChange(false);
@@ -181,7 +174,6 @@ export function SprintModal({
         projectIds,
         startDate,
         endDate,
-        capacity: cap,
       });
       onOpenChange(false);
       onCreated?.(created.id);
@@ -306,17 +298,6 @@ export function SprintModal({
               </Field>
             </div>
             {dateErr && <div className="-mt-2 text-[12px] text-danger">{t('sprintModal.dateErr')}</div>}
-
-            <Field label={t('sprintModal.capacity')}>
-              <input
-                type="number"
-                min={0}
-                value={capacity}
-                onChange={(e) => setCapacity(e.target.value)}
-                placeholder={t('sprintModal.capacityPh')}
-                className={inputCls}
-              />
-            </Field>
           </div>
 
           <div className="flex items-center gap-2 border-t border-border px-[18px] py-3">

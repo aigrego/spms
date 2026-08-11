@@ -7,6 +7,7 @@ import type {
   IssuePriority,
   Importance,
   IssueType,
+  Label,
   Sprint,
   SprintDetail,
   Burndown,
@@ -284,6 +285,9 @@ export const api = {
 
   addComment: (id: string, body: string) =>
     request<{ id: string }>(`/issues/${id}/comments`, json('POST', { body })),
+
+  // BUG-17: 现场自定义标签（列表随 bootstrap 下发，无 list 接口）。
+  createLabel: (input: { name: string; color: string }) => request<Label>('/labels', json('POST', input)),
 
   registerAttachment: (issueKey: string, meta: AttachmentMeta) =>
     request<IssueAttachment>(`/issues/${issueKey}/attachments`, json('POST', meta)),

@@ -18,6 +18,7 @@ import { ensureAgents, ensureAiLabel } from '@/lib/identity';
 import { computeRollups } from '@/lib/rollup';
 import { permsForActor } from '@/lib/permissions';
 import { visibleSetsFor } from '@/lib/visibility';
+import { companyRolesFor, withCompanyRole } from './resources';
 import type { Actor } from './types';
 
 /* Reference data for app start-up. Ported from
@@ -55,6 +56,10 @@ export async function bootstrap(actor: Actor) {
   // PMS-2 §4: project/release progress is DERIVED from issue completion, not the
   // stored column. Override the returned `progress` so the UI shows the truth.
   const { projectProgress, releaseProgress } = await computeRollups(companyId);
+
+  // TKT-31: 成员在本公司的角色岗位（席位 role），随 bootstrap 下发，
+  // 负责人选择器等展示。
+  const companyRoleMap = await companyRolesFor(companyId);
 
   // 可见性(visibility.ts):普通成员只看到「自己有 direct 指派」的节点——project
   // 可见其下 sprint、sprint 上溯 project;祖先(product/release)direct 不下放给
@@ -122,7 +127,7 @@ export async function bootstrap(actor: Actor) {
     companies: companyRows,
     currentCompany,
     permissions: await permsForActor(actor),
-    members: memberRows,
+    members: memberRows.map((m) => withCompanyRole(m, companyRoleMap)),
     teams: teamRows,
     labels: labelRows,
     projects: visProjects.map((p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 })),

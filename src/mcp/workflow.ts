@@ -1,6 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
-import { members } from '@/db/schema';
+import { companyMemberships, members, resourceAssignments } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import * as issueSvc from '@/server/services/issues';
 import * as requirementSvc from '@/server/services/requirements';
@@ -15,13 +15,41 @@ import type { Actor } from '@/server/services/types';
       （工单审查是否已实现，BUG 审查是否可复现）；
    2) 审查通过 → issue 自动置 in_progress（需求置 in_dev）；
    3) 开发完成（update_issue 传 status='done' 或审查结论 already_done）→
-      自动置 testing 并指派测试人员。 */
+      自动置 testing 并指派测试人员（优先当前项目的测试人员，回退 AI 测试员工）。 */
 
 export type ReviewVerdict = 'passed' | 'failed' | 'already_done';
 
-/* 当前公司的测试人员：type='agent'、role='test'、status='active' 的第一个成员
-   （内置即 Sentry）。找不到返回 null —— 不阻塞流程，由调用方在结果中说明。 */
-export async function findTester(companyId: string) {
+/* 默认测试人员查找（BUG-15），按优先级：
+   1) 当前项目的测试人员 —— 项目资源池（resourceAssignments）中、本公司席位角色
+      为 tester 的 active 人类成员（assignment lead 优先，再按姓名）；
+   2) 项目没有测试人员（或 issue 不属于任何项目）→ 回退 AI 测试员工：
+      type='agent'、role='test'、status='active' 的第一个成员（内置即 Sentry）。
+   都找不到返回 null —— 不阻塞流程，由调用方在结果中说明。 */
+export async function findTester(companyId: string, projectId?: string | null) {
+  if (projectId) {
+    const [human] = await db
+      .select({ id: members.id, name: members.name })
+      .from(resourceAssignments)
+      .innerJoin(members, and(eq(members.companyId, companyId), eq(members.id, resourceAssignments.memberId)))
+      .innerJoin(
+        companyMemberships,
+        and(eq(companyMemberships.companyId, companyId), eq(companyMemberships.userId, members.userId)),
+      )
+      .where(
+        and(
+          eq(resourceAssignments.companyId, companyId),
+          eq(resourceAssignments.nodeType, 'project'),
+          eq(resourceAssignments.nodeId, projectId),
+          eq(members.type, 'human'),
+          eq(members.status, 'active'),
+          eq(companyMemberships.role, 'tester'),
+        ),
+      )
+      // assignment_role 枚举升序即 'lead' 排在 'member' 前。
+      .orderBy(asc(resourceAssignments.role), asc(members.name))
+      .limit(1);
+    if (human) return human;
+  }
   const [m] = await db
     .select({ id: members.id, name: members.name })
     .from(members)
@@ -40,7 +68,8 @@ export async function findTester(companyId: string) {
    - 其余入参原样透传。 */
 export async function updateIssueWithWorkflow(actor: Actor, key: string, input: issueSvc.UpdateIssueInput) {
   if (input.status === 'done') {
-    const tester = input.assigneeId === undefined ? await findTester(actor.companyId) : null;
+    const current = input.assigneeId === undefined ? await issueSvc.getIssue(actor, key) : null;
+    const tester = input.assigneeId === undefined ? await findTester(actor.companyId, current?.projectId) : null;
     const issue = await issueSvc.updateIssue(actor, key, {
       ...input,
       status: 'testing',
@@ -52,13 +81,14 @@ export async function updateIssueWithWorkflow(actor: Actor, key: string, input: 
       tester
         ? `已完成开发，自动流转待测试（testing）并指派测试人员 ${tester.name}。`
         : input.assigneeId === undefined
-          ? '已完成开发，自动流转待测试（testing）；未找到可用的测试人员（agent 成员中 role=test），请手动指派。'
+          ? '已完成开发，自动流转待测试（testing）；未找到可用的测试人员（项目测试成员或 agent 成员中 role=test），请手动指派。'
           : '已完成开发，自动流转待测试（testing）。',
     );
     return issue;
   }
   if (input.status === 'testing' && input.assigneeId === undefined) {
-    const tester = await findTester(actor.companyId);
+    const current = await issueSvc.getIssue(actor, key);
+    const tester = await findTester(actor.companyId, current?.projectId);
     if (tester) return issueSvc.updateIssue(actor, key, { ...input, assigneeId: tester.id });
   }
   return issueSvc.updateIssue(actor, key, input);
@@ -113,14 +143,14 @@ async function reviewIssue(actor: Actor, key: string, verdict: ReviewVerdict, no
   }
 
   // already_done（工单已实现 / 无需修改）→ 自动置 testing 并指派测试人员。
-  const tester = await findTester(actor.companyId);
+  const tester = await findTester(actor.companyId, before.projectId);
   const issue = await issueSvc.updateIssue(actor, key, {
     status: 'testing',
     ...(tester ? { assigneeId: tester.id } : {}),
   });
   const comment =
     `【功能审查】已实现/无需修改，自动流转待测试（testing）` +
-    (tester ? `并指派测试人员 ${tester.name}。` : '；未找到可用的测试人员（agent 成员中 role=test），请手动指派。') +
+    (tester ? `并指派测试人员 ${tester.name}。` : '；未找到可用的测试人员（项目测试成员或 agent 成员中 role=test），请手动指派。') +
     noteSuffix;
   await issueSvc.addComment(actor, key, comment);
   return {

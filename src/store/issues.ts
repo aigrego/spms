@@ -107,4 +107,13 @@ export function useDeleteAttachment() {
   });
 }
 
+/* BUG-17: 现场自定义标签。标签列表随 bootstrap 下发 → 只失效 bootstrap。 */
+export function useCreateLabel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; color: string }) => api.createLabel(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['bootstrap'] }),
+  });
+}
+
 export type { Api };

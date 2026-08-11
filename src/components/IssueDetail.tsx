@@ -32,6 +32,15 @@ function ActivityItem({ ev }: { ev: Activity }) {
   const who = memberById(ev.whoId);
   const isAI = ev.kind === 'ai';
   const isComment = ev.kind === 'comment';
+  // BUG-16: 状态/归档类动态的 body 落库时是中文模板 + 英文枚举（如
+  // "状态变更为 in_progress"），渲染时按当前语言重组；其余 body 原样展示。
+  let body = ev.body;
+  if (ev.kind === 'status') {
+    const m = body.match(/^状态变更为 (\S+)$/);
+    if (m) body = t('activity.statusChanged', { status: t(`status.${m[1]}`) });
+    else if (body === '归档了该 Issue') body = t('activity.archived');
+    else if (body === '取消了归档') body = t('activity.unarchived');
+  }
   return (
     <div className="flex gap-2.5 py-2">
       <div className="mt-px flex-none">
@@ -40,8 +49,8 @@ function ActivityItem({ ev }: { ev: Activity }) {
       <div className="min-w-0 flex-1">
         <div className="text-[12.5px] leading-normal text-fg-2">
           <span className="font-semibold text-fg-1">{who?.name ?? t('detail.system')}</span>{' '}
-          {!isComment && !isAI && ev.body}
-          {isAI && <span className="font-medium text-brand-orange"> {ev.body}</span>}
+          {!isComment && !isAI && body}
+          {isAI && <span className="font-medium text-brand-orange"> {body}</span>}
         </div>
         {isComment && (
           <Markdown

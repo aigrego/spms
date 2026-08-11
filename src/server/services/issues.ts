@@ -369,7 +369,15 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
     }
     patch.requirementId = reqId;
   }
-  if (input.sprintId !== undefined) patch.sprintId = input.sprintId;
+  if (input.sprintId !== undefined) {
+    patch.sprintId = input.sprintId;
+    // TKT-32: 与 moveIssue（界面拖拽 / MCP move_issue_to_sprint）口径一致——
+    // 经 updateIssue 把 issue 加入迭代（含 MCP spms_update_issue 传 sprintId）且
+    // 从未评估故事点时自动补 1 点；显式传 storyPoints 或移出迭代（null）不干预。
+    if (input.sprintId && input.storyPoints === undefined && existing.storyPoints == null) {
+      patch.storyPoints = 1;
+    }
+  }
   // §4.3 consistency: only re-validate when the update itself touches the
   // sprint/project link. Unrelated edits (status, title, …) must not be
   // blocked by a pre-existing mismatch (e.g. the sprint's projects were

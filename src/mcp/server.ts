@@ -608,7 +608,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         `功能审查（工作流入口）：处理任何 issue/需求前必须先调用本工具完成审查——工单审查是否已实现，BUG 审查是否可复现。` +
         `对 issue（TKT/BUG/BLG key）：verdict='passed'（工单未实现需开发 / BUG 可复现需修复）→ 状态自动置 in_progress；` +
         `verdict='already_done'（工单已实现 / 无需修改）→ 状态自动置 testing 并自动指派测试人员` +
-        `（agent 成员中 role='test' 者，内置为 Sentry；找不到则不指派并在返回中说明）；` +
+        `（优先当前项目资源池中公司角色为 tester 的成员；没有则回退 agent 成员中 role='test' 者，内置为 Sentry；都找不到则不指派并在返回中说明）；` +
         `verdict='failed'（BUG 不可复现等）→ 只写评论、状态不变，返回的 suggestion 给出后续建议。` +
         `对需求（FR/NFR key）：verdict='passed' → 状态自动置 in_dev；其余 verdict 状态不变（需求无评论能力，note 不落库）。` +
         `note 会写为 issue 评论。${CONCEPTS}`,
@@ -635,7 +635,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         `更新 Issue（按展示 key，如 BUG-3）：可改 status/priority/importance/title/description/assigneeId/projectId/` +
         `requirementId（展示 key）/sprintId/estimate/storyPoints/labels（全量替换）。只传要改的字段；显式传 null 可清空可空字段。` +
         `工作流自动化：status 传 'done' 会被拦截并实际落库为 'testing'（开发完成需测试验证，不直接关单），此时若未显式传 assigneeId ` +
-        `会自动指派测试人员（agent 成员中 role='test' 者，内置为 Sentry）并自动写一条说明评论；` +
+        `会自动指派测试人员（优先当前项目资源池中公司角色为 tester 的成员；没有则回退 agent 成员中 role='test' 者，内置为 Sentry）并自动写一条说明评论；` +
         `status 传 'testing' 且未传 assigneeId 时同样自动指派测试人员。处理 issue 前请先调用 spms_review_issue 完成功能审查。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,

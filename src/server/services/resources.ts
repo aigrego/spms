@@ -21,6 +21,21 @@ import type { Actor } from './types';
 
 type MemberRow = typeof members.$inferSelect;
 
+/* TKT-31: userId → 本公司角色岗位（company_memberships.role）映射。无席位
+   （外部邀请未认领）的成员不在映射中。负责人选择器等展示场景使用。 */
+export async function companyRolesFor(companyId: string) {
+  const rows = await db
+    .select({ userId: companyMemberships.userId, role: companyMemberships.role })
+    .from(companyMemberships)
+    .where(eq(companyMemberships.companyId, companyId));
+  return new Map(rows.map((r) => [r.userId, r.role]));
+}
+
+/* 成员行 → 携带 companyRole 的序列化结果（roleMap 由 companyRolesFor 提供）。 */
+export function withCompanyRole<T extends { userId: string | null }>(m: T, roleMap: Map<string, string>) {
+  return { ...m, companyRole: m.userId ? (roleMap.get(m.userId) ?? null) : null };
+}
+
 export function serializeMember(m: MemberRow) {
   return {
     id: m.id,
