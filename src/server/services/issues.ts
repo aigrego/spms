@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { issues, issueLabels, subIssues, activities, members, projects, requirements, sprints, sprintProjects } from '@/db/schema';
+import { issues, issueLabels, subIssues, activities, issueStatusTransitions, members, projects, requirements, sprints, sprintProjects } from '@/db/schema';
 import { serializeIssueList, serializeIssueDetail } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
@@ -430,6 +430,15 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
       whoId: actor.memberId,
       kind: 'status',
       body: `状态变更为 ${input.status}`,
+    });
+    // 结构化流转记录:团队总结的交付/验收/打回/周期时长统计都读这张表。
+    await db.insert(issueStatusTransitions).values({
+      id: crypto.randomUUID(),
+      companyId,
+      issueId: existing.id,
+      fromStatus: existing.status,
+      toStatus: input.status,
+      whoId: actor.memberId,
     });
   }
 

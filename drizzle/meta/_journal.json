@@ -155,6 +155,13 @@
       "when": 1786160302217,
       "tag": "0021_right_timeslip",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786434520909,
+      "tag": "0022_melted_paibok",
+      "breakpoints": true
     }
   ]
 }

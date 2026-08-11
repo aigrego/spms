@@ -8,6 +8,7 @@ import * as React from 'react';
 import { dict as platformDict } from './i18n/platform';
 import { dict as sprintReportsDict } from './i18n/sprint-reports';
 import { dict as miscDict } from './i18n/misc';
+import { dict as summaryDict } from './i18n/summary';
 
 export type Locale = 'zh-CN' | 'en' | 'zh-TW';
 
@@ -1919,9 +1920,9 @@ const zhTW: Dict = {
 /* TKT-27:按域拆分的补充词典(src/lib/i18n/*.ts)在主词典之后展开,
    新 key 均带域前缀,不与主词典冲突(有冲突时补充词典优先)。 */
 const DICTS: Record<Locale, Dict> = {
-  'zh-CN': { ...zhCN, ...platformDict['zh-CN'], ...sprintReportsDict['zh-CN'], ...miscDict['zh-CN'] },
-  en: { ...en, ...platformDict.en, ...sprintReportsDict.en, ...miscDict.en },
-  'zh-TW': { ...zhTW, ...platformDict['zh-TW'], ...sprintReportsDict['zh-TW'], ...miscDict['zh-TW'] },
+  'zh-CN': { ...zhCN, ...platformDict['zh-CN'], ...sprintReportsDict['zh-CN'], ...miscDict['zh-CN'], ...summaryDict['zh-CN'] },
+  en: { ...en, ...platformDict.en, ...sprintReportsDict.en, ...miscDict.en, ...summaryDict.en },
+  'zh-TW': { ...zhTW, ...platformDict['zh-TW'], ...sprintReportsDict['zh-TW'], ...miscDict['zh-TW'], ...summaryDict['zh-TW'] },
 };
 
 export type TFn = (key: string, params?: Record<string, string | number>) => string;

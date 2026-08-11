@@ -390,3 +390,76 @@ export interface ReportStats {
   trend: { date: string; count: number }[];
   unsubmitted: { id: string; name: string }[];
 }
+
+/* Team summary (团队总结) — 周期统计。日期均为客户端本地时区的日历日
+   'YYYY-MM-DD';时长为毫秒(null = 无样本)。prev 为上一同长周期的同口径值。 */
+export interface SummaryMetric {
+  value: number;
+  prev: number;
+}
+
+export interface SummaryDurationStat {
+  count: number;
+  avgMs: number | null;
+  p90Ms: number | null;
+  maxMs: number | null;
+  maxKey: string | null;
+}
+
+export interface SummaryBucket {
+  date: string; // 日粒度为日历日;周趋势为该周周一
+  reqCreated: number;
+  issueCreated: number;
+  delivered: number;
+  accepted: number;
+}
+
+export interface SummaryMemberRow {
+  memberId: string;
+  created: number;
+  delivered: number;
+  accepted: number;
+  avgDeliveryMs: number | null;
+  points: number;
+  wip: number;
+  pendingAcceptance: number;
+}
+
+export interface TeamSummary {
+  period: { start: string; end: string; prevStart: string; prevEnd: string };
+  // 最早一条结构化状态流转的时间(null = 还没有记录),供「更早周期只有创建曲线」提示。
+  flowSince: string | null;
+  cards: {
+    reqCreated: SummaryMetric;
+    issueCreated: SummaryMetric;
+    delivered: SummaryMetric;
+    accepted: SummaryMetric;
+    rejected: SummaryMetric;
+    reopened: SummaryMetric;
+    tcCreated: SummaryMetric;
+  };
+  // 每日 tab:截至所选日的最近 14 天;每周 tab:所选周周一至周日。
+  throughput: SummaryBucket[];
+  // 仅每周 tab 有值:截至所选周的最近 12 个自然周。
+  weeklyTrend: SummaryBucket[];
+  cycleTime: {
+    delivery: SummaryDurationStat; // 建单 → 首次转可测试
+    acceptance: SummaryDurationStat; // 首次可测试 → 首次验收完成
+    e2e: SummaryDurationStat; // 建单 → 首次验收完成
+  };
+  acceptanceBacklog: {
+    count: number;
+    avgWaitMs: number | null;
+    maxWaitMs: number | null;
+    maxKey: string | null;
+  };
+  flowHealth: {
+    issueStatus: Record<IssueStatus, number>;
+    requirementStatus: Record<RequirementStatus, number>;
+    wip: number;
+    overdue: number;
+    unassigned: number;
+    stalled: number;
+  };
+  members: SummaryMemberRow[];
+}

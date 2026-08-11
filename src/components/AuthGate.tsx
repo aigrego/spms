@@ -24,6 +24,8 @@ const PATH_MODULE: [string, ModuleKey][] = [
   ['/projects', 'projects'],
   ['/resources', 'resources'],
   ['/roadmap', 'roadmap'],
+  // 团队总结与日报共享 reports 模块权限门。
+  ['/summary', 'reports'],
   ['/backlog', 'backlog'],
   ['/sprints', 'sprints'],
   ['/reports', 'reports'],

@@ -17,6 +17,7 @@ import {
   Settings,
   KeyRound,
   Plug,
+  BarChart3,
 } from 'lucide-react';
 import { useAppData } from '@/store/AppData';
 import { useT } from '@/lib/i18n';
@@ -91,11 +92,13 @@ export function Sidebar({ myCount }: { myCount: number }) {
   const showProjects = can('projects', 'read');
   const showResources = can('resources', 'read');
   const showRoadmap = can('roadmap', 'read');
+  // 团队总结与日报共享 reports 模块权限门。
+  const showSummary = can('reports', 'read');
   const showBacklog = can('backlog', 'read');
   const showSprints = can('sprints', 'read');
 
   const showLifecycle = showProducts || showRequirements || showTestcases;
-  const showWorkspace = showProjects || showResources || showRoadmap;
+  const showWorkspace = showProjects || showResources || showRoadmap || showSummary;
   const showScrum = showBacklog || showSprints;
 
   return (
@@ -177,6 +180,14 @@ export function Sidebar({ myCount }: { myCount: number }) {
                   label={t('nav.roadmap')}
                   active={pathname.startsWith('/roadmap')}
                   href="/roadmap"
+                />
+              )}
+              {showSummary && (
+                <NavItem
+                  icon={<BarChart3 size={16} />}
+                  label={t('nav.summary')}
+                  active={pathname.startsWith('/summary')}
+                  href="/summary"
                 />
               )}
             </div>

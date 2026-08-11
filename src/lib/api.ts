@@ -38,6 +38,7 @@ import type {
   DailyReport,
   SaveMyReportInput,
   ReportStats,
+  TeamSummary,
 } from './types';
 import type { NotionStatusRule } from './notionStatusMap';
 import type { PermissionsMatrix } from './platformApi';
@@ -463,6 +464,14 @@ export const api = {
   saveMyReport: (input: SaveMyReportInput) => request<DailyReport>('/reports/mine', json('PUT', input)),
   deleteReport: (id: string) => request<{ id: string }>(`/reports/${id}`, { method: 'DELETE' }),
   reportStats: (today: string) => request<ReportStats>(`/reports/stats?today=${today}`),
+
+  /* ---- 团队总结 (team summary) ---- */
+  teamSummary: (params: { period: 'daily' | 'weekly'; date: string; tzMin: number; memberId?: string; projectId?: string }) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)]),
+    ).toString();
+    return request<TeamSummary>(`/summary?${q}`);
+  },
 };
 
 export type Api = typeof api;

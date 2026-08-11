@@ -654,6 +654,33 @@ export const activities = pgTable(
   (t) => [index('activities_issue_idx').on(t.issueId)],
 );
 
+/* Issue status transitions (状态流转) — structured record written next to the
+   kind='status' activity (single write point: updateIssue). The analytics
+   basis for 团队总结: 交付 = to 'testing', 验收 = to 'done', 打回/重开 and
+   cycle-time segments all read from here. fromStatus NULL = 起始状态未知
+   (recording started after the issue already had a status). */
+export const issueStatusTransitions = pgTable(
+  'issue_status_transitions',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    issueId: text('issue_id')
+      .references(() => issues.id, { onDelete: 'cascade' })
+      .notNull(),
+    fromStatus: issueStatusEnum('from_status'),
+    toStatus: issueStatusEnum('to_status').notNull(),
+    // The member who caused the transition; null for system/anonymous actors.
+    whoId: text('who_id').references(() => members.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('issue_status_transitions_company_time_idx').on(t.companyId, t.createdAt),
+    index('issue_status_transitions_issue_idx').on(t.issueId),
+  ],
+);
+
 /* ------------------------------------------------------------------ */
 /* Test cases (测试用例) — project-scoped, optionally validating a       */
 /* requirement. Addressed by display `key` ("TC-N"), mirroring the issue */

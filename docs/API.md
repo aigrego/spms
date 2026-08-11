@@ -6,7 +6,7 @@
 ## 权限门（RBAC）
 
 - 每个 service 入口按「路由 → 模块」映射做 `requirePerm(actor, module, read|write)`，不足 → **403 FORBIDDEN**（真实状态码）。
-- 模块映射：`/issues*`→issues · `/requirements*`→requirements · `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases · `/reports*`→reports。
+- 模块映射：`/issues*`→issues · `/requirements*`→requirements · `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases · `/reports*|/summary`→reports。
 - `company_admin` 与平台管理员恒过；`viewer` 类只读角色调写接口同样 403。
 - **项目创建/删除**额外要求 `company_admin` 或平台管理员（矩阵 projects=write 不够）。
 - bootstrap 无模块门（登录即可），返回里的 `permissions` 供前端过滤 UI。
@@ -154,6 +154,14 @@
 | GET | `/reports/stats?today=YYYY-MM-DD` | `{ totalReports, todayCount, memberCount, trend[7], unsubmitted[] }`；today 由客户端按本地时区给出（缺省回退服务器 UTC 日）；未提交名单只计 internal+active 的 human 成员，且仅对管理员返回（非管理员恒为空数组）；totalReports/todayCount/trend 对非管理员按行级可见性口径统计 |
 
 日期一律为 'YYYY-MM-DD' 日历日字符串（date 列），服务端不做时区换算。
+
+## Team Summary 团队总结（`/summary`，模块门复用 reports；read）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/summary?period=daily\|weekly&date=YYYY-MM-DD&tzMin&memberId&projectId` | 周期统计（TKT-33）：`period=weekly` 时 date 归一到所在自然周（周一至周日）；`tzMin` = 本地 − UTC 的分钟数（如 CST 480），用于把日历日换算成 UTC 边界；memberId/projectId 可选过滤 |
+
+口径：新建 = 实体 `createdAt` 落入周期；交付 = `issue_status_transitions` to `testing`；验收完成 = 流转 to `done` ∪ `completedAt` 兜底（Notion 同步只回写 completedAt），按 issue 去重；验收打回 = 从 `testing` 回 todo/in_progress/backlog；重开 = 从 `done` 离开。成员过滤对流量指标按行为人（流转/创建活动/作者 whoId），对存量指标（在办/待验收/积压/状态分布）按当前负责人。返回卡片（本期+上期值）、吞吐分桶（每日=14 天；每周=周 7 天 + 12 周趋势）、周期时长三段（建单→首次可测试 / 首次可测试→首次验收 / 端到端，avg/P90/max+maxKey）、验收积压、当前流动健康、按成员分列（全部 active 成员）。
 
 ## Integrations 集成（Notion，均需 issues=write）
 

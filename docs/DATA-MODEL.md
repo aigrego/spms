@@ -109,6 +109,9 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 ### activities（issue 动态/评论流）
 `id` PK · `issueId` NN → issues cascade · `whoId` → members · `kind` NN 默认 comment · `body` NN · `createdAt` NN
 
+### issue_status_transitions（issue 状态流转，TKT-33 团队总结的统计依据）
+`id` PK · `companyId` NN → companies cascade · `issueId` NN → issues cascade · `fromStatus`（NULL = 起始状态未知）· `toStatus` NN · `whoId` → members set null（行为人）· `createdAt` NN · 索引 `(companyId, createdAt)`、`(issueId)`。唯一写入点是 updateIssue（UI/REST/MCP 同路），与 kind='status' 的 activity 并列落库；迁移 0022 把历史 status 活动回放回填（旧值 `in_review` 映射为 `testing`，枚举外旧值丢弃）。Notion 同步直接改行、不写流转（验收侧由 `issues.completedAt` 兜底）。
+
 ### test_cases
 `id` PK · `key` unique NN（TC-N）· `projectId` NN → projects cascade · `requirementId` → requirements set null · `title` NN · `priority` NN 默认 none · `status` NN 默认 draft · `result` NN 默认 untested · `preconditions` / `steps` / `expected` · `authorId` / `assigneeId` → members set null · `position` NN 默认 0 · `createdAt` / `updatedAt` NN
 
