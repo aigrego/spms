@@ -83,7 +83,19 @@ function FilterMenu({
   );
 }
 
-function Card({ title, sub, badge, children }: { title: string; sub?: string; badge?: string; children: React.ReactNode }) {
+function Card({
+  title,
+  sub,
+  badge,
+  action,
+  children,
+}: {
+  title: string;
+  sub?: string;
+  badge?: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="rounded-lg border border-border bg-surface px-4 py-3.5">
       <div className="mb-3 flex items-baseline gap-2">
@@ -91,6 +103,7 @@ function Card({ title, sub, badge, children }: { title: string; sub?: string; ba
         {badge && (
           <span className="rounded-full bg-surface-2 px-2 py-px text-[11px] font-medium text-fg-3">{badge}</span>
         )}
+        {action && <div className="ml-auto self-center">{action}</div>}
       </div>
       {sub && <p className="-mt-2 mb-3 text-[12px] leading-relaxed text-fg-3">{sub}</p>}
       {children}
@@ -326,12 +339,13 @@ function DistBar<T extends string>({
 }
 
 /* ------------------------------------------------------------------ */
-/* 按成员表格(点击列头排序,默认交付降序)                               */
+/* 按成员表格(点击列头排序,默认交付降序;TKT-34:管理员不汇总,           */
+/* AI 员工默认隐藏,由卡片右上角「显示 AI 员工」开关控制)                 */
 /* ------------------------------------------------------------------ */
 
 type MemberSortKey = 'created' | 'delivered' | 'accepted' | 'avgDeliveryMs' | 'points' | 'wip' | 'pendingAcceptance';
 
-function MembersTable({ rows }: { rows: SummaryMemberRow[] }) {
+function MembersTable({ rows, showAi }: { rows: SummaryMemberRow[]; showAi: boolean }) {
   const t = useT();
   const { memberById, meId } = useAppData();
   const fmt = useFmtDuration();
@@ -348,15 +362,27 @@ function MembersTable({ rows }: { rows: SummaryMemberRow[] }) {
     { key: 'pendingAcceptance', label: t('summary.col.pending') },
   ];
 
+  // 管理员(席位角色 company_admin)一律不汇总;AI 员工仅开关打开时显示。
+  const visible = React.useMemo(
+    () =>
+      rows.filter((r) => {
+        const m = memberById(r.memberId);
+        if (m?.companyRole === 'company_admin') return false;
+        if (!showAi && m?.type === 'agent') return false;
+        return true;
+      }),
+    [rows, memberById, showAi],
+  );
+
   const sorted = React.useMemo(() => {
-    if (!sort.key) return rows;
+    if (!sort.key) return visible;
     const k = sort.key;
-    return [...rows].sort((a, b) => {
+    return [...visible].sort((a, b) => {
       const av = a[k] ?? -1;
       const bv = b[k] ?? -1;
       return sort.desc ? bv - av : av - bv;
     });
-  }, [rows, sort]);
+  }, [visible, sort]);
 
   const toggle = (key: MemberSortKey | null) => {
     if (!key) return;
@@ -428,6 +454,8 @@ export function SummaryView() {
   const [date, setDate] = React.useState(localToday);
   const [memberId, setMemberId] = React.useState<string | null>(null);
   const [projectId, setProjectId] = React.useState<string | null>(null);
+  // TKT-34: 按成员表默认不显示 AI 员工。
+  const [showAi, setShowAi] = React.useState(false);
   const tzMin = -new Date().getTimezoneOffset();
 
   const { data, isLoading } = useTeamSummary({ period, date, tzMin, memberId, projectId });
@@ -638,8 +666,21 @@ export function SummaryView() {
               </Card>
 
               {/* 按成员 */}
-              <Card title={t('summary.members.title')} sub={t('summary.members.sub')}>
-                <MembersTable rows={data.members} />
+              <Card
+                title={t('summary.members.title')}
+                sub={t('summary.members.sub')}
+                action={
+                  <button
+                    onClick={() => setShowAi((v) => !v)}
+                    className={`inline-flex h-7 items-center rounded-md border px-2 text-[12px] font-medium hover:bg-surface-2 ${
+                      showAi ? 'border-brand-blue bg-brand-blue/10 text-brand-blue' : 'border-border-strong bg-surface text-fg-2'
+                    }`}
+                  >
+                    {showAi ? t('summary.members.hideAi') : t('summary.members.showAi')}
+                  </button>
+                }
+              >
+                <MembersTable rows={data.members} showAi={showAi} />
               </Card>
             </>
           )}
