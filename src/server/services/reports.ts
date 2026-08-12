@@ -256,17 +256,19 @@ export async function upsertMyReport(
 
 /* ---- merge my report entries (合并提交:按 (reportId, productId) 逐条 upsert,
    未提交的产品条目保持不动;MCP spms_submit_report 走这里,避免多项目/token
-   分别上报时互相覆盖) ---- */
+   分别上报时互相覆盖。已存在的产品条目默认追加(mode='append')新内容而非覆盖,
+   仅当调用方显式传 mode='replace' 时才整体替换该条目内容) ---- */
 export interface MergeReportResult {
   report: ReportView;
   created: string[]; // 本次新建条目的 productId
-  updated: string[]; // 本次更新条目的 productId
+  updated: string[]; // 本次更新（追加/替换）条目的 productId
 }
 
 export async function mergeMyReportEntries(
   actor: Actor,
   date: string,
   input: ReportEntryInput[],
+  opts: { mode?: 'append' | 'replace' } = {},
 ): Promise<MergeReportResult> {
   await requirePerm(actor, 'reports', 'write');
   if (!actor.memberId) throw new ApiException('FORBIDDEN', '需要公司席位才能提交日报', 403);
@@ -327,20 +329,31 @@ export async function mergeMyReportEntries(
         .insert(dailyReports)
         .values({ id, companyId: actor.companyId, memberId: actor.memberId!, date });
     }
-    // 逐条 upsert:已存在的产品条目只更新 content(保留原 position);
-    // 新条目 position 取现有最大 position 起递增。未涉及的产品条目不动。
+    // 逐条 upsert:已存在的产品条目默认把新内容追加到原内容末尾(mode='append',
+    // 保留原 position),仅 mode='replace' 时整体替换;新条目 position 取现有最大
+    // position 起递增。未涉及的产品条目不动。
+    const mode = opts.mode ?? 'append';
     const existingEntries = await tx
-      .select({ id: dailyReportEntries.id, productId: dailyReportEntries.productId, position: dailyReportEntries.position })
+      .select({
+        id: dailyReportEntries.id,
+        productId: dailyReportEntries.productId,
+        content: dailyReportEntries.content,
+        position: dailyReportEntries.position,
+      })
       .from(dailyReportEntries)
       .where(eq(dailyReportEntries.reportId, id));
-    const entryIdByProduct = new Map(existingEntries.map((r) => [r.productId, r.id]));
+    const entryByProduct = new Map(existingEntries.map((r) => [r.productId, r]));
     let nextPosition = existingEntries.reduce((max, r) => Math.max(max, r.position), -1) + 1;
     const created: string[] = [];
     const updated: string[] = [];
     for (const e of entries) {
-      const entryId = entryIdByProduct.get(e.productId);
-      if (entryId) {
-        await tx.update(dailyReportEntries).set({ content: e.content }).where(eq(dailyReportEntries.id, entryId));
+      const existingEntry = entryByProduct.get(e.productId);
+      if (existingEntry) {
+        const content = mode === 'replace' ? e.content : `${existingEntry.content}\n${e.content}`;
+        if (content.length > MAX_CONTENT_LEN) {
+          throw new ApiException('VALIDATION_FAILED', `追加后单产品内容超过 ${MAX_CONTENT_LEN} 字上限`);
+        }
+        await tx.update(dailyReportEntries).set({ content }).where(eq(dailyReportEntries.id, existingEntry.id));
         updated.push(e.productId);
       } else {
         await tx.insert(dailyReportEntries).values({

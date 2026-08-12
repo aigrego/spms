@@ -911,10 +911,12 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
     {
       description:
         `按项目提交本人日报（合并式 upsert：服务端按 项目→版本→产品 推导日报归属产品；` +
-        `同日重复提交同一产品只更新该产品条目，不影响当日其他产品的条目，返回的 created/updated 标明各产品条目是新建还是更新）。` +
+        `同日重复提交同一产品时，默认把新内容追加到该产品已有条目末尾、不覆盖已有内容（除非调用方显式传 mode='replace'），` +
+        `不影响当日其他产品的条目，返回的 created/updated 标明各产品条目是新建还是更新）。` +
         `entries 的 project 接受项目 id 或项目名（精确匹配，spms_get_bootstrap 的 projects 可查）；` +
         `项目必须在令牌的项目白名单内（令牌未设白名单则不限）；项目需已关联版本，否则无法推导产品。` +
         `content 会规整为简单 Markdown（已是列表/标题/代码围栏的行保留，其余非空行转为 \`- \` 列表项），日报汇总视图按 Markdown 渲染。` +
+        `content 写作要求：只需把相关 issue 的标题或内容简化总结、说清楚做了什么即可，不要额外的铺垫、评价或展开描述。` +
         `典型场景：Agent 按 git 提交记录按项目汇总出条目后逐项目上报，多个项目/token 分别上报不会互相覆盖。` +
         `作者固定为令牌所属人（所属人无公司席位则报错），不接受任何 memberId 参数，不能代他人提交。${CONCEPTS}`,
       inputSchema: {
@@ -932,6 +934,10 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
           )
           .min(1)
           .describe('按项目拆分的日报条目（推导到同一产品的多个项目请先自行合并内容，一次提交内同一产品只能出现一次）'),
+        mode: z
+          .enum(['append', 'replace'])
+          .optional()
+          .describe("已存在同日同产品条目时的处理方式：append（默认）追加到已有内容末尾；replace 整体替换（仅用户明确要求覆盖时使用）"),
       },
     },
     async (args) =>
@@ -994,7 +1000,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
           // 上报内容规整为简单 Markdown（普通行 → `- ` 列表项），汇总视图按 Markdown 渲染。
           content: formatReportContent(r.content),
         }));
-        const { report, created, updated } = await reportSvc.mergeMyReportEntries(actor, args.date, entries);
+        const { report, created, updated } = await reportSvc.mergeMyReportEntries(actor, args.date, entries, { mode: args.mode });
         // created/updated 以产品 key/name 标注，便于调用方确认推导结果。
         const productIds = [...created, ...updated];
         const prodRows = productIds.length
