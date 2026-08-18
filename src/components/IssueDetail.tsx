@@ -135,6 +135,7 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
   // active @-mention: the query text + where the "@" sits in `value`
   const [mention, setMention] = React.useState<{ query: string; at: number } | null>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const humans = candidates.filter((m) => m.type === 'human');
   const matches = mention
@@ -171,15 +172,9 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
     });
   };
 
-  /* TKT-36:评论框获得焦点后接受文件粘贴 —— 直传 Blob,以 Markdown 图片/链接
-     插入草稿(先占位、传完替换、失败标注);stopPropagation 避免冒泡到面板级
-     onPaste 被当成 issue 附件。纯文本粘贴不拦截。 */
-  const onPasteFiles = (e: React.ClipboardEvent) => {
-    const files = Array.from(e.clipboardData?.files ?? []);
-    if (!files.length) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const caret = inputRef.current?.selectionStart ?? value.length;
+  /* TKT-36:评论附件上传(粘贴或回形针按钮,同一链路)—— 直传 Blob,以 Markdown
+     图片/链接插入草稿(先占位、传完替换、失败标注)。 */
+  const addFiles = (files: File[], caret: number) => {
     const items = files.map((file) => ({
       file,
       placeholder: `${isImageType(file.type) ? '!' : ''}[${file.name}（${t('detail.uploading')}）](uploading-${crypto.randomUUID()})`,
@@ -194,6 +189,16 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
         })
         .catch(() => setValue((v) => v.replace(it.placeholder, `（${it.file.name} ${t('detail.uploadFailed')}）`)));
     }
+  };
+
+  /* 粘贴上传(粘贴事件天然以聚焦为前提);stopPropagation 避免冒泡到面板级
+     onPaste 被当成 issue 附件。纯文本粘贴不拦截。 */
+  const onPasteFiles = (e: React.ClipboardEvent) => {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (!files.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    addFiles(files, inputRef.current?.selectionStart ?? value.length);
   };
 
   const submit = () => {
@@ -247,8 +252,31 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
             }
           }}
           placeholder={t('detail.commentPlaceholder')}
-          className="block max-h-[160px] min-h-[38px] w-full resize-none rounded-[9px] border border-border-strong bg-surface px-3 py-2 text-[13px] leading-normal text-fg-1 outline-none focus:border-brand-blue"
+          className="block max-h-[160px] min-h-[38px] w-full resize-none rounded-[9px] border border-border-strong bg-surface py-2 pl-3 pr-9 text-[13px] leading-normal text-fg-1 outline-none focus:border-brand-blue"
         />
+        {/* 附件上传按钮:与粘贴共用 addFiles 链路,文件以 Markdown 图片/链接进草稿。 */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={ATTACHMENT_ACCEPT}
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files?.length) {
+              addFiles(Array.from(e.target.files), inputRef.current?.selectionStart ?? value.length);
+            }
+            e.target.value = '';
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          title={t('issue.attachImage')}
+          aria-label={t('issue.attachImage')}
+          className="absolute right-1.5 top-[7px] grid h-6 w-6 place-items-center rounded-md text-fg-3 hover:bg-surface-2 hover:text-fg-1"
+        >
+          <Paperclip size={13} />
+        </button>
       </div>
     </div>
   );
