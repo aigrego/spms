@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronLeft, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2, Archive, ArchiveRestore, Pencil, Calendar } from 'lucide-react';
+import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronLeft, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2, Archive, ArchiveRestore, Pencil, Calendar, Copy } from 'lucide-react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -171,8 +171,34 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
     });
   };
 
+  /* TKT-36:评论框获得焦点后接受文件粘贴 —— 直传 Blob,以 Markdown 图片/链接
+     插入草稿(先占位、传完替换、失败标注);stopPropagation 避免冒泡到面板级
+     onPaste 被当成 issue 附件。纯文本粘贴不拦截。 */
+  const onPasteFiles = (e: React.ClipboardEvent) => {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (!files.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const caret = inputRef.current?.selectionStart ?? value.length;
+    const items = files.map((file) => ({
+      file,
+      placeholder: `${isImageType(file.type) ? '!' : ''}[${file.name}（${t('detail.uploading')}）](uploading-${crypto.randomUUID()})`,
+    }));
+    setValue((v) => `${v.slice(0, caret)}${items.map((it) => it.placeholder).join('\n')}${v.slice(caret)}`);
+    requestAnimationFrame(autoResize);
+    for (const it of items) {
+      uploadAttachment(it.file)
+        .then((meta) => {
+          const md = `${isImageType(meta.contentType) ? '!' : ''}[${meta.filename}](${meta.url})`;
+          setValue((v) => v.replace(it.placeholder, md));
+        })
+        .catch(() => setValue((v) => v.replace(it.placeholder, `（${it.file.name} ${t('detail.uploadFailed')}）`)));
+    }
+  };
+
   const submit = () => {
-    const text = value.trim();
+    // 未传完的占位符不带进评论正文。
+    const text = value.replace(/!?\[[^\]\n]*\]\(uploading-[^)\n]+\)\n?/g, '').trim();
     if (!text) return;
     onSubmit(text);
     setValue('');
@@ -209,6 +235,7 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
           rows={1}
           value={value}
           onChange={onChange}
+          onPaste={onPasteFiles}
           onKeyDown={(e) => {
             if (e.key === 'Escape' && mention) {
               e.stopPropagation();
@@ -259,6 +286,8 @@ export function IssueDetail({
   const { data: candData } = useIssueCandidates(id);
   const [tab, setTab] = React.useState<'activity' | 'comments'>('activity');
   const [copied, setCopied] = React.useState(false);
+  // TKT-37:复制编号按钮的独立反馈态(与复制链接分开)。
+  const [copiedId, setCopiedId] = React.useState(false);
   const [moreOpen, setMoreOpen] = React.useState(false);
   // 描述编辑草稿(TKT-25):按 issue id 记,翻页到别的 issue 自动退出编辑态。
   const [descEdit, setDescEdit] = React.useState<{ id: string; text: string } | null>(null);
@@ -344,9 +373,10 @@ export function IssueDetail({
     }
   };
 
-  // Paste an image anywhere in the panel to attach it (documents go through
-  // the file picker — the clipboard rarely carries them as files).
+  // TKT-36:内容区仅在描述编辑态接受粘贴上传(评论框聚焦后的粘贴由 CommentBox
+  // 自行处理并阻止冒泡);非编辑态用「添加附件」按钮,避免误粘贴污染附件列表。
   const onPaste = (e: React.ClipboardEvent) => {
+    if (!descEditing) return;
     const files = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
     if (files.length) {
       e.preventDefault();
@@ -360,12 +390,12 @@ export function IssueDetail({
     }
   };
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, setFlag: (v: boolean) => void) => {
     navigator.clipboard
       ?.writeText(text)
       .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
+        setFlag(true);
+        setTimeout(() => setFlag(false), 1500);
       })
       .catch(() => {});
   };
@@ -374,8 +404,8 @@ export function IssueDetail({
     typeof window === 'undefined'
       ? `/issues/${encodeURIComponent(issue.id)}`
       : `${window.location.origin}/issues/${encodeURIComponent(issue.id)}`;
-  const copyLink = () => copyToClipboard(shareUrl);
-  const copyId = () => copyToClipboard(issue.id);
+  const copyLink = () => copyToClipboard(shareUrl, setCopied);
+  const copyId = () => copyToClipboard(issue.id, setCopiedId);
 
   const aiSteps = isPRD
     ? [t('detail.aiPRD1'), t('detail.aiPRD2'), t('detail.aiPRD3')]
@@ -424,6 +454,10 @@ export function IssueDetail({
             </span>
           )}
           <div className="flex-1" />
+          {/* TKT-37:一键复制 issue 编号(原先藏在「更多」菜单里)。 */}
+          <Button variant="ghost" size="icon" aria-label={t('detail.copyId')} title={t('detail.copyId')} onClick={copyId}>
+            {copiedId ? <Check size={16} className="text-success" /> : <Copy size={16} />}
+          </Button>
           <Button variant="ghost" size="icon" aria-label={t('detail.copyLink')} title={t('detail.copyLink')} onClick={copyLink}>
             {copied ? <Check size={16} className="text-success" /> : <Link2 size={16} />}
           </Button>

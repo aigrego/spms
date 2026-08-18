@@ -4,12 +4,13 @@ import * as React from 'react';
 
 /* Minimal markdown renderer for issue descriptions and comments. Supports:
    fenced code blocks, inline code, bold, italic, strikethrough, links,
-   headings (#–####), unordered/ordered lists, and soft line breaks.
+   images (pasted comment attachments — TKT-36), headings (#–####),
+   unordered/ordered lists, and soft line breaks.
    Everything is emitted as React nodes (no innerHTML), so raw HTML in the
    source is inert by construction. */
 
 const INLINE_RE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(~~[^~\n]+~~)|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
+  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(~~[^~\n]+~~)|!\[([^\]\n]*)\]\((https?:\/\/[^\s)]+)\)|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
 
 function renderInline(text: string, depth = 0): React.ReactNode[] {
   if (depth > 3) return [text];
@@ -19,7 +20,7 @@ function renderInline(text: string, depth = 0): React.ReactNode[] {
   for (const m of text.matchAll(INLINE_RE)) {
     if (m.index > last) out.push(text.slice(last, m.index));
     const key = n++;
-    const [tok, code, bold, italic, strike, linkLabel, linkUrl] = m;
+    const [tok, code, bold, italic, strike, imgAlt, imgUrl, linkLabel, linkUrl] = m;
     if (code) {
       out.push(
         <code key={key} className="rounded bg-surface-sunken px-1 py-px font-mono text-[0.88em]">
@@ -36,6 +37,15 @@ function renderInline(text: string, depth = 0): React.ReactNode[] {
       out.push(<em key={key}>{renderInline(italic.slice(1, -1), depth + 1)}</em>);
     } else if (strike) {
       out.push(<s key={key}>{renderInline(strike.slice(2, -2), depth + 1)}</s>);
+    } else if (imgUrl) {
+      out.push(
+        <img
+          key={key}
+          src={imgUrl}
+          alt={imgAlt}
+          className="my-1 block max-h-56 max-w-full rounded-[8px] border border-border"
+        />,
+      );
     } else {
       out.push(
         <a key={key} href={linkUrl} target="_blank" rel="noreferrer" className="text-brand-blue hover:underline">
