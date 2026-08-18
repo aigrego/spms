@@ -15,6 +15,7 @@ import { InlineCreateRow, EditableTitle } from '@/components/inline';
 import { SegBtn } from '@/components/ui/segmented';
 import { STATUS_ORDER, PRIORITY_ORDER, IMPORTANCE_ORDER } from '@/lib/constants';
 import { usePersistentState } from '@/lib/prefs';
+import { useDragHighlight } from '@/lib/useDragHighlight';
 import { relativeTime } from '@/lib/time';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
@@ -149,7 +150,8 @@ function IssueCard({
   onUpdate,
   labelsFor,
   onDragStart,
-}: RowProps & { onDragStart: (e: React.DragEvent, id: string) => void }) {
+  onDragEnd,
+}: RowProps & { onDragStart: (e: React.DragEvent, id: string) => void; onDragEnd?: () => void }) {
   const t = useT();
   const { memberById } = useAppData();
   const assignee = memberById(issue.assigneeId);
@@ -159,6 +161,7 @@ function IssueCard({
     <div
       draggable
       onDragStart={(e) => onDragStart(e, issue.id)}
+      onDragEnd={onDragEnd}
       onClick={() => onOpen(issue.id)}
       className="mb-2 cursor-pointer rounded-[10px] border border-border bg-surface p-3 shadow-1 transition-shadow hover:shadow-2"
     >
@@ -290,7 +293,10 @@ export function IssuesView({
   const [typeFilter, setTypeFilter] = usePersistentState<TypeFilter>('issues.typeFilter', 'all', isTypeFilter);
   const [projectFilter, setProjectFilter] = usePersistentState<string>('issues.projectFilter', 'all', isProjectFilter);
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
-  const [dragOver, setDragOver] = React.useState<string | null>(null);
+  /* BUG-3：拖放高亮走计数器 hook（dragover 不再 setState），告别列内子元素
+     冒泡引起的 null↔key 震荡与整板重渲染。 */
+  const { overKey: dragOver, targetProps: dragTargetProps, reset: resetDragHighlight } =
+    useDragHighlight<string>();
   const [grpOpen, setGrpOpen] = React.useState(false);
   const [fltOpen, setFltOpen] = React.useState(false);
 
@@ -388,7 +394,7 @@ export function IssuesView({
                 : { assigneeId: key === '_none' ? null : key };
       onUpdate(dragId, patch);
     }
-    setDragOver(null);
+    resetDragHighlight();
   };
 
   return (
@@ -589,11 +595,7 @@ export function IssuesView({
               return (
                 <div
                   key={key}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setDragOver(key);
-                  }}
-                  onDragLeave={() => setDragOver((d) => (d === key ? null : d))}
+                  {...dragTargetProps(key)}
                   onDrop={(e) => onDrop(e, key)}
                   className="flex max-h-full w-[296px] flex-none flex-col rounded-xl p-1 transition-colors"
                   style={
@@ -625,6 +627,7 @@ export function IssuesView({
                         onUpdate={onUpdate}
                         labelsFor={labelsFor}
                         onDragStart={onDragStart}
+                        onDragEnd={resetDragHighlight}
                       />
                     ))}
                   </div>

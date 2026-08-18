@@ -15,6 +15,7 @@ import { ResourcePanelCompact } from '@/components/ResourcePanelCompact';
 import { Markdown } from '@/components/Markdown';
 import { SprintModal, ConfirmDeleteSprint, useSprintDict } from '@/components/SprintModal';
 import { SPRINT_STATUS } from '@/lib/constants';
+import { useDragHighlight } from '@/lib/useDragHighlight';
 import { useT } from '@/lib/i18n';
 import { ApiError } from '@/lib/api';
 import { useAppData } from '@/store/AppData';
@@ -60,11 +61,13 @@ function ScrumIssueRow({
   issue,
   onOpen,
   onDragStart,
+  onDragEnd,
   draggable,
 }: {
   issue: Issue;
   onOpen: (id: string) => void;
   onDragStart?: (e: React.DragEvent, id: string) => void;
+  onDragEnd?: () => void;
   draggable?: boolean;
 }) {
   const { memberById } = useAppData();
@@ -72,6 +75,7 @@ function ScrumIssueRow({
     <div
       draggable={draggable}
       onDragStart={(e) => onDragStart?.(e, issue.id)}
+      onDragEnd={onDragEnd}
       onClick={() => onOpen(issue.id)}
       className="group flex cursor-pointer items-center gap-2.5 rounded-lg border border-border bg-surface px-3 py-2 shadow-1 transition-shadow hover:shadow-2"
     >
@@ -207,7 +211,9 @@ export function BacklogView({
   const { data: backlog = [] } = useBacklog();
   const { data: sprints = [] } = useSprints();
   const move = useMoveIssueToSprint();
-  const [dragOver, setDragOver] = React.useState<string | null>(null);
+  // BUG-3：拖放高亮走计数器 hook，dragover 不再 setState（详见 useDragHighlight）。
+  const { overKey: dragOver, targetProps: dragTargetProps, reset: resetDragHighlight } =
+    useDragHighlight<string>();
 
   const backlogKeysJoin = backlog.map((i) => i.id).join(',');
   React.useEffect(() => {
@@ -222,7 +228,7 @@ export function BacklogView({
     e.preventDefault();
     const id = e.dataTransfer.getData('text/id');
     if (id) move.mutate({ sprintId, issueId: id });
-    setDragOver(null);
+    resetDragHighlight();
   };
 
   const backlogPoints = backlog.reduce((s, i) => s + (i.storyPoints ?? 0), 0);
@@ -239,7 +245,14 @@ export function BacklogView({
           <div className="px-6 py-2.5 text-[12px] text-fg-3">{t('scrum.dragHint')}</div>
           <div className="flex flex-col gap-2 overflow-y-auto px-6 pb-6">
             {backlog.map((i) => (
-              <ScrumIssueRow key={i.id} issue={i} onOpen={onOpen} onDragStart={onDragStart} draggable />
+              <ScrumIssueRow
+                key={i.id}
+                issue={i}
+                onOpen={onOpen}
+                onDragStart={onDragStart}
+                onDragEnd={resetDragHighlight}
+                draggable
+              />
             ))}
             {backlog.length === 0 && (
               <div className="grid h-32 place-items-center text-[13px] text-fg-3">{t('scrum.backlogEmpty')}</div>
@@ -253,11 +266,7 @@ export function BacklogView({
             return (
               <div
                 key={s.id}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOver(s.id);
-                }}
-                onDragLeave={() => setDragOver((d) => (d === s.id ? null : d))}
+                {...dragTargetProps(s.id)}
                 onDrop={onDrop(s.id)}
                 className="rounded-xl border border-border bg-surface p-3 transition-colors"
                 style={
