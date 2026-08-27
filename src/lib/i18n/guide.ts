@@ -1,7 +1,9 @@
 import type { Locale } from '@/lib/i18n';
 
 /* 生命周期指引(/guide,TKT-68)的长文案内容。长文案不走 t() 词典(见
-   i18n/plans.ts 注释),按 Locale 存结构化数据,页面组件直接渲染。 */
+   i18n/plans.ts 注释),按 Locale 存结构化数据,页面组件直接渲染。
+   文案必须与 SPMS 实际能力一致,不照搬竞品:提及的功能入口、状态流转、
+   MCP 工具名均以本系统实现为准。 */
 
 export interface GuideStep {
   letter: string; // 'a'–'i',时间轴上的圆圈字母
@@ -55,9 +57,10 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['agent', 'human'],
         owner: '产品负责人 / 执行 PM',
         body: [
-          '拆得出条目的进需求池，成为 FR / NFR；拆不出条目的七段（概述、背景、用户与场景、目标、非目标、约束与前提、开放问题）填进「项目 → 基本信息」。Agent 负责产出，写库前必须人工确认：创建接口不幂等，重复调用就会造出重复需求。',
+          'PRD 由 Agent 起草：拆得出条目的进需求池，成为 FR / NFR；项目的概述、目标、非目标填进「项目 → 基本信息」。写库前必须人工确认：创建接口不幂等，重复调用就会造出重复需求。',
+          'Agent 通过 MCP 接入 SPMS，令牌在「Agent 接入」页自助申请。',
         ],
-        codes: ['npx skills add XGENT-ai/skills --skill prd'],
+        codes: ['MCP: spms_create_requirement · spms_create_test_case'],
         link: { label: '打开需求池', href: '/requirements' },
       },
       {
@@ -66,7 +69,7 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['human'],
         owner: '产品负责人 / 执行 PM',
         body: [
-          '在需求详情点「拆解为工单」，一次批量建出 TKT 并指派到人，一次 1 到 20 条、key 连号。首个工单开工时，需求会自动转为开发中。',
+          '在需求详情点「拆解」，系统按验收标准逐行拆出 TKT（验收标准为空则按描述行），继承需求的项目、优先级与重要度并自动关联回需求，一次最多 20 条、key 连号。Agent 也可以直接调 spms_decompose_requirement 完成同样的拆解。',
         ],
         link: { label: '打开需求池', href: '/requirements' },
       },
@@ -86,8 +89,9 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['agent'],
         owner: 'AI Agent',
         body: [
-          '进入迭代的工单由 Agent 按复杂度评估故事点（1/2/3/5/8），拖入迭代时自动补齐，人工可随时覆盖。故事点只做容量参考，不做绩效依据。',
+          '工单拖入迭代时，未估点的条目默认记 1 点；需要更准的评估时，Agent 按复杂度写入故事点（1/2/3/5/8），人工可随时覆盖。故事点只做容量参考，不做绩效依据。',
         ],
+        codes: ['MCP: spms_update_issue (storyPoints) · spms_move_issue_to_sprint'],
       },
       {
         letter: 'g',
@@ -95,12 +99,9 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['agent'],
         owner: '开发人员 / 测试人员',
         body: [
-          '一份计划可以覆盖多条需求，一条需求也可以拆给多份计划，关联键是 FR / NFR key 而不是文件名。开发计划在「项目 → 开发计划」tab；测试用例要覆盖正常、边界、权限、并发四类。',
+          '在「项目 → 开发计划」tab 新建计划并关联 FR / NFR：一份计划可以覆盖多条需求，一条需求也可以拆给多份计划，关联键是 FR / NFR key 而不是文件名。Agent 通过 MCP 把计划内容写入并转「已生成」。测试用例要覆盖正常、边界、权限、并发四类。',
         ],
-        codes: [
-          'npx skills add XGENT-ai/skills --skill dev-plan',
-          'npx skills add XGENT-ai/skills --skill test-plan',
-        ],
+        codes: ['MCP: spms_create_plan → spms_update_plan', 'MCP: spms_create_test_case'],
         link: { label: '打开测试用例', href: '/testcases' },
       },
       {
@@ -119,7 +120,7 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['human'],
         owner: '需求作者与负责人',
         body: [
-          '需求名下的工单全部完成后，需求详情会出现「全部工单已完成 → 转已上线」的提示条。需求侧没有「已上线」之后的第二个终态：点这一下就是需求级验收。系统绝不自动改状态。',
+          '需求名下的工单全部完成后，由需求作者或负责人在需求详情手动把状态转为「已上线」。「已上线」是需求侧的终态：点这一下就是需求级验收，系统绝不自动改状态。',
         ],
         link: { label: '打开需求池', href: '/requirements' },
       },
@@ -160,9 +161,10 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['agent', 'human'],
         owner: 'Product Owner / Executing PM',
         body: [
-          'Whatever decomposes into items goes into the requirement pool as FRs / NFRs; the seven sections that do not decompose (overview, background, users & scenarios, goals, non-goals, constraints & assumptions, open questions) go into "Project → Basic info". The Agent produces the draft, but a human must confirm before anything is written: the create API is not idempotent — call it twice and you get duplicate requirements.',
+          'The Agent drafts the PRD: whatever decomposes into items goes into the requirement pool as FRs / NFRs; the project\u2019s summary, goals, and non-goals go into "Project → Basic info". A human must confirm before anything is written: the create API is not idempotent — call it twice and you get duplicate requirements.',
+          'Agents connect to SPMS over MCP; tokens are self-issued on the "Agent Access" page.',
         ],
-        codes: ['npx skills add XGENT-ai/skills --skill prd'],
+        codes: ['MCP: spms_create_requirement · spms_create_test_case'],
         link: { label: 'Open Requirement Pool', href: '/requirements' },
       },
       {
@@ -171,7 +173,7 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['human'],
         owner: 'Product Owner / Executing PM',
         body: [
-          'Click "Decompose into tickets" on the requirement detail to batch-create TKTs assigned to people — 1 to 20 at a time, with consecutive keys. When the first ticket starts, the requirement automatically moves to In Dev.',
+          'Click "Decompose" on the requirement detail and the system splits the acceptance criteria line by line into TKTs (falling back to description lines), inheriting the requirement\u2019s project, priority, and importance and linking back to it — up to 20 at a time, with consecutive keys. An Agent can do the same via spms_decompose_requirement.',
         ],
         link: { label: 'Open Requirement Pool', href: '/requirements' },
       },
@@ -191,8 +193,9 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['agent'],
         owner: 'AI Agent',
         body: [
-          'Tickets entering a sprint get story points (1/2/3/5/8) from the Agent based on complexity, filled in automatically when dragged into the sprint; humans can override at any time. Story points are a capacity reference, not a performance metric.',
+          'A ticket dragged into a sprint without an estimate gets 1 point by default; when a real estimate is needed, the Agent writes story points (1/2/3/5/8) based on complexity, and humans can override at any time. Story points are a capacity reference, not a performance metric.',
         ],
+        codes: ['MCP: spms_update_issue (storyPoints) · spms_move_issue_to_sprint'],
       },
       {
         letter: 'g',
@@ -200,12 +203,9 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['agent'],
         owner: 'Developer / Tester',
         body: [
-          'One plan can cover several requirements, and one requirement can be split across several plans — the link key is the FR / NFR key, not a file name. Dev plans live in the "Project → Dev Plans" tab. Test cases must cover four classes: happy path, boundary, permission, and concurrency.',
+          'Create a plan in the "Project → Dev Plans" tab and link FRs / NFRs: one plan can cover several requirements, and one requirement can be split across several plans — the link key is the FR / NFR key, not a file name. The Agent writes the plan content over MCP and marks it "Generated". Test cases must cover four classes: happy path, boundary, permission, and concurrency.',
         ],
-        codes: [
-          'npx skills add XGENT-ai/skills --skill dev-plan',
-          'npx skills add XGENT-ai/skills --skill test-plan',
-        ],
+        codes: ['MCP: spms_create_plan → spms_update_plan', 'MCP: spms_create_test_case'],
         link: { label: 'Open Test Cases', href: '/testcases' },
       },
       {
@@ -224,7 +224,7 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['human'],
         owner: 'Requirement author and owner',
         body: [
-          'When every ticket under a requirement is done, a banner "All tickets done → mark as shipped" appears on the requirement detail. There is no second terminal state after "Shipped": that one click IS the requirement-level acceptance. The system never changes status on its own.',
+          'When every ticket under a requirement is done, the requirement author or owner manually moves it to "Shipped" on the requirement detail. "Shipped" is the terminal state on the requirement side: that one click IS the requirement-level acceptance — the system never changes status on its own.',
         ],
         link: { label: 'Open Requirement Pool', href: '/requirements' },
       },
@@ -264,9 +264,10 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['agent', 'human'],
         owner: '產品負責人 / 執行 PM',
         body: [
-          '拆得出條目的進需求池，成為 FR / NFR；拆不出條目的七段（概述、背景、使用者與場景、目標、非目標、約束與前提、開放問題）填進「專案 → 基本資訊」。Agent 負責產出，寫庫前必須人工確認：建立介面不冪等，重複呼叫就會造出重複需求。',
+          'PRD 由 Agent 起草：拆得出條目的進需求池，成為 FR / NFR；專案的概述、目標、非目標填進「專案 → 基本資訊」。寫庫前必須人工確認：建立介面不冪等，重複呼叫就會造出重複需求。',
+          'Agent 透過 MCP 接入 SPMS，令牌在「Agent 接入」頁自助申請。',
         ],
-        codes: ['npx skills add XGENT-ai/skills --skill prd'],
+        codes: ['MCP: spms_create_requirement · spms_create_test_case'],
         link: { label: '打開需求池', href: '/requirements' },
       },
       {
@@ -275,7 +276,7 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['human'],
         owner: '產品負責人 / 執行 PM',
         body: [
-          '在需求詳情點「拆解為工單」，一次批次建出 TKT 並指派到人，一次 1 到 20 條、key 連號。首個工單開工時，需求會自動轉為開發中。',
+          '在需求詳情點「拆解」，系統按驗收標準逐行拆出 TKT（驗收標準為空則按描述行），繼承需求的專案、優先級與重要度並自動關聯回需求，一次最多 20 條、key 連號。Agent 也可以直接呼叫 spms_decompose_requirement 完成同樣的拆解。',
         ],
         link: { label: '打開需求池', href: '/requirements' },
       },
@@ -295,8 +296,9 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['agent'],
         owner: 'AI Agent',
         body: [
-          '進入迭代的工單由 Agent 按複雜度評估故事點（1/2/3/5/8），拖入迭代時自動補齊，人工可隨時覆蓋。故事點只做容量參考，不做績效依據。',
+          '工單拖入迭代時，未估點的條目預設記 1 點；需要更準的評估時，Agent 按複雜度寫入故事點（1/2/3/5/8），人工可隨時覆蓋。故事點只做容量參考，不做績效依據。',
         ],
+        codes: ['MCP: spms_update_issue (storyPoints) · spms_move_issue_to_sprint'],
       },
       {
         letter: 'g',
@@ -304,12 +306,9 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['agent'],
         owner: '開發人員 / 測試人員',
         body: [
-          '一份計劃可以覆蓋多條需求，一條需求也可以拆給多份計劃，關聯鍵是 FR / NFR key 而不是檔名。開發計劃在「專案 → 開發計劃」tab；測試用例要覆蓋正常、邊界、權限、並發四類。',
+          '在「專案 → 開發計劃」tab 新建計劃並關聯 FR / NFR：一份計劃可以覆蓋多條需求，一條需求也可以拆給多份計劃，關聯鍵是 FR / NFR key 而不是檔名。Agent 透過 MCP 把計劃內容寫入並轉「已生成」。測試用例要覆蓋正常、邊界、權限、並發四類。',
         ],
-        codes: [
-          'npx skills add XGENT-ai/skills --skill dev-plan',
-          'npx skills add XGENT-ai/skills --skill test-plan',
-        ],
+        codes: ['MCP: spms_create_plan → spms_update_plan', 'MCP: spms_create_test_case'],
         link: { label: '打開測試用例', href: '/testcases' },
       },
       {
@@ -328,7 +327,7 @@ export const GUIDE: Record<Locale, GuideContent> = {
         badges: ['human'],
         owner: '需求作者與負責人',
         body: [
-          '需求名下的工單全部完成後，需求詳情會出現「全部工單已完成 → 轉已上線」的提示條。需求側沒有「已上線」之後的第二個終態：點這一下就是需求級驗收。系統絕不自動改狀態。',
+          '需求名下的工單全部完成後，由需求作者或負責人在需求詳情手動把狀態轉為「已上線」。「已上線」是需求側的終態：點這一下就是需求級驗收，系統絕不自動改狀態。',
         ],
         link: { label: '打開需求池', href: '/requirements' },
       },
