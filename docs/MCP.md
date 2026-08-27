@@ -11,7 +11,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ### key 能力、有效期与使用记录
 
-- **能力上限**（`capabilities`，逗号分隔）：`read` = 11 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`）；`write` = 15 个写工具；`delete` 预留（当前无删除类工具）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
+- **能力上限**（`capabilities`，逗号分隔）：`read` = 13 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`）；`write` = 21 个写工具；`delete` 预留（当前无删除类工具）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
 - **有效期**（`expiresAt`，NULL = 永久）：到期后鉴权直接 401，无需吊销。
 - **最近使用**（`lastUsedAt`）：每次通过 MCP 鉴权时刷新（60s 节流），在令牌列表展示。
   2. **env 兜底**：未命中 DB 时回退到 env `MCP_API_KEY`（逗号分隔多个），一律视为**平台级** key（开发兼容）。
@@ -41,7 +41,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 ## 概念说明（写给 Agent 的工具描述要点）
 
 - **Issue 是统一工作项**：`type: 'bug'` = 缺陷，`'ticket'` = 工单/任务，`'backlog'` = 备忘
-- 所有实体用**展示 key** 引用：`BUG-3`、`TKT-7`、`FR-2`、`TC-1`、`PL-1`/`PD-1`/`RL-1`（内部 uuid 不暴露）
+- 所有实体用**展示 key** 引用：`BUG-3`、`TKT-7`、`FR-2`、`TC-1`、`PLAN-1`、`PL-1`/`PD-1`/`RL-1`（内部 uuid 不暴露）
 - 状态枚举：issue `backlog|todo|in_progress|testing|done|canceled`；需求 `draft|reviewing|approved|in_dev|shipped|rejected`
 - 优先级 `urgent|high|medium|low|none`（紧急度）与重要度 `critical|high|medium|low|none` 正交
 - 成员分 `human` 与 `agent`（atlas/forge/sentry/scribe 四个内置 AI），issue 可指派给 agent
@@ -49,7 +49,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## Tools
 
-共 **26 个**（读 11 + 写 15）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
+共 **34 个**（读 13 + 写 21）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
 
 ### 读
 
@@ -65,6 +65,8 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_list_sprints` | — | 迭代列表 |
 | `spms_get_sprint` | `id` | 迭代详情（含 committed/completed 点数统计） |
 | `spms_list_test_cases` | `project? requirement? status? result?` | 测试用例列表 |
+| `spms_list_plans` | `project?` | **新增**：开发计划列表（按创建时间倒序；requirements 为关联需求展示 key 数组） |
+| `spms_get_plan` | `key` | **新增**：开发计划详情（markdown 正文/模板/关联需求） |
 | `spms_list_members` | — | 成员列表（human/agent） |
 
 ### 写
@@ -78,13 +80,19 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_upload_issue_attachment` | `key, filename, data, contentType?` | 上传图片附件（data 为 base64；≤10MB，jpeg/png/gif/webp/avif）。配合 `spms_update_issue`（status='done'）实现"传图并关单" |
 | `spms_create_requirement` | `projectId, title, type?, category?, priority?, importance?, description?, acceptanceCriteria?, releaseId?` | 创建需求（自动分配 FR/NFR key） |
 | `spms_update_requirement` | `key, ...` | 更新需求 |
+| `spms_decompose_requirement` | `key` | **新增**：把需求拆解为工单（按验收标准逐行、空则回退 PRD 描述逐行；继承项目/紧急度/重要度，一次最多 20 条、key 连号） |
 | `spms_create_test_case` | `projectId, title, requirementId?, priority?, preconditions?, steps?, expected?` | 创建测试用例 |
 | `spms_update_test_case` | `key, ...` | 更新用例（含 result: passed/failed/blocked） |
 | `spms_move_issue_to_sprint` | `sprintId（或 '_backlog'）, issueKey, storyPoints?` | 移入/移出迭代 |
 | `spms_start_sprint` | `id` | 启动迭代（planned → active；迭代可跨多项目，任一项目已有进行中迭代即冲突） |
 | `spms_complete_sprint` | `id` | 完成迭代（active → completed；未完成 Issue 移回待办，返回 movedCount） |
 | `spms_create_project` | `name, releaseId?, leadId?, target?, description?` | 创建项目 |
+| `spms_update_project` | `id, name?, releaseId?, status?, leadId?, aiLeadId?, icon?, color?, target?, description?, summary?, goal?, nonGoals?` | **新增**：更新项目（releaseId 换绑版本即调整关联） |
+| `spms_create_plan` | `projectId, title, requirementIds?, templateMd?` | **新增**：创建开发计划（自动 PLAN-N key，初始 draft/待生成；requirementIds 传需求展示 key 数组）。Agent 生成内容后调 `spms_update_plan` 写入 content 并置 `generated` |
+| `spms_update_plan` | `key, title?, content?, templateMd?, status?, requirementIds?` | **新增**：更新开发计划（status：draft 待生成/generated 已生成；requirementIds 传了即全量替换关联）。「生成」= 写 content + 置 `generated` |
 | `spms_update_release` | `id, name?, description?, status?, phase?, targetDate?, progress?, position?` | 更新版本；`phase` 为产品生命周期段（concept→development→release→maintenance→retired），项目卡片生命周期进度条读它 |
+| `spms_create_product` | `productLineId, name, description?, icon?, color?, status?, leadId?, position?` | **新增**：创建产品（自动 PD-N key，productLineId 关联到产品线） |
+| `spms_update_product` | `id, productLineId?, name?, description?, icon?, color?, status?, leadId?, position?` | **新增**：更新产品（productLineId 换绑产品线即调整关联；status：active/maintenance/archived） |
 | `spms_submit_report` | `date, entries[{project, content}], mode?` | 按项目提交本人日报（合并式 upsert）：服务端按 项目→版本→产品 推导日报归属产品（项目需已关联版本），同日重复提交同一产品时默认把新内容**追加**到该产品已有条目末尾（`mode='replace'` 才整体替换）、不影响其他产品条目，返回 `created`/`updated` 标明各产品条目新建/更新。`project` 接受项目 id 或项目名（精确匹配），且必须在令牌的项目白名单内；一次调用内多个项目推导到同一产品需先自行合并内容。`content` 会规整为简单 Markdown（普通行自动转为 `- ` 列表项），日报汇总视图按 Markdown 渲染；内容只需把相关 issue 的标题/内容简化总结、说清楚即可，不要额外展开描述。作者固定为令牌所属人，不能代他人提交。典型场景：Agent 按 git 提交记录按项目汇总条目后逐项目上报，多项目/多令牌分别上报互不覆盖 |
 
 写工具与 REST API 复用同一套 `src/server/services/*`，业务规则一致（如 sprint-project 一致性校验、REQUIREMENT_NOT_FOUND 等错误码原样抛出）。

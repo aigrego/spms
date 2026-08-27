@@ -35,6 +35,8 @@ import type {
   TestCase,
   TestCaseStatus,
   TestResult,
+  Plan,
+  PlanStatus,
   DailyReport,
   SaveMyReportInput,
   ReportStats,
@@ -130,6 +132,21 @@ export interface CreateTestCaseInput {
 }
 
 export type UpdateTestCaseInput = Partial<CreateTestCaseInput>;
+
+export interface CreatePlanInput {
+  projectId: string;
+  title: string;
+  requirementIds?: string[]; // requirement display keys ("FR-N")
+  templateMd?: string;
+}
+
+export interface UpdatePlanInput {
+  title?: string;
+  content?: string;
+  templateMd?: string | null;
+  status?: PlanStatus;
+  requirementIds?: string[]; // full-replace semantics
+}
 
 export interface ProductInput {
   productLineId: string;
@@ -402,6 +419,18 @@ export const api = {
   updateTestCase: (id: string, input: UpdateTestCaseInput) =>
     request<TestCase>(`/test-cases/${id}`, json('PATCH', input)),
   deleteTestCase: (id: string) => request<{ id: string }>(`/test-cases/${id}`, { method: 'DELETE' }),
+
+  /* ---- 开发计划 (dev plans) ---- */
+  plans: (params?: { project?: string }) => {
+    const q = new URLSearchParams(
+      Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
+    ).toString();
+    return request<Plan[]>(`/plans${q ? `?${q}` : ''}`);
+  },
+  plan: (id: string) => request<Plan | null>(`/plans/${id}`),
+  createPlan: (input: CreatePlanInput) => request<Plan>('/plans', json('POST', input)),
+  updatePlan: (id: string, input: UpdatePlanInput) => request<Plan>(`/plans/${id}`, json('PATCH', input)),
+  deletePlan: (id: string) => request<{ id: string }>(`/plans/${id}`, { method: 'DELETE' }),
 
   /* ---- 研发资源池 (PMS-2 §5.1) ---- */
   resources: () => request<Member[]>('/resources'),

@@ -12,6 +12,7 @@ import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
 import * as issueSvc from '@/server/services/issues';
 import * as attachmentSvc from '@/server/services/attachments';
 import * as catalogSvc from '@/server/services/catalog';
+import * as planSvc from '@/server/services/plans';
 import * as projectSvc from '@/server/services/projects';
 import * as requirementSvc from '@/server/services/requirements';
 import * as reportSvc from '@/server/services/reports';
@@ -232,6 +233,9 @@ const testCaseStatus = z.enum(['draft', 'active', 'deprecated']);
 const testResult = z.enum(['untested', 'passed', 'failed', 'blocked']);
 const releaseStatus = z.enum(['planned', 'in_progress', 'released', 'deprecated']);
 const lifecyclePhase = z.enum(['concept', 'development', 'release', 'maintenance', 'retired']);
+const productStatus = z.enum(['active', 'maintenance', 'archived']);
+const projectStatus = z.enum(['backlog', 'planned', 'in_progress', 'completed']);
+const planStatus = z.enum(['draft', 'generated']);
 
 /* Company selector attached to every tool: only meaningful for platform-level
    keys; company-level keys and browser sessions ignore it. */
@@ -242,7 +246,7 @@ const companyIdParam = z
 
 const CONCEPTS = [
   '概念：Issue 是统一工作项，type=bug 即缺陷、ticket 即工单/任务、backlog 即备忘。',
-  '所有实体用展示 key 引用（BUG-3 / TKT-7 / FR-2 / NFR-1 / TC-1），内部 uuid 不暴露。',
+  '所有实体用展示 key 引用（BUG-3 / TKT-7 / FR-2 / NFR-1 / TC-1 / PLAN-1），内部 uuid 不暴露。',
   'issue 状态枚举：backlog|todo|in_progress|testing|done|canceled；需求状态：draft|reviewing|approved|in_dev|shipped|rejected。',
   'priority（紧急度）：urgent|high|medium|low|none；importance（重要度）：critical|high|medium|low|none，两者正交。',
   '成员（member）分 human 与 agent（atlas/forge/sentry/scribe 四个内置 AI），assigneeId 用 member id，issue 可指派给 agent。',
@@ -553,6 +557,42 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   );
 
   reg(
+    'spms_list_plans',
+    {
+      description:
+        `开发计划列表（按创建时间倒序），project 传项目 id（uuid）过滤。返回的 id 字段是展示 key（PLAN-N），` +
+        `requirements 为关联需求展示 key 数组（FR-N / NFR-N）；status：draft=待生成 / generated=已生成。${CONCEPTS}`,
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        companyId: companyIdParam,
+        project: z.string().optional().describe('项目 id（uuid）'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return planSvc.listPlans(actor, { project: args.project });
+      }),
+  );
+
+  reg(
+    'spms_get_plan',
+    {
+      description: `开发计划详情：markdown 正文 content / 模板 templateMd / 关联需求，按展示 key（如 PLAN-1）查询。${CONCEPTS}`,
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        companyId: companyIdParam,
+        key: z.string().describe("开发计划展示 key，如 'PLAN-1'"),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return found(await planSvc.getPlan(actor, args.key), 'PLAN_NOT_FOUND', `开发计划 ${args.key} 不存在`);
+      }),
+  );
+
+  reg(
     'spms_list_members',
     {
       description: `成员列表（human/agent，含 id、agentKey、状态）。assigneeId、leadId 等参数从这里取 member id。${CONCEPTS}`,
@@ -784,6 +824,25 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   );
 
   reg(
+    'spms_decompose_requirement',
+    {
+      description:
+        `把需求拆解为工单：按验收标准逐行（为空则回退 PRD 描述逐行）批量创建 TKT 并关联回该需求，` +
+        `继承需求的项目/紧急度/重要度，一次最多 20 条、key 连号；首个工单开工时需求自动转 in_dev。` +
+        `验收标准和描述均为空（没有可拆分内容）时报 VALIDATION_FAILED。返回创建的 issue 列表。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        key: z.string().describe("需求展示 key，如 'FR-2' 或 'NFR-1'"),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return requirementSvc.decomposeRequirement(actor, args.key);
+      }),
+  );
+
+  reg(
     'spms_create_test_case',
     {
       description: `创建测试用例（自动分配 TC-N key，初始 status=draft、result=untested）。requirementId 传需求展示 key（FR-N）。${CONCEPTS}`,
@@ -879,6 +938,86 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   );
 
   reg(
+    'spms_update_project',
+    {
+      description:
+        `更新项目（按 uuid id，spms_get_bootstrap / spms_list_projects 可查）：可改 name/releaseId（换绑版本即调整关联）/` +
+        `status/leadId/aiLeadId/icon/color/target/description/summary/goal/nonGoals。` +
+        `status：backlog|planned|in_progress|completed。只传要改的字段。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        id: z.string().describe('项目 id（uuid）'),
+        name: z.string().optional(),
+        releaseId: z.string().nullable().optional().describe('版本/Release id；null 解除关联'),
+        status: projectStatus.optional(),
+        leadId: z.string().nullable().optional().describe('负责人 member id'),
+        aiLeadId: z.string().nullable().optional().describe('AI 负责人 member id'),
+        icon: z.string().optional(),
+        color: z.string().optional(),
+        target: z.string().nullable().optional().describe('目标说明'),
+        description: z.string().nullable().optional().describe('项目描述'),
+        summary: z.string().nullable().optional().describe('基本信息-概述'),
+        goal: z.string().nullable().optional().describe('基本信息-目标'),
+        nonGoals: z.string().nullable().optional().describe('基本信息-非目标'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, id, ...input } = args;
+        return projectSvc.updateProject(actor, id, input);
+      }),
+  );
+
+  reg(
+    'spms_create_plan',
+    {
+      description:
+        `创建开发计划（自动分配 PLAN-N key，初始 status=draft 待生成、content 为空）。projectId 传项目 id（uuid）；` +
+        `requirementIds 传关联需求展示 key 数组（FR-N / NFR-N，未知 key 报 VALIDATION_FAILED）；templateMd 传 markdown 模板文本。` +
+        `典型用法：先建壳并关联需求，由 Agent 生成内容后调用 spms_update_plan 写入 content 并把 status 置为 'generated'。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        projectId: z.string().describe('项目 id（uuid，必填）'),
+        title: z.string().describe('计划标题（必填）'),
+        requirementIds: z.array(z.string()).max(50).optional().describe("关联需求展示 key 数组，如 ['FR-2', 'NFR-1']"),
+        templateMd: z.string().optional().describe('markdown 模板文本（Agent 生成时遵循其结构）'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, ...input } = args;
+        return planSvc.createPlan(actor, input);
+      }),
+  );
+
+  reg(
+    'spms_update_plan',
+    {
+      description:
+        `更新开发计划（按展示 key，如 PLAN-1）：可改 title/content（markdown 正文）/templateMd/status/requirementIds。` +
+        `status：draft=待生成 / generated=已生成；requirementIds 传了即全量替换关联（元素为需求展示 key）。` +
+        `Agent「生成」开发计划的标准动作：写入 content 并把 status 置为 'generated'。只传要改的字段。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        key: z.string().describe("开发计划展示 key，如 'PLAN-1'"),
+        title: z.string().optional(),
+        content: z.string().optional().describe('markdown 正文'),
+        templateMd: z.string().nullable().optional().describe('markdown 模板文本；null 清空'),
+        status: planStatus.optional().describe('draft=待生成 / generated=已生成'),
+        requirementIds: z.array(z.string()).max(50).optional().describe('关联需求展示 key 数组；传了即全量替换'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, key, ...input } = args;
+        return planSvc.updatePlan(actor, key, input);
+      }),
+  );
+
+  reg(
     'spms_update_release',
     {
       description:
@@ -903,6 +1042,59 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         const actor = await actorFor(args.companyId);
         const { companyId: _companyId, id, ...input } = args;
         return catalogSvc.updateRelease(actor, id, input);
+      }),
+  );
+
+  reg(
+    'spms_create_product',
+    {
+      description:
+        `创建产品（自动分配 PD-N key）。productLineId 传产品线 id（产品挂在产品线下，spms_get_bootstrap 的 productLines 可查）；` +
+        `leadId 传负责人 member id（spms_list_members 可查）。产品下的版本/Release 用 spms_update_release 维护。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        productLineId: z.string().describe('产品线 id（必填，产品关联到该产品线）'),
+        name: z.string().describe('产品名称（必填）'),
+        description: z.string().optional().describe('产品描述'),
+        icon: z.string().optional().describe("图标名，默认 'box'"),
+        color: z.string().optional().describe('颜色（#RRGGBB）'),
+        status: productStatus.optional().describe("默认 'active'"),
+        leadId: z.string().optional().describe('负责人 member id'),
+        position: z.number().optional(),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, ...input } = args;
+        return catalogSvc.createProduct(actor, input);
+      }),
+  );
+
+  reg(
+    'spms_update_product',
+    {
+      description:
+        `更新产品（按 uuid id，spms_get_bootstrap 的 products 可查）：可改 name/description/icon/color/status/leadId/position/` +
+        `productLineId（换绑产品线即调整关联）。status：active|maintenance|archived。只传要改的字段。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        id: z.string().describe('产品 id（uuid）'),
+        productLineId: z.string().optional().describe('换绑到的产品线 id'),
+        name: z.string().optional(),
+        description: z.string().nullable().optional(),
+        icon: z.string().optional(),
+        color: z.string().optional(),
+        status: productStatus.optional(),
+        leadId: z.string().nullable().optional().describe('负责人 member id'),
+        position: z.number().optional(),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const { companyId: _companyId, id, ...input } = args;
+        return catalogSvc.updateProduct(actor, id, input);
       }),
   );
 

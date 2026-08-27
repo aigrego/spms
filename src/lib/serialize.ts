@@ -156,8 +156,38 @@ export function serializeTestCase(row: {
   };
 }
 
-export function serializeAttachment(row: {
+/* Dev plan (开发计划) → frontend shape. Linked requirements surface as display
+   keys (FR-N / NFR-N) via the plan_requirements join. */
+export function serializePlan(row: {
   id: string;
+  key: string;
+  projectId: string;
+  title: string;
+  content: string;
+  templateMd: string | null;
+  status: string;
+  authorId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  planRequirements?: { requirement: { key: string } | null }[];
+}) {
+  return {
+    id: row.key,
+    projectId: row.projectId,
+    title: row.title,
+    content: row.content,
+    templateMd: row.templateMd,
+    status: row.status,
+    requirements: (row.planRequirements ?? [])
+      .map((pr) => pr.requirement?.key)
+      .filter(Boolean) as string[],
+    authorId: row.authorId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+export function serializeAttachment(row: {  id: string;
   url: string;
   pathname: string;
   filename: string;

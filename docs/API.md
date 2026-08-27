@@ -6,7 +6,7 @@
 ## 权限门（RBAC）
 
 - 每个 service 入口按「路由 → 模块」映射做 `requirePerm(actor, module, read|write)`，不足 → **403 FORBIDDEN**（真实状态码）。
-- 模块映射：`/issues*`→issues · `/requirements*`→requirements · `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases · `/reports*|/summary`→reports。
+- 模块映射：`/issues*`→issues · `/requirements*`→requirements · `/plans*`→requirements（复用，不新增模块）· `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases · `/reports*|/summary`→reports。
 - `company_admin` 与平台管理员恒过；`viewer` 类只读角色调写接口同样 403。
 - **项目创建/删除**额外要求 `company_admin` 或平台管理员（矩阵 projects=write 不够）。
 - bootstrap 无模块门（登录即可），返回里的 `permissions` 供前端过滤 UI。
@@ -140,6 +140,18 @@
 | POST | `/test-cases` | 项目必须存在；分配 TC-N；authorId=当前成员 |
 | PATCH | `/test-cases/:key` | 部分更新 |
 | DELETE | `/test-cases/:key` | 硬删 |
+
+## Dev Plans 开发计划（`/plans*`，模块门复用 requirements）
+
+项目级 markdown 计划，经 plan_requirements 关联 N 条需求（关联键 = FR/NFR 展示 key）；status：`draft`（待生成）/ `generated`（已生成）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/plans?project` | project 收项目 uuid；排除归属已归档项目的计划 |
+| GET | `/plans/:key` | 不存在或可见性范围外 → `ok(null)` |
+| POST | `/plans` | `{ projectId, title, requirementIds?, templateMd? }`；项目必须存在；分配 PLAN-N；authorId=当前成员；requirementIds 收展示 key，未知 key → VALIDATION_FAILED |
+| PATCH | `/plans/:key` | 部分更新（title/content/templateMd/status）；requirementIds 传了即全量替换关联 |
+| DELETE | `/plans/:key` | 硬删 |
 
 ## Daily Reports 日报（`/reports*`，模块门 reports；read=查看(行级可见),write=提交/编辑自己的）
 

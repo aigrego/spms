@@ -18,6 +18,7 @@ import {
   KeyRound,
   Plug,
   BarChart3,
+  Compass,
 } from 'lucide-react';
 import { useAppData } from '@/store/AppData';
 import { useT } from '@/lib/i18n';
@@ -98,7 +99,8 @@ export function Sidebar({ myCount }: { myCount: number }) {
   const showSprints = can('sprints', 'read');
 
   const showLifecycle = showProducts || showRequirements || showTestcases;
-  const showWorkspace = showProjects || showResources || showRoadmap || showSummary;
+  // 生命周期指引(/guide)无权限门、对所有登录用户可见,工作区区块因此恒展示。
+  const showWorkspace = true;
   const showScrum = showBacklog || showSprints;
 
   return (
@@ -158,6 +160,12 @@ export function Sidebar({ myCount }: { myCount: number }) {
           <>
             <SectionLabel>{t('nav.section.workspace')}</SectionLabel>
             <div className="flex flex-col gap-px">
+              <NavItem
+                icon={<Compass size={16} />}
+                label={t('nav.guide')}
+                active={pathname.startsWith('/guide')}
+                href="/guide"
+              />
               {showProjects && (
                 <NavItem
                   icon={<Box size={16} />}

@@ -6,6 +6,7 @@ import {
   issueStatusEnum,
   issueTypeEnum,
   lifecyclePhaseEnum,
+  planStatusEnum,
   productStatusEnum,
   releaseStatusEnum,
   requirementCategoryEnum,
@@ -113,6 +114,19 @@ export const testCaseCreateSchema = z.object({
   position: z.number().optional(),
 });
 export const testCaseUpdateSchema = testCaseCreateSchema.partial();
+
+/* ---- dev plans (开发计划) ---- */
+export const planCreateSchema = z.object({
+  projectId: z.string().min(1),
+  title: z.string().trim().min(1, '标题不能为空').max(200),
+  // 关联需求展示 key (FR-N / NFR-N)，最多 50 条。
+  requirementIds: z.array(z.string()).max(50).optional(),
+  templateMd: z.string().max(100000).optional(),
+});
+export const planUpdateSchema = planCreateSchema.omit({ projectId: true }).partial().extend({
+  content: z.string().max(100000).optional(),
+  status: z.enum(planStatusEnum.enumValues).optional(),
+});
 
 /* ---- catalog: product lines / products / releases ---- */
 export const productLineCreateSchema = z.object({

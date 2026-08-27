@@ -112,6 +112,9 @@ export const sprintStatusEnum = pgEnum('sprint_status', ['planned', 'active', 'c
 // Test cases (测试用例): lifecycle status + last-run result.
 export const testCaseStatusEnum = pgEnum('test_case_status', ['draft', 'active', 'deprecated']);
 export const testResultEnum = pgEnum('test_result', ['untested', 'passed', 'failed', 'blocked']);
+// Dev plans (开发计划): draft = 待生成 (壳已建、内容待 AI Agent 产出),
+// generated = 已生成。内容本身仍可继续编辑,状态不再自动回退。
+export const planStatusEnum = pgEnum('plan_status', ['draft', 'generated']);
 // 研发资源 (virtual team) — a member is assigned to a lifecycle node.
 //   nodeType is one of product/release/project/sprint (NOT product line).
 //   source distinguishes a deliberate `direct` assignment from a `propagated`
@@ -721,6 +724,60 @@ export const testCases = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Dev plans (开发计划) — project-scoped markdown documents linked to N  */
+/* requirements (plan_requirements join). Addressed by display `key`    */
+/* ("PLAN-N"), mirroring the test-case key contract.                    */
+/* ------------------------------------------------------------------ */
+export const plans = pgTable(
+  'plans',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    key: text('key').notNull(),
+    // scope: deleting the project cascade-deletes its plans.
+    projectId: text('project_id')
+      .references(() => projects.id, { onDelete: 'cascade' })
+      .notNull(),
+    title: text('title').notNull(),
+    // the markdown body (empty until the AI Agent generates it).
+    content: text('content').notNull().default(''),
+    // optional markdown template the uploader provided; the Agent follows its
+    // structure when generating content.
+    templateMd: text('template_md'),
+    status: planStatusEnum('status').notNull().default('draft'),
+    // set null on member delete so removing a member never blocks on this ref.
+    authorId: text('author_id').references(() => members.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('plans_key_uidx').on(t.companyId, t.key),
+    index('plans_project_idx').on(t.projectId),
+  ],
+);
+
+/* Plan <-> Requirement (many-to-many): a plan can cover several requirements
+   and a requirement can be split across several plans. Deleting either side
+   removes the join rows. */
+export const planRequirements = pgTable(
+  'plan_requirements',
+  {
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    planId: text('plan_id')
+      .references(() => plans.id, { onDelete: 'cascade' })
+      .notNull(),
+    requirementId: text('requirement_id')
+      .references((): any => requirements.id, { onDelete: 'cascade' })
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.planId, t.requirementId] })],
+);
+
+/* ------------------------------------------------------------------ */
 /* Resource assignments (虚拟团队)                                       */
 /* A member assigned to a lifecycle node. Polymorphic (no FK to the node */
 /* tables); the application layer guarantees referential integrity and   */
@@ -958,6 +1015,20 @@ export const resourceAssignmentsRelations = relations(resourceAssignments, ({ on
 export const testCasesRelations = relations(testCases, ({ one }) => ({
   project: one(projects, { fields: [testCases.projectId], references: [projects.id] }),
   requirement: one(requirements, { fields: [testCases.requirementId], references: [requirements.id] }),
+}));
+
+export const plansRelations = relations(plans, ({ one, many }) => ({
+  project: one(projects, { fields: [plans.projectId], references: [projects.id] }),
+  author: one(members, { fields: [plans.authorId], references: [members.id] }),
+  planRequirements: many(planRequirements),
+}));
+
+export const planRequirementsRelations = relations(planRequirements, ({ one }) => ({
+  plan: one(plans, { fields: [planRequirements.planId], references: [plans.id] }),
+  requirement: one(requirements, {
+    fields: [planRequirements.requirementId],
+    references: [requirements.id],
+  }),
 }));
 
 export const dailyReportsRelations = relations(dailyReports, ({ one, many }) => ({

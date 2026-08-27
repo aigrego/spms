@@ -220,6 +220,22 @@ export interface TestCase {
   updatedAt: string;
 }
 
+// Dev plans (开发计划).
+export type PlanStatus = 'draft' | 'generated';
+
+export interface Plan {
+  id: string; // display key ("PLAN-1")
+  projectId: string;
+  title: string;
+  content: string; // markdown body
+  templateMd: string | null; // markdown template the uploader provided
+  status: PlanStatus;
+  requirements: string[]; // linked requirement display keys (FR-N / NFR-N)
+  authorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Sprint {
   id: string;
   teamId: string | null;

@@ -5,7 +5,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 
 二期「多公司沙箱」变更：新增 `companies`、`company_memberships`、`role_permissions`、`mcp_api_keys` 4 张表；
 **全部业务表加 `companyId` NN（→ companies cascade）**，原 `key` 类唯一约束改为 `(companyId, key)` 复合唯一；
-`counters` 主键改为 `(companyId, name)` —— 编号按公司独立。共 29 张表 + 21 个枚举。
+`counters` 主键改为 `(companyId, name)` —— 编号按公司独立。共 31 张表 + 22 个枚举。
 
 ## 枚举
 
@@ -28,6 +28,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 | sprint_status | `planned \| active \| completed` |
 | test_case_status | `draft \| active \| deprecated` |
 | test_result | `untested \| passed \| failed \| blocked` |
+| plan_status | `draft \| generated`（开发计划：待生成/已生成） |
 | activity_kind | `created \| status \| assign \| comment \| ai` |
 | assignment_node | `product \| release \| project \| sprint`（不含 product_line） |
 | assignment_role | `lead \| member`；assignment_source | `direct \| propagated` |
@@ -115,6 +116,12 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 ### test_cases
 `id` PK · `key` unique NN（TC-N）· `projectId` NN → projects cascade · `requirementId` → requirements set null · `title` NN · `priority` NN 默认 none · `status` NN 默认 draft · `result` NN 默认 untested · `preconditions` / `steps` / `expected` · `authorId` / `assigneeId` → members set null · `position` NN 默认 0 · `createdAt` / `updatedAt` NN
 
+### plans（开发计划，TKT-68）
+`id` PK · `key` unique NN（PLAN-N）· `projectId` NN → projects cascade · `title` NN · `content` text NN 默认 `''`（markdown 正文，AI Agent 生成前为空）· `templateMd`（上传的 markdown 模板，存文本不走 blob）· `status` NN 默认 draft（待生成；generated=已生成）· `authorId` → members set null · `createdAt` / `updatedAt` NN
+
+### plan_requirements（plan ↔ requirement 多对多）
+`(planId, requirementId)` 复合 PK，均 cascade；`companyId` NN → companies cascade（冗余，与 sprint_projects 同款）。一份计划可覆盖多条需求，一条需求也可拆给多份计划；关联键对外暴露为 FR/NFR 展示 key。
+
 ### resource_assignments（虚拟团队，多态无外键，应用层保证引用完整性）
 `id` PK · `nodeType` NN（product|release|project|sprint）· `nodeId` NN · `memberId` NN → members cascade · `role` NN 默认 member · `source` NN 默认 direct · `addedById` → members set null · `createdAt` NN · 唯一 `(nodeType, nodeId, memberId)`
 
@@ -137,14 +144,15 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 ```
 product_line ─cascade→ product ─cascade→ release ─cascade→ project ─cascade→ requirement
                                                           │─cascade→ test_case
+                                                          │─cascade→ plan ─cascade→ plan_requirements
                                                           │─cascade→ sprint_projects（独享迭代应用层删除，共享迭代解除关联）
                                                           └─set null→ issue.projectId
 sprint ─cascade→ sprint_projects / sprint_snapshots；─set null→ issue.sprintId
-requirement ─set null→ issue.requirementId / test_case.requirementId
+requirement ─set null→ issue.requirementId / test_case.requirementId；─cascade→ plan_requirements
 member ─cascade→ assignments；─set null→ author/assignee/lead 引用
 daily_report ─cascade→ daily_report_entries；member/product/company 删除均级联清日报
 ```
 
-- 删 project：requirements/test_cases 级联删，迭代经 sprint_projects 解除关联（独享迭代一并删除），**issues 只 set null**
+- 删 project：requirements/test_cases/plans 级联删，迭代经 sprint_projects 解除关联（独享迭代一并删除），**issues 只 set null**
 - 删成员：assignments 级联删，其余引用 set null
 - 删公司：公司内全部业务数据、counters、memberships、公司级 mcp_api_keys 级联删（沙箱整体清除）

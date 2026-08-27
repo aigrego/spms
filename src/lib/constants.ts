@@ -13,6 +13,7 @@ import type {
   RequirementStatus,
   TestCaseStatus,
   TestResult,
+  PlanStatus,
 } from './types';
 
 // PLAN-5: display labels moved to i18n (t('status.x') etc). These maps keep only
@@ -166,3 +167,11 @@ export const TEST_RESULT: Record<TestResult, { tone: BadgeTone; color: string }>
   blocked: { tone: 'warning', color: '#D89400' },
 };
 export const TEST_RESULT_ORDER: TestResult[] = ['untested', 'passed', 'failed', 'blocked'];
+
+/* Dev plans (开发计划): draft = 待生成, generated = 已生成. Labels live in i18n
+   (t('planStatus.x')). */
+export const PLAN_STATUS: Record<PlanStatus, { tone: BadgeTone }> = {
+  draft: { tone: 'neutral' },
+  generated: { tone: 'success' },
+};
+export const PLAN_STATUS_ORDER: PlanStatus[] = ['draft', 'generated'];

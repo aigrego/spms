@@ -19,9 +19,11 @@ import { useAppData } from '@/store/AppData';
 import { useAllIssues, useCreateIssue, useUpdateIssue } from '@/store/issues';
 import { useRequirements, useCreateRequirement, useUpdateRequirement } from '@/store/requirements';
 import { useTestCases, useCreateTestCase, useUpdateTestCase } from '@/store/testcases';
+import { usePlans } from '@/store/plans';
+import { PlansPanel } from '@/components/PlansPanel';
 import { useUpdateProject } from '@/store/projects';
 
-type Tab = 'basics' | 'resources' | 'requirements' | 'testcases' | 'sprints' | 'issues';
+type Tab = 'basics' | 'resources' | 'requirements' | 'plans' | 'testcases' | 'sprints' | 'issues';
 
 /* A single PRD-basics field on the 基本信息 tab: a borderless textarea that grows
    with its content and saves on blur (only when changed). Mirrors the requirement
@@ -71,6 +73,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
   const { data: allIssues = [] } = useAllIssues(true); // 项目中心 = 历史上下文,含已归档
   const { data: requirements = [] } = useRequirements({ project: projectId });
   const { data: testCases = [] } = useTestCases({ project: projectId });
+  const { data: plans = [] } = usePlans({ project: projectId });
   const createReq = useCreateRequirement();
   const updateReq = useUpdateRequirement();
   const createTc = useCreateTestCase();
@@ -99,6 +102,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
     { key: 'basics', label: t('hub.basics'), count: 0 },
     { key: 'resources', label: t('hub.resources'), count: 0 },
     { key: 'requirements', label: t('hub.requirements'), count: requirements.length },
+    { key: 'plans', label: t('hub.plans'), count: plans.length },
     { key: 'testcases', label: t('hub.testcases'), count: testCases.length },
     { key: 'sprints', label: t('hub.sprints'), count: projectSprints.length },
     { key: 'issues', label: t('hub.issues'), count: issues.length },
@@ -216,6 +220,8 @@ export function ProjectHub({ projectId }: { projectId: string }) {
             </div>
           </div>
         )}
+
+        {tab === 'plans' && <PlansPanel projectId={projectId} />}
 
         {tab === 'testcases' && (
           <div>
