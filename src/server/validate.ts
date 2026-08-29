@@ -94,6 +94,8 @@ export const requirementCreateSchema = z.object({
   description: longText,
   acceptanceCriteria: longText,
   releaseId: idRef,
+  sprintId: idRef,
+  assigneeId: idRef,
   aiOwnerId: idRef,
   position: z.number().optional(),
 });

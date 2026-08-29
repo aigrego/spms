@@ -507,6 +507,10 @@ export const requirements = pgTable(
     // the version this requirement targets (nullable). Derived consistency:
     // should match project.releaseId; surfaced as a warning if not.
     releaseId: text('release_id').references((): any => releases.id, { onDelete: 'set null' }),
+    // The sprint this requirement is committed to (nullable) — mirrors
+    // issues.sprintId: pure-AI flows develop the requirement straight on the
+    // sprint without decomposing it into issues. Detaches on sprint delete.
+    sprintId: text('sprint_id').references((): any => sprints.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
     type: requirementTypeEnum('type').notNull().default('functional'),
     // Only meaningful for non_functional requirements; null for functional ones.
@@ -516,6 +520,8 @@ export const requirements = pgTable(
     status: requirementStatusEnum('status').notNull().default('draft'),
     description: text('description'), // the PRD body / spec
     acceptanceCriteria: text('acceptance_criteria'),
+    // 负责人 — mirrors issues.assigneeId (members are revoked, never hard-deleted).
+    assigneeId: text('assignee_id').references(() => members.id),
     authorId: text('author_id').references(() => members.id),
     // The AI agent (Atlas) that maintains this PRD, if any.
     aiOwnerId: text('ai_owner_id').references(() => members.id),
@@ -526,6 +532,7 @@ export const requirements = pgTable(
   (t) => [
     uniqueIndex('requirements_key_uidx').on(t.companyId, t.key),
     index('requirements_project_idx').on(t.projectId),
+    index('requirements_sprint_idx').on(t.sprintId),
   ],
 );
 
@@ -958,6 +965,8 @@ export const releasesRelations = relations(releases, ({ one, many }) => ({
 export const requirementsRelations = relations(requirements, ({ one, many }) => ({
   project: one(projects, { fields: [requirements.projectId], references: [projects.id] }),
   release: one(releases, { fields: [requirements.releaseId], references: [releases.id] }),
+  sprint: one(sprints, { fields: [requirements.sprintId], references: [sprints.id] }),
+  assignee: one(members, { fields: [requirements.assigneeId], references: [members.id] }),
   author: one(members, { fields: [requirements.authorId], references: [members.id] }),
   aiOwner: one(members, { fields: [requirements.aiOwnerId], references: [members.id] }),
   issues: many(issues),
@@ -995,6 +1004,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
 export const sprintsRelations = relations(sprints, ({ one, many }) => ({
   team: one(teams, { fields: [sprints.teamId], references: [teams.id] }),
   issues: many(issues),
+  requirements: many(requirements),
   snapshots: many(sprintSnapshots),
   sprintProjects: many(sprintProjects),
 }));

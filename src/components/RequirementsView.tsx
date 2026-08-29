@@ -15,7 +15,7 @@ import { PriorityIcon } from '@/components/glyphs/PriorityIcon';
 import { ImportanceIcon } from '@/components/glyphs/ImportanceIcon';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { ProjectIcon } from '@/components/glyphs/misc';
-import { PriorityMenu, ImportanceMenu } from '@/components/menus';
+import { PriorityMenu, ImportanceMenu, ScopedAssigneeMenu } from '@/components/menus';
 import {
   REQUIREMENT_TYPE,
   REQUIREMENT_STATUS,
@@ -26,6 +26,7 @@ import {
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useAllIssues } from '@/store/issues';
+import { useNodeAssignments } from '@/store/resources';
 import {
   useRequirements,
   useRequirement,
@@ -44,6 +45,7 @@ import type {
   RequirementStatus,
   IssuePriority,
   Importance,
+  Member,
 } from '@/lib/types';
 
 const TYPE_ORDER: RequirementType[] = ['functional', 'non_functional'];
@@ -87,7 +89,7 @@ function NewRequirementModal({
   onCreated: (id: string) => void;
 }) {
   const t = useT();
-  const { projects, projectById, releases, productById } = useAppData();
+  const { projects, projectById, releases, productById, memberById, agents } = useAppData();
   const create = useCreateRequirement();
   const [title, setTitle] = React.useState('');
   const [projectId, setProjectId] = React.useState('');
@@ -97,12 +99,24 @@ function NewRequirementModal({
   const [priority, setPriority] = React.useState<IssuePriority>('none');
   const [importance, setImportance] = React.useState<Importance>('none');
   const [status, setStatus] = React.useState<RequirementStatus>('draft');
+  const [assignee, setAssignee] = React.useState<string | null>(null);
   const [desc, setDesc] = React.useState('');
   const [acceptance, setAcceptance] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
 
   // Releases grouped by product for the target-version picker.
   const releaseOptions = releases.map((r) => ({ id: r.id, label: `${productById(r.productId)?.name ?? ''} · ${r.name}` }));
+
+  // Assignee pool = the chosen project's research resources (humans) + AI agents
+  // (与 NewIssueModal 同一套候选组法)。
+  const { data: assignments = [] } = useNodeAssignments('project', projectId || null);
+  const candidates = React.useMemo<Member[]>(() => {
+    const humans = assignments
+      .map((a) => a.member)
+      .filter((m): m is Member => !!m && m.type === 'human');
+    return [...humans, ...agents];
+  }, [assignments, agents]);
+  const assigneeP = memberById(assignee);
 
   React.useEffect(() => {
     if (open) {
@@ -116,6 +130,7 @@ function NewRequirementModal({
       setPriority('none');
       setImportance('none');
       setStatus('draft');
+      setAssignee(null);
       setDesc('');
       setAcceptance('');
       setError(null);
@@ -151,6 +166,7 @@ function NewRequirementModal({
         priority,
         importance,
         status,
+        assigneeId: assignee,
         description: desc.trim() || null,
         acceptanceCriteria: acceptance.trim() || null,
       });
@@ -195,6 +211,8 @@ function NewRequirementModal({
                 onChange={(e) => {
                   setProjectId(e.target.value);
                   setReleaseId(projectById(e.target.value)?.releaseId ?? '');
+                  // 换项目后候选池变化,已选负责人可能不在新池 → 清空重选(同 NewIssueModal)。
+                  setAssignee(null);
                 }}
               >
                 {projects.map((p) => (
@@ -286,6 +304,23 @@ function NewRequirementModal({
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="flex-1">
+              <span className={fieldLabel}>{t('detail.assignee')}</span>
+              <ScopedAssigneeMenu
+                candidates={candidates}
+                current={assignee}
+                onPick={setAssignee}
+                emptyHint={t('newIssue.noResources')}
+                trigger={
+                  <button type="button" className={`${inputCls} flex items-center gap-2 text-left`}>
+                    <Avatar person={assigneeP} size={18} />
+                    <span className={assigneeP ? '' : 'text-fg-3'}>
+                      {assigneeP ? assigneeP.name : t('common.unassigned')}
+                    </span>
+                  </button>
+                }
+              />
             </div>
           </div>
           <textarea
@@ -453,12 +488,24 @@ function RequirementDetail({
   onOpenIssue: (key: string) => void;
 }) {
   const t = useT();
-  const { projectById, memberById, releases, productById } = useAppData();
+  const { projectById, memberById, releases, productById, agents, sprints } = useAppData();
   const { data: req } = useRequirement(id);
   const { data: allIssues = [] } = useAllIssues();
   const update = useUpdateRequirement();
   const del = useDeleteRequirement();
   const [decompOpen, setDecompOpen] = React.useState(false);
+
+  // 负责人候选池:迭代资源池(已关联迭代)否则项目资源池 + AI agents,
+  // 与 IssueDetail 的 issueCandidates 口径一致(客户端组法同 NewIssueModal)。
+  const poolNodeType = req?.sprintId ? 'sprint' : 'project';
+  const poolNodeId = req?.sprintId ?? req?.projectId ?? null;
+  const { data: poolAssignments = [] } = useNodeAssignments(poolNodeType, poolNodeId);
+  const candidates = React.useMemo<Member[]>(() => {
+    const humans = poolAssignments
+      .map((a) => a.member)
+      .filter((m): m is Member => !!m && m.type === 'human');
+    return [...humans, ...agents];
+  }, [poolAssignments, agents]);
 
   const [title, setTitle] = React.useState('');
   const [desc, setDesc] = React.useState('');
@@ -482,8 +529,16 @@ function RequirementDetail({
   if (!req) return null;
   const patch = (input: Parameters<typeof update.mutate>[0]['input']) => update.mutate({ id, input });
   const project = projectById(req.projectId);
+  const assignee = memberById(req.assigneeId);
   const author = memberById(req.authorId);
   const aiOwner = memberById(req.aiOwnerId);
+  // 可选迭代:未结束且项目口径匹配(无项目迭代对任何需求开放);当前已关联的
+  // 迭代始终保留在选项里(即使已结束/口径已变),保证可见可移除。
+  const sprintOptions = sprints.filter(
+    (s) =>
+      s.id === req.sprintId ||
+      (s.status !== 'completed' && (s.projectIds.length === 0 || s.projectIds.includes(req.projectId))),
+  );
   const linked = req.issues.map((k) => allIssues.find((i) => i.id === k)).filter(Boolean) as typeof allIssues;
   const acceptanceLines = (req.acceptanceCriteria ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
 
@@ -682,6 +737,18 @@ function RequirementDetail({
                   }
                 />
               </PropRow>
+              <PropRow label={t('detail.assignee')}>
+                <ScopedAssigneeMenu
+                  candidates={candidates}
+                  current={req.assigneeId}
+                  onPick={(a) => patch({ assigneeId: a })}
+                  trigger={
+                    <button className={propBtn}>
+                      <Avatar person={assignee} size={20} /> {assignee ? assignee.name : t('common.unassigned')}
+                    </button>
+                  }
+                />
+              </PropRow>
             </div>
 
             <div className="my-4 h-px bg-border" />
@@ -706,6 +773,20 @@ function RequirementDetail({
                 {releases.map((r) => (
                   <option key={r.id} value={r.id}>
                     {productById(r.productId)?.name ?? ''} · {r.name}
+                  </option>
+                ))}
+              </select>
+            </PropRow>
+            <PropRow label={t('requirements.sprint')}>
+              <select
+                className={selCls}
+                value={req.sprintId ?? ''}
+                onChange={(e) => patch({ sprintId: e.target.value || null })}
+              >
+                <option value="">{t('requirements.noSprint')}</option>
+                {sprintOptions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
                   </option>
                 ))}
               </select>
@@ -759,6 +840,7 @@ function ReqRow({ req, onOpen }: { req: Requirement; onOpen: (id: string) => voi
   const t = useT();
   const { memberById } = useAppData();
   const update = useUpdateRequirement();
+  const assignee = memberById(req.assigneeId);
   const aiOwner = memberById(req.aiOwnerId);
   const pct = req.issueStats.total ? Math.round((req.issueStats.done / req.issueStats.total) * 100) : 0;
   return (
@@ -782,6 +864,7 @@ function ReqRow({ req, onOpen }: { req: Requirement; onOpen: (id: string) => voi
         </span>
       )}
       <ReqStatusMenu value={req.status} onPick={(status) => update.mutate({ id: req.id, input: { status } })} />
+      {assignee && <Avatar person={assignee} size={20} />}
       {aiOwner && <Avatar person={aiOwner} size={20} />}
     </div>
   );

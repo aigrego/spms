@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
 import { db } from '@/db';
-import { requirements, projects } from '@/db/schema';
+import { requirements, projects, sprints } from '@/db/schema';
 import { serializeRequirement } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
@@ -8,6 +8,7 @@ import { requirePerm } from '@/lib/permissions';
 import { assertProjectWritable, clampAllowed, issueVisible, visibleSetsFor } from '@/lib/visibility';
 import { decompositionItemsFor } from '@/lib/decompose';
 import { archivedProjectIds, createIssue, fetchIssueDetails } from './issues';
+import { assertSprintWritable } from './sprints';
 import type { Actor } from './types';
 
 /* Requirements / PRD business service. Ported from
@@ -40,12 +41,30 @@ async function findByKey(companyId: string, key: string) {
   });
 }
 
-/* ---- list (optionally filtered by project / type), position asc ---- */
-export async function listRequirements(actor: Actor, filter?: { project?: string; type?: RequirementType }) {
+/* §4.3 consistency(与 issue 同口径):迭代存在且在可见范围内;迭代有项目时,
+   需求的项目必须在其中(LIFECYCLE_MISMATCH)。需求必有项目,无 issue 的
+   "无项目自动归属"分支。 */
+async function assertSprintAssignable(actor: Actor, sprintId: string, projectId: string) {
+  const sprint = await db.query.sprints.findFirst({
+    where: and(eq(sprints.companyId, actor.companyId), eq(sprints.id, sprintId)),
+  });
+  if (!sprint) throw new ApiException('SPRINT_NOT_FOUND', `Sprint ${sprintId} 不存在`);
+  const projIds = await assertSprintWritable(actor, sprintId);
+  if (projIds.length > 0 && !projIds.includes(projectId)) {
+    throw new ApiException('LIFECYCLE_MISMATCH', '需求所属项目不在该迭代的项目范围内');
+  }
+}
+
+/* ---- list (optionally filtered by project / type / sprint), position asc ---- */
+export async function listRequirements(
+  actor: Actor,
+  filter?: { project?: string; type?: RequirementType; sprint?: string },
+) {
   await requirePerm(actor, 'requirements', 'read');
   const conds = [eq(requirements.companyId, actor.companyId)];
   if (filter?.project) conds.push(eq(requirements.projectId, filter.project));
   if (filter?.type) conds.push(eq(requirements.type, filter.type));
+  if (filter?.sprint) conds.push(eq(requirements.sprintId, filter.sprint));
   // 指派可见性 ∩ 令牌白名单(与 listIssues 同款);null = 管理员不限制。
   const visibleProjectIds = clampAllowed(actor, (await visibleSetsFor(actor))?.projectIds ?? null);
   if (visibleProjectIds) conds.push(inArray(requirements.projectId, visibleProjectIds));
@@ -85,6 +104,8 @@ export interface CreateRequirementInput {
   description?: string | null;
   acceptanceCriteria?: string | null;
   releaseId?: string | null;
+  sprintId?: string | null;
+  assigneeId?: string | null;
   aiOwnerId?: string | null;
   position?: number;
 }
@@ -101,6 +122,8 @@ export async function createRequirement(actor: Actor, input: CreateRequirementIn
   if (!project) throw new ApiException('PROJECT_NOT_FOUND');
   // 只能在可见项目内建需求(令牌白名单 + 指派可见性),范围外 403。
   await assertProjectWritable(actor, input.projectId);
+  // 关联迭代:存在性 + 可见性 + 项目口径(纯 AI 场景可不拆 issue 直接进迭代开发)。
+  if (input.sprintId) await assertSprintAssignable(actor, input.sprintId, input.projectId);
 
   // Key prefix reflects the type: functional → FR-N, non-functional → NFR-N,
   // each with its own sequence. The key is the stable identifier (issues link by
@@ -124,6 +147,8 @@ export async function createRequirement(actor: Actor, input: CreateRequirementIn
     description: input.description ?? null,
     acceptanceCriteria: input.acceptanceCriteria ?? null,
     releaseId: input.releaseId ?? null,
+    sprintId: input.sprintId ?? null,
+    assigneeId: input.assigneeId ?? null,
     authorId: actor.memberId,
     aiOwnerId: input.aiOwnerId ?? null,
     position: input.position ?? 0,
@@ -147,6 +172,8 @@ export interface UpdateRequirementInput {
   description?: string | null;
   acceptanceCriteria?: string | null;
   releaseId?: string | null;
+  sprintId?: string | null;
+  assigneeId?: string | null;
   aiOwnerId?: string | null;
   position?: number;
 }
@@ -162,6 +189,15 @@ export async function updateRequirement(actor: Actor, key: string, input: Update
   }
   // 改入新项目时,目标项目也必须在可见范围内,范围外 403。
   if (input.projectId !== undefined) await assertProjectWritable(actor, input.projectId);
+  // §4.3 consistency(与 updateIssue 同口径):仅当本次更新触及 sprint/project
+  // 关联时才重新校验;无关字段编辑不被历史 mismatch 阻塞。
+  if (input.sprintId !== undefined || input.projectId !== undefined) {
+    const nextSprintId = input.sprintId !== undefined ? input.sprintId : existing.sprintId;
+    if (nextSprintId) {
+      const effProject = input.projectId !== undefined ? input.projectId : existing.projectId;
+      await assertSprintAssignable(actor, nextSprintId, effProject);
+    }
+  }
 
   const patch: Partial<typeof requirements.$inferInsert> = { updatedAt: new Date() };
   if (input.projectId !== undefined) patch.projectId = input.projectId;
@@ -174,6 +210,8 @@ export async function updateRequirement(actor: Actor, key: string, input: Update
   if (input.description !== undefined) patch.description = input.description;
   if (input.acceptanceCriteria !== undefined) patch.acceptanceCriteria = input.acceptanceCriteria;
   if (input.releaseId !== undefined) patch.releaseId = input.releaseId;
+  if (input.sprintId !== undefined) patch.sprintId = input.sprintId;
+  if (input.assigneeId !== undefined) patch.assigneeId = input.assigneeId;
   if (input.aiOwnerId !== undefined) patch.aiOwnerId = input.aiOwnerId;
   if (input.position !== undefined) patch.position = input.position;
   // Clearing the type to functional drops any NFR category.

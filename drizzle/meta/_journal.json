@@ -169,6 +169,13 @@
       "when": 1787797231019,
       "tag": "0023_even_vivisector",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788005408733,
+      "tag": "0024_cooing_lethal_legion",
+      "breakpoints": true
     }
   ]
 }

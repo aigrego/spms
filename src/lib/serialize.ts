@@ -77,6 +77,7 @@ export function serializeRequirement(row: {
   key: string;
   projectId: string;
   releaseId: string | null;
+  sprintId: string | null;
   title: string;
   type: string;
   category: string | null;
@@ -85,6 +86,7 @@ export function serializeRequirement(row: {
   status: string;
   description: string | null;
   acceptanceCriteria: string | null;
+  assigneeId: string | null;
   authorId: string | null;
   aiOwnerId: string | null;
   position: number;
@@ -98,6 +100,7 @@ export function serializeRequirement(row: {
     id: row.key,
     projectId: row.projectId,
     releaseId: row.releaseId,
+    sprintId: row.sprintId,
     title: row.title,
     type: row.type,
     category: row.category,
@@ -106,6 +109,7 @@ export function serializeRequirement(row: {
     status: row.status,
     description: row.description,
     acceptanceCriteria: row.acceptanceCriteria,
+    assigneeId: row.assigneeId,
     authorId: row.authorId,
     aiOwnerId: row.aiOwnerId,
     position: row.position,

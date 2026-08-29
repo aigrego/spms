@@ -76,14 +76,20 @@ export function useUpdateSprint() {
 
 export function useDeleteSprint() {
   const invalidate = useInvalidateSprints();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deleteSprint(id),
-    onSuccess: invalidate,
+    // 删迭代会解除其需求的 sprintId 关联 → 需求缓存一并刷新。
+    onSuccess: () => {
+      invalidate();
+      qc.invalidateQueries({ queryKey: ['requirements'] });
+    },
   });
 }
 
 /* Lifecycle: planned → active → completed. Completing also moves unfinished
-   issues back to the backlog, so the backlog/burndown caches go too. */
+   issues back to the backlog and detaches unshipped requirements, so the
+   backlog/burndown/requirements caches go too. */
 function useInvalidateSprintLifecycle() {
   const qc = useQueryClient();
   const invalidate = useInvalidateSprints();
@@ -91,6 +97,7 @@ function useInvalidateSprintLifecycle() {
     invalidate();
     qc.invalidateQueries({ queryKey: ['backlog'] });
     qc.invalidateQueries({ queryKey: ['burndown'] });
+    qc.invalidateQueries({ queryKey: ['requirements'] });
   };
 }
 

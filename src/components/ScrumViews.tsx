@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { Target, GripVertical, ArrowRight, Flame, Gauge, ChevronRight, ChevronDown, Plus, Pencil, Play, CheckCircle2, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Target, GripVertical, ArrowRight, Flame, Gauge, ChevronRight, ChevronDown, Plus, Pencil, Play, CheckCircle2, Trash2, FileText } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -14,7 +15,7 @@ import { AISlaBadge } from '@/components/glyphs/misc';
 import { ResourcePanelCompact } from '@/components/ResourcePanelCompact';
 import { Markdown } from '@/components/Markdown';
 import { SprintModal, ConfirmDeleteSprint, useSprintDict } from '@/components/SprintModal';
-import { SPRINT_STATUS } from '@/lib/constants';
+import { SPRINT_STATUS, REQUIREMENT_STATUS } from '@/lib/constants';
 import { useDragHighlight } from '@/lib/useDragHighlight';
 import { useT } from '@/lib/i18n';
 import { ApiError } from '@/lib/api';
@@ -370,7 +371,8 @@ export function SprintsView({
 }) {
   const t = useT();
   const sd = useSprintDict();
-  const { projectById, releaseById, productById, can } = useAppData();
+  const router = useRouter();
+  const { projectById, releaseById, productById, memberById, can } = useAppData();
   const canWrite = can('sprints', 'write');
   const { data: sprints = [] } = useSprints();
   const active = sprints.find((s) => s.status === 'active') ?? sprints[0];
@@ -608,6 +610,33 @@ export function SprintsView({
               </div>
             </div>
 
+            {/* committed requirements — 纯 AI 开发场景:需求不拆 issue,直接关联
+                迭代开发;点击跳需求详情。 */}
+            {detail.requirements.length > 0 && (
+              <div className="mb-5 rounded-[14px] border border-border bg-surface p-4 shadow-1">
+                <div className="mb-2.5 flex items-center gap-1.5 px-1 text-[12.5px] font-semibold text-fg-2">
+                  <FileText size={14} className="text-fg-3" /> {t('scrum.requirements')} · {detail.requirements.length}
+                </div>
+                <div className="flex flex-col gap-2">
+                  {detail.requirements.map((r) => (
+                    <div
+                      key={r.id}
+                      onClick={() => router.push(`/requirements/${encodeURIComponent(r.id)}`)}
+                      className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border bg-surface px-3 py-2 shadow-1 transition-shadow hover:shadow-2"
+                    >
+                      <PriorityIcon priority={r.priority} size={15} />
+                      <span className="flex-none font-mono text-[11px] text-fg-3">{r.id}</span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-fg-1">{r.title}</span>
+                      <Badge tone={REQUIREMENT_STATUS[r.status].tone} dot>
+                        {t(`reqStatus.${r.status}`)}
+                      </Badge>
+                      <Avatar person={memberById(r.assigneeId)} size={20} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* sprint board (read-only columns; planning happens via drag & drop
                 on the backlog view) */}
             <div className="grid grid-cols-4 gap-4">
@@ -651,7 +680,10 @@ export function SprintsView({
           <ConfirmCompleteSprint
             open={confirmComplete}
             onOpenChange={setConfirmComplete}
-            unfinished={detail.issues.filter((i) => !['done', 'canceled'].includes(i.status)).length}
+            unfinished={
+              detail.issues.filter((i) => !['done', 'canceled'].includes(i.status)).length +
+              detail.requirements.filter((r) => !['shipped', 'rejected'].includes(r.status)).length
+            }
             busy={complete.isPending}
             error={lifecycleErr}
             onConfirm={() => doComplete(detail.id)}

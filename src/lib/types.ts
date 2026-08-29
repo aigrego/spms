@@ -181,6 +181,7 @@ export interface Requirement {
   id: string; // display key (functional → "FR-3", non-functional → "NFR-2")
   projectId: string;
   releaseId: string | null; // the version this requirement targets
+  sprintId: string | null; // the sprint this requirement is committed to
   title: string;
   type: RequirementType;
   category: RequirementCategory | null;
@@ -189,6 +190,7 @@ export interface Requirement {
   status: RequirementStatus;
   description: string | null;
   acceptanceCriteria: string | null;
+  assigneeId: string | null;
   authorId: string | null;
   aiOwnerId: string | null;
   position: number;
@@ -255,10 +257,12 @@ export interface SprintStats {
   remainingPoints: number;
   issueCount: number;
   doneCount: number;
+  requirementCount: number;
 }
 
 export interface SprintDetail extends Sprint {
   issues: Issue[];
+  requirements: Requirement[];
   stats: SprintStats;
 }
 

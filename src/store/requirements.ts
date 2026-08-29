@@ -11,7 +11,7 @@ export function useAllRequirements() {
   return useQuery({ queryKey: ['requirements', {}], queryFn: () => api.requirements() });
 }
 
-export function useRequirements(params?: { project?: string; type?: RequirementType }) {
+export function useRequirements(params?: { project?: string; type?: RequirementType; sprint?: string }) {
   return useQuery({
     queryKey: ['requirements', params ?? {}],
     queryFn: () => api.requirements(params),
@@ -26,10 +26,13 @@ export function useRequirement(id: string | null) {
   });
 }
 
+/* Sprint detail embeds the committed-requirement list → sprint queries refresh
+   alongside requirement queries on every requirement mutation. */
 function useInvalidateRequirements() {
   const qc = useQueryClient();
   return (id?: string) => {
     qc.invalidateQueries({ queryKey: ['requirements'] });
+    qc.invalidateQueries({ queryKey: ['sprint'] });
     if (id) qc.invalidateQueries({ queryKey: ['requirement', id] });
   };
 }

@@ -432,12 +432,13 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         companyId: companyIdParam,
         project: z.string().optional().describe('项目 id'),
         type: requirementType.optional().describe('functional=功能需求 / non_functional=非功能需求'),
+        sprint: z.string().optional().describe('迭代 id（按关联迭代过滤）'),
       },
     },
     async (args) =>
       run(async () => {
         const actor = await actorFor(args.companyId);
-        return requirementSvc.listRequirements(actor, { project: args.project, type: args.type });
+        return requirementSvc.listRequirements(actor, { project: args.project, type: args.type, sprint: args.sprint });
       }),
   );
 
@@ -489,7 +490,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   reg(
     'spms_get_sprint',
     {
-      description: `迭代详情：元信息 + committed issue 列表 + committed/completed/remaining 点数统计。id 从 spms_list_sprints 获得。${CONCEPTS}`,
+      description: `迭代详情：元信息 + committed issue 列表 + 关联需求列表 + committed/completed/remaining 点数统计。id 从 spms_list_sprints 获得。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
       inputSchema: {
         companyId: companyIdParam,
@@ -522,7 +523,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   reg(
     'spms_complete_sprint',
     {
-      description: `完成迭代（active → completed）。未完成（非 done/canceled）的 Issue 自动移回产品待办，返回 { sprint, movedCount }。${CONCEPTS}`,
+      description: `完成迭代（active → completed）。未完成（非 done/canceled）的 Issue 自动移回产品待办，未交付（非 shipped/rejected）的需求同样退出迭代，返回 { sprint, movedCount }（两者合计）。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         id: z.string().describe('迭代 id（uuid）'),
@@ -771,7 +772,8 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
     {
       description:
         `创建需求（自动分配 key：functional→FR-N，non_functional→NFR-N）。category 仅对 non_functional 有意义。` +
-        `releaseId 传版本 id（spms_get_bootstrap 的 releases）。${CONCEPTS}`,
+        `releaseId 传版本 id（spms_get_bootstrap 的 releases）。sprintId 可直接把需求关联到迭代（纯 AI 开发场景可不拆 issue、直接按需求开发；` +
+        `迭代包含项目时需求的项目必须在其中，冲突报 LIFECYCLE_MISMATCH）；assigneeId 传负责人 member id。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         projectId: z.string().describe('项目 id（必填）'),
@@ -783,6 +785,8 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         description: z.string().optional().describe('PRD 描述（Markdown）'),
         acceptanceCriteria: z.string().optional().describe('验收标准'),
         releaseId: z.string().optional().describe('版本/Release id'),
+        sprintId: z.string().optional().describe('迭代 id（直接关联到迭代）'),
+        assigneeId: z.string().optional().describe('负责人 member id'),
       },
     },
     async (args) =>
@@ -798,7 +802,9 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
     {
       description:
         `更新需求（按展示 key，如 FR-2）：可改 status/title/type/category/priority/importance/description/` +
-        `acceptanceCriteria/releaseId/projectId/position。需求状态：draft|reviewing|approved|in_dev|shipped|rejected。只传要改的字段。${CONCEPTS}`,
+        `acceptanceCriteria/releaseId/sprintId/assigneeId/projectId/position。sprintId 关联/移出迭代（null 移出；` +
+        `迭代包含项目时需求的项目必须在其中，冲突报 LIFECYCLE_MISMATCH）；assigneeId 传负责人 member id（null 取消指派）。` +
+        `需求状态：draft|reviewing|approved|in_dev|shipped|rejected。只传要改的字段。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         key: z.string().describe("需求展示 key，如 'FR-2'"),
@@ -811,6 +817,8 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         description: z.string().nullable().optional(),
         acceptanceCriteria: z.string().nullable().optional(),
         releaseId: z.string().nullable().optional(),
+        sprintId: z.string().nullable().optional().describe('迭代 id；null 移出迭代'),
+        assigneeId: z.string().nullable().optional().describe('负责人 member id；null 取消指派'),
         projectId: z.string().optional(),
         position: z.number().optional(),
       },

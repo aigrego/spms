@@ -59,11 +59,11 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_list_companies` | — | **新增**：公司列表（id/key/name/description）；公司级 key 只返回本公司 |
 | `spms_list_issues` | `status? type? priority? assignee? project? sprint?` | Issue 列表（筛选均可选；type=bug 即缺陷列表） |
 | `spms_get_issue` | `key` | Issue 详情（含 labels/subIssues/activities 评论流/attachments 附件）；图片附件同时以 image 内容块返回，Agent 可直接看图识别 |
-| `spms_list_requirements` | `project? type?` | 需求列表（附关联 issue 完成度） |
+| `spms_list_requirements` | `project? type? sprint?` | 需求列表（附关联 issue 完成度） |
 | `spms_get_requirement` | `key` | 需求详情（PRD 描述/验收标准/关联 issue） |
 | `spms_list_projects` | — | 项目列表（含派生进度） |
 | `spms_list_sprints` | — | 迭代列表 |
-| `spms_get_sprint` | `id` | 迭代详情（含 committed/completed 点数统计） |
+| `spms_get_sprint` | `id` | 迭代详情（含关联需求列表 + committed/completed 点数统计） |
 | `spms_list_test_cases` | `project? requirement? status? result?` | 测试用例列表 |
 | `spms_list_plans` | `project?` | **新增**：开发计划列表（按创建时间倒序；requirements 为关联需求展示 key 数组） |
 | `spms_get_plan` | `key` | **新增**：开发计划详情（markdown 正文/模板/关联需求） |
@@ -78,14 +78,14 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_update_issue` | `key, ...任意可更新字段` | 改状态/指派/优先级/标题/描述等。`status='done'` 会被拦截并实际落库 `testing`，未显式传 `assigneeId` 时自动指派测试人员并写说明评论 |
 | `spms_add_comment` | `key, body` | 给 issue 加评论 |
 | `spms_upload_issue_attachment` | `key, filename, data, contentType?` | 上传图片附件（data 为 base64；≤10MB，jpeg/png/gif/webp/avif）。配合 `spms_update_issue`（status='done'）实现"传图并关单" |
-| `spms_create_requirement` | `projectId, title, type?, category?, priority?, importance?, description?, acceptanceCriteria?, releaseId?` | 创建需求（自动分配 FR/NFR key） |
-| `spms_update_requirement` | `key, ...` | 更新需求 |
+| `spms_create_requirement` | `projectId, title, type?, category?, priority?, importance?, description?, acceptanceCriteria?, releaseId?, sprintId?, assigneeId?` | 创建需求（自动分配 FR/NFR key）；sprintId 直接关联迭代（纯 AI 开发可不拆 issue 按需求开发；迭代项目口径冲突报 LIFECYCLE_MISMATCH） |
+| `spms_update_requirement` | `key, ...` | 更新需求；sprintId 关联/移出迭代（null 移出），assigneeId 指派负责人（null 取消） |
 | `spms_decompose_requirement` | `key` | **新增**：把需求拆解为工单（按验收标准逐行、空则回退 PRD 描述逐行；继承项目/紧急度/重要度，一次最多 20 条、key 连号） |
 | `spms_create_test_case` | `projectId, title, requirementId?, priority?, preconditions?, steps?, expected?` | 创建测试用例 |
 | `spms_update_test_case` | `key, ...` | 更新用例（含 result: passed/failed/blocked） |
 | `spms_move_issue_to_sprint` | `sprintId（或 '_backlog'）, issueKey, storyPoints?` | 移入/移出迭代 |
 | `spms_start_sprint` | `id` | 启动迭代（planned → active；迭代可跨多项目，任一项目已有进行中迭代即冲突） |
-| `spms_complete_sprint` | `id` | 完成迭代（active → completed；未完成 Issue 移回待办，返回 movedCount） |
+| `spms_complete_sprint` | `id` | 完成迭代（active → completed；未完成 Issue 移回待办、未交付需求退出迭代，返回 movedCount 合计） |
 | `spms_create_project` | `name, releaseId?, leadId?, target?, description?` | 创建项目 |
 | `spms_update_project` | `id, name?, releaseId?, status?, leadId?, aiLeadId?, icon?, color?, target?, description?, summary?, goal?, nonGoals?` | **新增**：更新项目（releaseId 换绑版本即调整关联） |
 | `spms_create_plan` | `projectId, title, requirementIds?, templateMd?` | **新增**：创建开发计划（自动 PLAN-N key，初始 draft/待生成；requirementIds 传需求展示 key 数组）。Agent 生成内容后调 `spms_update_plan` 写入 content 并置 `generated` |

@@ -60,10 +60,10 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/requirements?project&type` | position asc；附 `issues: string[]`（展示 keys）+ `issueStats:{total,done}`；排除归属已归档项目的需求 |
+| GET | `/requirements?project&type&sprint` | position asc；附 `issues: string[]`（展示 keys）+ `issueStats:{total,done}`；排除归属已归档项目的需求 |
 | GET | `/requirements/:key` | 不存在 → `ok(null)` |
-| POST | `/requirements` | projectId/title 必填；key 按 type 分配 FR-N / NFR-N；functional 强制 category=null |
-| PATCH | `/requirements/:key` | 部分更新；type 改 functional 清 category |
+| POST | `/requirements` | projectId/title 必填；key 按 type 分配 FR-N / NFR-N；functional 强制 category=null；可带 sprintId（迭代有项目时需求的项目必须在其中，否则 LIFECYCLE_MISMATCH）/ assigneeId |
+| PATCH | `/requirements/:key` | 部分更新；type 改 functional 清 category；sprintId/assigneeId 传 null 解除；触及 sprint/project 关联时才重新校验迭代项目口径 |
 | DELETE | `/requirements/:key` | 硬删（引用 set null） |
 
 ## Projects
@@ -84,14 +84,14 @@
 | GET | `/sprints?team` | 列表 |
 | POST | `/sprints` | **新增**（原系统无）：name/startDate/endDate/projectIds（数组，可跨多项目）等 |
 | PATCH | `/sprints/:id` | **新增**：部分更新（projectIds 整体替换） |
-| DELETE | `/sprints/:id` | **新增**：issues.sprintId set null 后删 |
+| DELETE | `/sprints/:id` | **新增**：issues/requirements 的 sprintId set null 后删 |
 | GET | `/sprints/backlog?team` | 产品待办：sprintId IS NULL 且 status=todo（待处理）的 issues，backlogRank asc；其他状态及已归档（含已归档项目的）一律不进 |
 | GET | `/sprints/velocity?team` | 每 sprint committed/completed/capacity + avgVelocity |
-| GET | `/sprints/:id` | 元数据 + committed issues + stats |
+| GET | `/sprints/:id` | 元数据 + committed issues + 关联需求（requirements）+ stats |
 | GET | `/sprints/:id/burndown` | ideal 线性 + snapshots actual |
 | PATCH | `/sprints/:id/issues/:issueKey` | 移入/移出（`:id` 可为 `_backlog`）；迭代有项目时 issue 的项目必须在其中（否则 LIFECYCLE_MISMATCH），issue 无项目且迭代恰好一个项目时自动归属 |
 | POST | `/sprints/:id/start` | planned → active；迭代任一项目已有进行中迭代 → CONFLICT（PATCH 直改 status=active 同样校验） |
-| POST | `/sprints/:id/complete` | active → completed；未完成（非 done/canceled）issues sprintId set null 移回待办，返回 `{ sprint, movedCount }` |
+| POST | `/sprints/:id/complete` | active → completed；未完成（非 done/canceled）issues sprintId set null 移回待办，未交付（非 shipped/rejected）需求同样退出迭代，返回 `{ sprint, movedCount }`（两者合计） |
 
 ## Catalog 生命周期目录
 
