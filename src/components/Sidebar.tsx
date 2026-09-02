@@ -231,7 +231,7 @@ export function Sidebar({ myCount }: { myCount: number }) {
             后续需要时恢复。 */}
       </div>
 
-      {/* Bottom: agent access + settings, visible to every signed-in user. */}
+      {/* Bottom: agent access + Notion 集成(按 notion 模块权限显隐)+ settings。 */}
       <div className="flex-none border-t border-border px-3 py-2">
         <div className="flex flex-col gap-px">
           <NavItem
@@ -240,12 +240,14 @@ export function Sidebar({ myCount }: { myCount: number }) {
             active={pathname.startsWith('/agent-access')}
             href="/agent-access"
           />
-          <NavItem
-            icon={<Plug size={16} />}
-            label={t('nav.notionIntegration')}
-            active={pathname.startsWith('/integrations')}
-            href="/integrations"
-          />
+          {can('notion', 'read') && (
+            <NavItem
+              icon={<Plug size={16} />}
+              label={t('nav.notionIntegration')}
+              active={pathname.startsWith('/integrations')}
+              href="/integrations"
+            />
+          )}
           <NavItem
             icon={<Settings size={16} />}
             label={t('nav.settings')}

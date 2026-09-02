@@ -10,7 +10,7 @@ import { syncNotion } from '@/server/services/notionSync';
    用于 issue 被直接删除后的重建。 */
 export const POST = route(async (req) => {
   const actor = await requireActor();
-  await requirePerm(actor, 'issues', 'write');
+  await requirePerm(actor, 'notion', 'write');
   const full = req.nextUrl.searchParams.get('full') === '1';
   return ok(await syncNotion(actor, { full }));
 });

@@ -11,9 +11,11 @@ import { hashPassword } from '@/lib/password';
 import {
   CONFIGURABLE_ROLES,
   MODULES,
+  COMPANY_MODULES,
   LEVELS,
   getMatrix,
   invalidateMatrixCache,
+  type CompanyMatrix,
   type Matrix,
 } from '@/lib/permissions';
 import type { Actor } from './types';
@@ -379,11 +381,11 @@ export async function removeMember(actor: Actor, companyId: string, membershipId
 
 /* ========================= Role permission matrix ========================= */
 
-function validateMatrix(matrix: Matrix): void {
+function validateMatrix(matrix: Matrix | CompanyMatrix, mods: readonly string[]): void {
   for (const role of CONFIGURABLE_ROLES) {
-    const row = matrix[role];
+    const row = matrix[role] as Record<string, string> | undefined;
     if (!row) throw new ApiException('VALIDATION_FAILED', `缺少角色 ${role} 的权限配置`);
-    for (const mod of MODULES) {
+    for (const mod of mods) {
       const level = row[mod];
       if (!level || !(LEVELS as readonly string[]).includes(level)) {
         throw new ApiException('VALIDATION_FAILED', `权限档位不合法（${role}.${mod}）`);
@@ -392,18 +394,18 @@ function validateMatrix(matrix: Matrix): void {
   }
 }
 
-async function upsertMatrix(scope: string, matrix: Matrix): Promise<void> {
+async function upsertMatrix(scope: string, matrix: Matrix | CompanyMatrix, mods: readonly string[]): Promise<void> {
   // 整矩阵(4 角色 × N 模块)的多条 upsert 必须同生同灭 → 一个事务,
   // 不留"一半角色是新配置"的半截状态。
   await db.transaction(async (tx) => {
     for (const role of CONFIGURABLE_ROLES) {
-      for (const mod of MODULES) {
+      for (const mod of mods) {
         await tx
           .insert(rolePermissions)
-          .values({ companyId: scope, role, module: mod, level: matrix[role][mod] })
+          .values({ companyId: scope, role, module: mod, level: (matrix[role] as Record<string, string>)[mod] })
           .onConflictDoUpdate({
             target: [rolePermissions.companyId, rolePermissions.role, rolePermissions.module],
-            set: { level: matrix[role][mod] },
+            set: { level: (matrix[role] as Record<string, string>)[mod] },
           });
       }
     }
@@ -417,7 +419,7 @@ function requireCompanyMatrixAccess(actor: Actor, companyId: string): void {
   throw new ApiException('FORBIDDEN', '需要公司管理员权限', 403);
 }
 
-/* ---- the full 4 roles × 10 modules matrix (every cell has a value) ---- */
+/* ---- the full 4 roles × 11 modules GLOBAL matrix (every cell has a value) ---- */
 export async function getPermissionsMatrix(actor: Actor) {
   requirePlatformAdmin(actor);
   return { roles: CONFIGURABLE_ROLES, modules: MODULES, matrix: await getMatrix() };
@@ -426,27 +428,27 @@ export async function getPermissionsMatrix(actor: Actor) {
 /* ---- replace the GLOBAL default matrix (scope ''): validate, upsert, bust cache ---- */
 export async function savePermissionsMatrix(actor: Actor, matrix: Matrix) {
   requirePlatformAdmin(actor);
-  validateMatrix(matrix);
-  await upsertMatrix('', matrix);
+  validateMatrix(matrix, MODULES);
+  await upsertMatrix('', matrix, MODULES);
   invalidateMatrixCache();
   return { roles: CONFIGURABLE_ROLES, modules: MODULES, matrix: await getMatrix() };
 }
 
-/* ---- a company's effective matrix (global default + 本公司覆盖) ---- */
+/* ---- a company's effective matrix (global default + 本公司覆盖,12 模块含公司专属 notion) ---- */
 export async function getCompanyMatrix(actor: Actor, companyId: string) {
   requireCompanyMatrixAccess(actor, companyId);
   if (!(await companyExists(companyId))) throw new ApiException('NOT_FOUND', '公司不存在');
-  return { roles: CONFIGURABLE_ROLES, modules: MODULES, matrix: await getMatrix(companyId) };
+  return { roles: CONFIGURABLE_ROLES, modules: COMPANY_MODULES, matrix: await getMatrix(companyId) };
 }
 
 /* ---- replace a company's override matrix ---- */
-export async function saveCompanyMatrix(actor: Actor, companyId: string, matrix: Matrix) {
+export async function saveCompanyMatrix(actor: Actor, companyId: string, matrix: CompanyMatrix) {
   requireCompanyMatrixAccess(actor, companyId);
   if (!(await companyExists(companyId))) throw new ApiException('NOT_FOUND', '公司不存在');
-  validateMatrix(matrix);
-  await upsertMatrix(companyId, matrix);
+  validateMatrix(matrix, COMPANY_MODULES);
+  await upsertMatrix(companyId, matrix, COMPANY_MODULES);
   invalidateMatrixCache(companyId);
-  return { roles: CONFIGURABLE_ROLES, modules: MODULES, matrix: await getMatrix(companyId) };
+  return { roles: CONFIGURABLE_ROLES, modules: COMPANY_MODULES, matrix: await getMatrix(companyId) };
 }
 
 /* =============================== MCP API keys =============================== */

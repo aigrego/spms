@@ -51,7 +51,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 `id` PK · `userId` NN → users cascade · `companyId` NN → companies cascade · `role` NN（`company_admin | product_manager | developer | tester | viewer`）· `createdAt` NN · 唯一 `(userId, companyId)`
 
 ### role_permissions（新增，角色×模块权限矩阵，两层：全局默认 + 公司覆盖）
-复合 PK `(companyId, role, module)` · `companyId` NN 默认 `''`（`''` = 全局默认层，无 FK；非空 = 该公司对全局的按单元格覆盖，生效值 = 全局 + 覆盖）· `role` NN（4 个可配置角色：product_manager/developer/tester/viewer）· `module` NN（11 个模块：issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents/reports）· `level` NN（`none | read | write`）
+复合 PK `(companyId, role, module)` · `companyId` NN 默认 `''`（`''` = 全局默认层，无 FK；非空 = 该公司对全局的按单元格覆盖，生效值 = 全局 + 覆盖）· `role` NN（4 个可配置角色：product_manager/developer/tester/viewer）· `module` NN（全局层 11 个模块：issues/products/requirements/testcases/projects/resources/roadmap/backlog/sprints/agents/reports；公司层额外多一个 `notion` 模块（Notion 集成，全局层无此行，缺省 `none` = 仅管理员可见，公司在权限矩阵按角色放开））· `level` NN（`none | read | write`）
 —— `company_admin` 与平台管理员恒全权限，不入此表；缺失行按 `none` 处理。
 
 ### mcp_api_keys（新增，MCP 接入密钥）

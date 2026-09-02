@@ -432,7 +432,7 @@ async function syncPage(
    永远拉不回这些页)。幂等不变:映射仍在且未变更的页照旧 skipped,只有缺失/
    变更的页才会创建/更新。 */
 export async function syncNotion(actor: Actor, opts?: { full?: boolean }): Promise<NotionSyncResult> {
-  await requirePerm(actor, 'issues', 'write');
+  await requirePerm(actor, 'notion', 'write');
   const [conn] = await db
     .select()
     .from(notionConnections)

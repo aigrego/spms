@@ -128,6 +128,7 @@ export const MODULE_LABELS: Record<string, string> = {
   backlog: '产品待办',
   sprints: '迭代',
   agents: 'AI Agents',
+  notion: 'Notion 集成',
 };
 
 export const PERM_LEVEL_LABELS: Record<PermLevel, string> = {

@@ -10,7 +10,7 @@ import { queryDatabaseFirstPage } from '@/server/notion';
    数据库最近编辑的一条记录,返回原始 Notion page JSON,用于核对字段映射。 */
 export const GET = route(async () => {
   const actor = await requireActor();
-  await requirePerm(actor, 'issues', 'write');
+  await requirePerm(actor, 'notion', 'write');
   const [conn] = await db
     .select()
     .from(notionConnections)

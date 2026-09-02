@@ -552,7 +552,7 @@ export type OAuthEntry = { configured: true; url?: string } | null;
    fields are missing. */
 export type CompanyRole = 'company_admin' | 'product_manager' | 'developer' | 'tester' | 'viewer';
 export type PermLevel = 'none' | 'read' | 'write';
-// The 11 RBAC modules; values are 'none' | 'read' | 'write'.
+// RBAC modules (notion 仅公司作用域,不进全局矩阵); values are 'none' | 'read' | 'write'.
 export type ModuleKey =
   | 'issues'
   | 'products'
@@ -564,7 +564,8 @@ export type ModuleKey =
   | 'backlog'
   | 'sprints'
   | 'agents'
-  | 'reports';
+  | 'reports'
+  | 'notion';
 
 export interface SessionCompany {
   id: string;

@@ -29,6 +29,8 @@ const PATH_MODULE: [string, ModuleKey][] = [
   ['/backlog', 'backlog'],
   ['/sprints', 'sprints'],
   ['/reports', 'reports'],
+  // Notion 集成:公司作用域模块,缺省仅管理员可见。
+  ['/integrations', 'notion'],
 ];
 
 // Redirect preference order when the current module is not readable.

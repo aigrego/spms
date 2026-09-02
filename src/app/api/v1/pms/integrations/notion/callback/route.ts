@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const actor = await requireActor(); // session + current-company resolution
-    await requirePerm(actor, 'issues', 'write');
+    await requirePerm(actor, 'notion', 'write');
     const tok = await exchangeCode(code, req.nextUrl.origin);
 
     const [existing] = await db

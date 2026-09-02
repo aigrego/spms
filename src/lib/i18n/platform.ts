@@ -23,6 +23,7 @@ export const dict: Record<Locale, Record<string, string>> = {
     'platform.module.backlog': '产品待办',
     'platform.module.sprints': '迭代',
     'platform.module.agents': 'AI Agents',
+    'platform.module.notion': 'Notion 集成',
     'platform.permLevel.none': '不可见',
     'platform.permLevel.read': '只读',
     'platform.permLevel.write': '读写',
@@ -148,12 +149,13 @@ export const dict: Record<Locale, Record<string, string>> = {
     'companies.descOptional': '描述(可选)',
 
     // 权限矩阵
-    'matrix.titleGlobal': '权限矩阵 · 全局',
-    'matrix.titleCompany': '权限矩阵 · 本公司',
+    'matrix.titleGlobal': '平台权限',
+    'matrix.titleCompany': '权限矩阵',
     'matrix.loadFailed': '权限矩阵加载失败',
     'matrix.descGlobal':
-      '全局默认矩阵,对所有公司生效;公司可在「权限矩阵 · 本公司」按单元格覆盖。公司管理员恒为全部权限。',
-    'matrix.descCompany': '本公司矩阵在全局默认的基础上按单元格覆盖生效。公司管理员恒为全部权限。',
+      '全局默认矩阵,对所有公司生效;公司可在「权限矩阵」按单元格覆盖。公司管理员恒为全部权限。',
+    'matrix.descCompany':
+      '本公司矩阵在全局默认的基础上按单元格覆盖生效;Notion 集成为公司专属模块,缺省仅管理员可见。公司管理员恒为全部权限。',
     'matrix.module': '模块',
   },
   en: {
@@ -174,6 +176,7 @@ export const dict: Record<Locale, Record<string, string>> = {
     'platform.module.backlog': 'Backlog',
     'platform.module.sprints': 'Sprints',
     'platform.module.agents': 'AI Agents',
+    'platform.module.notion': 'Notion integration',
     'platform.permLevel.none': 'Hidden',
     'platform.permLevel.read': 'Read-only',
     'platform.permLevel.write': 'Read-write',
@@ -295,13 +298,13 @@ export const dict: Record<Locale, Record<string, string>> = {
     'companies.keyInvalid': 'Key may only contain lowercase letters, digits and hyphens',
     'companies.descOptional': 'Description (optional)',
 
-    'matrix.titleGlobal': 'Permission matrix · Global',
-    'matrix.titleCompany': 'Permission matrix · This company',
+    'matrix.titleGlobal': 'Platform permissions',
+    'matrix.titleCompany': 'Permission matrix',
     'matrix.loadFailed': 'Failed to load the permission matrix',
     'matrix.descGlobal':
-      'The global default matrix applies to all companies; each company can override cells in "Permission matrix · This company". Company admins always have full permission.',
+      'The global default matrix applies to all companies; each company can override cells in "Permission matrix". Company admins always have full permission.',
     'matrix.descCompany':
-      'This company matrix overrides the global defaults cell by cell. Company admins always have full permission.',
+      'This company matrix overrides the global defaults cell by cell; the Notion integration module is company-only and defaults to admins only. Company admins always have full permission.',
     'matrix.module': 'Module',
   },
   'zh-TW': {
@@ -322,6 +325,7 @@ export const dict: Record<Locale, Record<string, string>> = {
     'platform.module.backlog': '產品待辦',
     'platform.module.sprints': '迭代',
     'platform.module.agents': 'AI Agents',
+    'platform.module.notion': 'Notion 整合',
     'platform.permLevel.none': '不可見',
     'platform.permLevel.read': '唯讀',
     'platform.permLevel.write': '讀寫',
@@ -442,12 +446,13 @@ export const dict: Record<Locale, Record<string, string>> = {
     'companies.keyInvalid': 'key 只能包含小寫字母、數字和連字號',
     'companies.descOptional': '描述(選填)',
 
-    'matrix.titleGlobal': '權限矩陣 · 全域',
-    'matrix.titleCompany': '權限矩陣 · 本公司',
+    'matrix.titleGlobal': '平台權限',
+    'matrix.titleCompany': '權限矩陣',
     'matrix.loadFailed': '權限矩陣載入失敗',
     'matrix.descGlobal':
-      '全域預設矩陣,對所有公司生效;公司可在「權限矩陣 · 本公司」按儲存格覆蓋。公司管理員恆為全部權限。',
-    'matrix.descCompany': '本公司矩陣在全域預設的基礎上按儲存格覆蓋生效。公司管理員恆為全部權限。',
+      '全域預設矩陣,對所有公司生效;公司可在「權限矩陣」按儲存格覆蓋。公司管理員恆為全部權限。',
+    'matrix.descCompany':
+      '本公司矩陣在全域預設的基礎上按儲存格覆蓋生效;Notion 整合為公司專屬模組,缺省僅管理員可見。公司管理員恆為全部權限。',
     'matrix.module': '模組',
   },
 };

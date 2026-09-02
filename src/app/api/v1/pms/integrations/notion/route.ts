@@ -41,7 +41,7 @@ async function connectionFor(actor: Actor): Promise<ConnectionRow | null> {
    rules (数据库状态选项 ∪ 已存规则,未配置的按默认映射猜测、默认同步)。 */
 export const GET = route(async (req) => {
   const actor = await requireActor();
-  await requirePerm(actor, 'issues', 'write');
+  await requirePerm(actor, 'notion', 'read');
   const conn = await connectionFor(actor);
   const out: Record<string, unknown> = {
     configured: notionConfigured(),
@@ -99,7 +99,7 @@ function validateStatusMap(input: unknown): NotionStatusRule[] | null {
    target project. Only the listed fields are updatable. */
 export const PATCH = route(async (req) => {
   const actor = await requireActor();
-  await requirePerm(actor, 'issues', 'write');
+  await requirePerm(actor, 'notion', 'write');
   const body = await jsonBody<PatchBody>(req);
 
   const set: Partial<ConnectionRow> = { updatedAt: new Date() };
@@ -139,7 +139,7 @@ export const PATCH = route(async (req) => {
    notion_issue_links 随 connectionId cascade 一并删除(重连后重新全量)。 */
 export const DELETE = route(async () => {
   const actor = await requireActor();
-  await requirePerm(actor, 'issues', 'write');
+  await requirePerm(actor, 'notion', 'write');
   const conn = await connectionFor(actor);
   if (!conn) throw new ApiException('NOT_FOUND', '尚未连接 Notion');
   await db.delete(notionConnections).where(eq(notionConnections.id, conn.id));
