@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutGrid,
   Box,
@@ -19,10 +19,16 @@ import {
   Plug,
   BarChart3,
   Compass,
+  ChevronDown,
 } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent, MenuItem } from '@/components/ui/popover';
+import { ProjectIcon } from '@/components/glyphs/misc';
+import { usePersistentState } from '@/lib/prefs';
 import { useAppData } from '@/store/AppData';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+
+const isStr = (v: unknown): v is string => typeof v === 'string';
 
 function NavItem({
   icon,
@@ -70,6 +76,80 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
       <span className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-fg-3">
         {children}
       </span>
+    </div>
+  );
+}
+
+/* 项目菜单项:Link + 右侧筛选触发钮(hover 淡入,弹层打开或筛选生效时常驻,
+   生效中显示选中项目的彩色图标)。筛选框向右弹出:全部 + 未归档项目;选中写入
+   浏览器记忆(projects.navFilter)并跳 /projects,该项目页共用同一 key。 */
+function ProjectsNavItem({ active }: { active: boolean }) {
+  const t = useT();
+  const router = useRouter();
+  const { projects } = useAppData();
+  const [navFilter, setNavFilter] = usePersistentState<string>('projects.navFilter', 'all', isStr);
+  const [open, setOpen] = React.useState(false);
+  // 失效自愈:指向已删除/其他公司项目的筛选按 'all' 处理。
+  const activeProject = navFilter !== 'all' ? projects.find((p) => p.id === navFilter) : undefined;
+  const effective = activeProject ? activeProject.id : 'all';
+  const list = projects.filter((p) => !p.archivedAt);
+
+  const pick = (id: string) => {
+    setNavFilter(id);
+    setOpen(false);
+    router.push('/projects');
+  };
+
+  return (
+    <div className="group flex items-center">
+      <Link
+        href="/projects"
+        className={cn(
+          'flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-md py-1 pl-2 pr-1 text-[13.5px] transition-colors',
+          active ? 'font-semibold text-brand-blue' : 'font-medium text-fg-2 hover:bg-surface-2',
+        )}
+        style={active ? { background: 'var(--brand-blue-tint-8)' } : undefined}
+      >
+        <span style={{ color: active ? 'var(--brand-blue)' : 'var(--fg-3)' }}>
+          <Box size={16} />
+        </span>
+        <span className="flex-1 truncate">{t('nav.projects')}</span>
+      </Link>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            title={t('nav.filterProjects')}
+            className={cn(
+              'mr-1 grid h-5 w-5 flex-none place-items-center rounded text-fg-3 transition-opacity hover:bg-surface-sunken hover:text-fg-1',
+              open || effective !== 'all' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+            )}
+          >
+            {activeProject ? (
+              <span className="grid h-4 w-4 place-items-center rounded" style={{ background: activeProject.color }}>
+                <ProjectIcon name={activeProject.icon} size={10} />
+              </span>
+            ) : (
+              <ChevronDown size={14} />
+            )}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent side="right" align="start" style={{ width: 220 }}>
+          <MenuItem label={t('common.all')} selected={effective === 'all'} onClick={() => pick('all')} />
+          {list.map((p) => (
+            <MenuItem
+              key={p.id}
+              glyph={
+                <span className="grid h-4 w-4 flex-none place-items-center rounded" style={{ background: p.color }}>
+                  <ProjectIcon name={p.icon} size={11} />
+                </span>
+              }
+              label={p.name}
+              selected={effective === p.id}
+              onClick={() => pick(p.id)}
+            />
+          ))}
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -166,14 +246,7 @@ export function Sidebar({ myCount }: { myCount: number }) {
                 active={pathname.startsWith('/guide')}
                 href="/guide"
               />
-              {showProjects && (
-                <NavItem
-                  icon={<Box size={16} />}
-                  label={t('nav.projects')}
-                  active={pathname.startsWith('/projects')}
-                  href="/projects"
-                />
-              )}
+              {showProjects && <ProjectsNavItem active={pathname.startsWith('/projects')} />}
               {showResources && (
                 <NavItem
                   icon={<Users size={16} />}

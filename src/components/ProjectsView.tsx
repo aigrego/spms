@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Hash, Target, Archive, Filter, SlidersHorizontal } from 'lucide-react';
+import { Plus, Hash, Target, Archive, Filter, SlidersHorizontal, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverTrigger, PopoverContent, MenuItem } from '@/components/ui/popover';
@@ -192,16 +192,21 @@ export function ProjectsView() {
   const [groupBy, setGroupBy] = usePersistentState<GroupBy>('projects.groupBy', 'none', isGroupBy);
   // 已归档项目卡片默认隐藏,可切换查看。
   const [showArchived, setShowArchived] = usePersistentState<boolean>('projects.showArchived', false, isBoolean);
+  // 侧边栏「项目」菜单的项目筛选:同一浏览器记忆 key,选中即过滤本页网格。
+  const [navFilter, setNavFilter] = usePersistentState<string>('projects.navFilter', 'all', isProductFilter);
   const [fltOpen, setFltOpen] = React.useState(false);
   const [grpOpen, setGrpOpen] = React.useState(false);
 
   const mineSet = React.useMemo(() => new Set(myProjectIds), [myProjectIds]);
+  // 失效自愈:指向已删除/其他公司项目的筛选按 'all' 处理。
+  const navProject = navFilter !== 'all' ? projects.find((p) => p.id === navFilter) : undefined;
   // 顶层筛选(范围、产品)先应用,分组在结果集上进行。
   const shownProjects = projects.filter(
     (p) =>
       (showArchived || !p.archivedAt) &&
       (scope === 'all' || mineSet.has(p.id)) &&
-      (productFilter === 'all' || releaseById(p.releaseId)?.productId === productFilter),
+      (productFilter === 'all' || releaseById(p.releaseId)?.productId === productFilter) &&
+      (!navProject || p.id === navProject.id),
   );
 
   // 分组:不分组时单组直出网格;状态/负责人分组跳过空组。
@@ -249,6 +254,20 @@ export function ProjectsView() {
           )}
         </div>
         <div className="flex items-center gap-2 px-6 pb-3">
+          {/* 侧边栏「项目」菜单的筛选生效中:chip 提示,点击清除。 */}
+          {navProject && (
+            <button
+              onClick={() => setNavFilter('all')}
+              title={t('projects.clearNavFilter')}
+              className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-brand-blue bg-brand-blue/10 px-2.5 text-[13px] font-medium text-brand-blue"
+            >
+              <span className="grid h-4 w-4 flex-none place-items-center rounded" style={{ background: navProject.color }}>
+                <ProjectIcon name={navProject.icon} size={11} />
+              </span>
+              {navProject.name}
+              <X size={13} />
+            </button>
+          )}
           {/* 筛选(按产品):项目经 release 归属产品。 */}
           <Popover open={fltOpen} onOpenChange={setFltOpen}>
             <PopoverTrigger asChild>
