@@ -80,77 +80,82 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-/* 项目菜单项:Link + 右侧筛选触发钮(hover 淡入,弹层打开或筛选生效时常驻,
-   生效中显示选中项目的彩色图标)。筛选框向右弹出:全部 + 未归档项目;选中写入
-   浏览器记忆(projects.navFilter)并跳 /projects,该项目页共用同一 key。 */
-function ProjectsNavItem({ active }: { active: boolean }) {
+/* 左侧菜单的快捷筛选项:整行即触发器,点击向右弹出筛选框(全部 + 条目列表);
+   选中写入页面内同一个浏览器记忆 key 并跳转对应页面 —— 与页面工具栏的筛选是
+   同一状态、两处入口。右侧常驻 chevron;筛选生效时换成选中条目的彩色图标。 */
+function FilterNavItem({
+  active,
+  icon,
+  label,
+  title,
+  prefKey,
+  items,
+  navigateTo,
+}: {
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  title: string;
+  prefKey: string;
+  items: { id: string; name: string; color: string; icon: string }[];
+  navigateTo: string;
+}) {
   const t = useT();
   const router = useRouter();
-  const { projects } = useAppData();
-  const [navFilter, setNavFilter] = usePersistentState<string>('projects.navFilter', 'all', isStr);
+  const [value, setValue] = usePersistentState<string>(prefKey, 'all', isStr);
   const [open, setOpen] = React.useState(false);
-  // 失效自愈:指向已删除/其他公司项目的筛选按 'all' 处理。
-  const activeProject = navFilter !== 'all' ? projects.find((p) => p.id === navFilter) : undefined;
-  const effective = activeProject ? activeProject.id : 'all';
-  const list = projects.filter((p) => !p.archivedAt);
+  // 失效自愈:指向已删除/其他公司条目的筛选按 'all' 处理。
+  const activeItem = value !== 'all' ? items.find((i) => i.id === value) : undefined;
+  const effective = activeItem ? activeItem.id : 'all';
 
   const pick = (id: string) => {
-    setNavFilter(id);
+    setValue(id);
     setOpen(false);
-    router.push('/projects');
+    router.push(navigateTo);
   };
 
   return (
-    <div className="group flex items-center">
-      <Link
-        href="/projects"
-        className={cn(
-          'flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-md py-1 pl-2 pr-1 text-[13.5px] transition-colors',
-          active ? 'font-semibold text-brand-blue' : 'font-medium text-fg-2 hover:bg-surface-2',
-        )}
-        style={active ? { background: 'var(--brand-blue-tint-8)' } : undefined}
-      >
-        <span style={{ color: active ? 'var(--brand-blue)' : 'var(--fg-3)' }}>
-          <Box size={16} />
-        </span>
-        <span className="flex-1 truncate">{t('nav.projects')}</span>
-      </Link>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            title={t('nav.filterProjects')}
-            className={cn(
-              'mr-1 grid h-5 w-5 flex-none place-items-center rounded text-fg-3 transition-opacity hover:bg-surface-sunken hover:text-fg-1',
-              open || effective !== 'all' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-            )}
-          >
-            {activeProject ? (
-              <span className="grid h-4 w-4 place-items-center rounded" style={{ background: activeProject.color }}>
-                <ProjectIcon name={activeProject.icon} size={10} />
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          title={title}
+          className={cn(
+            'flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1 text-left text-[13.5px] transition-colors',
+            active ? 'font-semibold text-brand-blue' : 'font-medium text-fg-2 hover:bg-surface-2',
+          )}
+          style={active ? { background: 'var(--brand-blue-tint-8)' } : undefined}
+        >
+          <span style={{ color: active ? 'var(--brand-blue)' : 'var(--fg-3)' }}>{icon}</span>
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          {activeItem ? (
+            <span
+              className="grid h-4 w-4 flex-none place-items-center rounded"
+              style={{ background: activeItem.color }}
+            >
+              <ProjectIcon name={activeItem.icon} size={10} />
+            </span>
+          ) : (
+            <ChevronDown size={14} className="flex-none text-fg-3" />
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="right" align="start" style={{ width: 220 }}>
+        <MenuItem label={t('common.all')} selected={effective === 'all'} onClick={() => pick('all')} />
+        {items.map((p) => (
+          <MenuItem
+            key={p.id}
+            glyph={
+              <span className="grid h-4 w-4 flex-none place-items-center rounded" style={{ background: p.color }}>
+                <ProjectIcon name={p.icon} size={11} />
               </span>
-            ) : (
-              <ChevronDown size={14} />
-            )}
-          </button>
-        </PopoverTrigger>
-        <PopoverContent side="right" align="start" style={{ width: 220 }}>
-          <MenuItem label={t('common.all')} selected={effective === 'all'} onClick={() => pick('all')} />
-          {list.map((p) => (
-            <MenuItem
-              key={p.id}
-              glyph={
-                <span className="grid h-4 w-4 flex-none place-items-center rounded" style={{ background: p.color }}>
-                  <ProjectIcon name={p.icon} size={11} />
-                </span>
-              }
-              label={p.name}
-              selected={effective === p.id}
-              onClick={() => pick(p.id)}
-            />
-          ))}
-        </PopoverContent>
-      </Popover>
-    </div>
+            }
+            label={p.name}
+            selected={effective === p.id}
+            onClick={() => pick(p.id)}
+          />
+        ))}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -159,7 +164,7 @@ function ProjectsNavItem({ active }: { active: boolean }) {
    by the company-scoped RBAC permissions (P5): an entry needs read access to
    its module, and a section label is hidden when its whole group is gone. */
 export function Sidebar({ myCount }: { myCount: number }) {
-  const { can } = useAppData();
+  const { can, projects, products } = useAppData();
   const t = useT();
   const pathname = usePathname();
 
@@ -195,11 +200,15 @@ export function Sidebar({ myCount }: { myCount: number }) {
               active={isMyIssues}
               href="/my-issues"
             />
-            <NavItem
+            {/* 全部 Issues 的按项目快捷筛选:与页面工具栏筛选同一 key。 */}
+            <FilterNavItem
+              active={isAllIssues}
               icon={<Inbox size={16} />}
               label={t('nav.allIssues')}
-              active={isAllIssues}
-              href="/issues"
+              title={t('nav.filterProjects')}
+              prefKey="issues.projectFilter"
+              items={projects}
+              navigateTo="/issues"
             />
           </div>
         )}
@@ -246,7 +255,18 @@ export function Sidebar({ myCount }: { myCount: number }) {
                 active={pathname.startsWith('/guide')}
                 href="/guide"
               />
-              {showProjects && <ProjectsNavItem active={pathname.startsWith('/projects')} />}
+              {/* 项目的按产品快捷筛选:与页面工具栏筛选同一 key。 */}
+              {showProjects && (
+                <FilterNavItem
+                  active={pathname.startsWith('/projects')}
+                  icon={<Box size={16} />}
+                  label={t('nav.projects')}
+                  title={t('nav.filterProducts')}
+                  prefKey="projects.productFilter"
+                  items={products}
+                  navigateTo="/projects"
+                />
+              )}
               {showResources && (
                 <NavItem
                   icon={<Users size={16} />}
