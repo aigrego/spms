@@ -18,10 +18,10 @@ import { ProjectIcon } from '@/components/glyphs/misc';
 import { PriorityMenu, ImportanceMenu, ScopedAssigneeMenu } from '@/components/menus';
 import {
   REQUIREMENT_TYPE,
-  REQUIREMENT_STATUS,
   REQUIREMENT_STATUS_ORDER,
   REQUIREMENT_CATEGORY_ORDER,
   PRIORITY_ORDER,
+  requirementStatusTone,
 } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
@@ -824,7 +824,7 @@ function ReqStatusMenu({ value, onPick }: { value: RequirementStatus; onPick: (s
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button onClick={(e) => e.stopPropagation()}>
-          <Badge tone={REQUIREMENT_STATUS[value].tone} dot>{t(`reqStatus.${value}`)}</Badge>
+          <Badge tone={requirementStatusTone(value)} dot>{t(`reqStatus.${value}`)}</Badge>
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[140px]" onClick={(e) => e.stopPropagation()}>

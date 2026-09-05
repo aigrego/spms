@@ -15,7 +15,7 @@ import { AISlaBadge } from '@/components/glyphs/misc';
 import { ResourcePanelCompact } from '@/components/ResourcePanelCompact';
 import { Markdown } from '@/components/Markdown';
 import { SprintModal, ConfirmDeleteSprint, useSprintDict } from '@/components/SprintModal';
-import { SPRINT_STATUS, REQUIREMENT_STATUS } from '@/lib/constants';
+import { SPRINT_STATUS, requirementStatusTone } from '@/lib/constants';
 import { useDragHighlight } from '@/lib/useDragHighlight';
 import { useT } from '@/lib/i18n';
 import { ApiError } from '@/lib/api';
@@ -637,7 +637,7 @@ export function SprintsView({
                           <PriorityIcon priority={r.priority} size={15} />
                           <span className="flex-none font-mono text-[11px] text-fg-3">{r.id}</span>
                           <span className="min-w-0 flex-1 truncate text-[13px] text-fg-1">{r.title}</span>
-                          <Badge tone={REQUIREMENT_STATUS[r.status].tone} dot>
+                          <Badge tone={requirementStatusTone(r.status)} dot>
                             {t(`reqStatus.${r.status}`)}
                           </Badge>
                           <Avatar person={memberById(r.assigneeId)} size={20} />

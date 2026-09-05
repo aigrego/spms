@@ -142,6 +142,12 @@ export const REQUIREMENT_STATUS_ORDER: RequirementStatus[] = [
   'canceled',
 ];
 
+/* 部署先于迁移的窗口期兜底:服务端仍可能返回旧枚举值(draft/shipped 等),
+   未知状态按 neutral 渲染而不是整页崩溃。 */
+export function requirementStatusTone(status: string): Tone {
+  return (REQUIREMENT_STATUS as Record<string, { tone: Tone }>)[status]?.tone ?? 'neutral';
+}
+
 export const REQUIREMENT_CATEGORY_ORDER: RequirementCategory[] = [
   'performance',
   'security',

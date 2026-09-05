@@ -10,7 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger, MenuItem } from '@/components/
 import { Markdown } from '@/components/Markdown';
 import { Skeleton } from '@/components/StateBlock';
 import { Avatar } from '@/components/glyphs/Avatar';
-import { PLAN_STATUS, PLAN_STATUS_ORDER, REQUIREMENT_STATUS, REQUIREMENT_TYPE } from '@/lib/constants';
+import { PLAN_STATUS, PLAN_STATUS_ORDER, REQUIREMENT_TYPE, requirementStatusTone } from '@/lib/constants';
 import { formatDate } from '@/lib/time';
 import { useLocale, useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
@@ -137,7 +137,7 @@ function NewPlanDialog({
                       />
                       <span className="flex-none font-mono text-[11.5px] text-fg-3">{r.id}</span>
                       <span className="min-w-0 flex-1 truncate text-[13px] text-fg-1">{r.title}</span>
-                      <Badge tone={REQUIREMENT_STATUS[r.status].tone}>{t(`reqStatus.${r.status}`)}</Badge>
+                      <Badge tone={requirementStatusTone(r.status)}>{t(`reqStatus.${r.status}`)}</Badge>
                     </label>
                   ))
                 )}
