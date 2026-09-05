@@ -143,7 +143,7 @@ export async function createRequirement(actor: Actor, input: CreateRequirementIn
     category: type === 'non_functional' ? (input.category ?? null) : null,
     priority: input.priority ?? 'none',
     importance: input.importance ?? 'none',
-    status: input.status ?? 'draft',
+    status: input.status ?? 'todo',
     description: input.description ?? null,
     acceptanceCriteria: input.acceptanceCriteria ?? null,
     releaseId: input.releaseId ?? null,

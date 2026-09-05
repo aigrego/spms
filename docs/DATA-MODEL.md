@@ -24,7 +24,6 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 | release_status | `planned \| in_progress \| released \| deprecated` |
 | requirement_type | `functional \| non_functional` |
 | requirement_category | `performance \| security \| usability \| reliability \| compatibility \| maintainability`（仅 NFR） |
-| requirement_status | `draft \| reviewing \| approved \| in_dev \| shipped \| rejected` |
 | sprint_status | `planned \| active \| completed` |
 | test_case_status | `draft \| active \| deprecated` |
 | test_result | `untested \| passed \| failed \| blocked` |
@@ -93,7 +92,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 写入方是 `src/server/services/sprintSnapshots.ts` 的 `recordSprintSnapshot`：issue 状态/故事点/所属迭代变更、issue 创建/删除、迭代启动/完成时按当日 upsert（无定时任务；剩余点数 = 迭代内非 done issue 的点数和，与 getSprint stats 同口径）。
 
 ### requirements（需求/PRD）
-`id` PK · `key` unique NN（FR-N / NFR-N，创建后固定）· `projectId` NN → projects cascade · `releaseId` → releases set null · `sprintId` → sprints set null（需求直接关联迭代：纯 AI 开发可不拆 issue 按需求开发；完成迭代时非 shipped/rejected 的需求随未完成 issue 一并退出）· `title` NN · `type` NN 默认 functional · `category`（仅 NFR）· `priority` NN 默认 none · `importance` NN 默认 none · `status` NN 默认 draft · `description`（PRD 正文）· `acceptanceCriteria` · `assigneeId` / `authorId` / `aiOwnerId` → members · `position` NN 默认 0 · `createdAt` / `updatedAt` NN
+`id` PK · `key` unique NN（FR-N / NFR-N，创建后固定）· `projectId` NN → projects cascade · `releaseId` → releases set null · `sprintId` → sprints set null（需求直接关联迭代：纯 AI 开发可不拆 issue 按需求开发；完成迭代时非 done/canceled 的需求随未完成 issue 一并退出）· `title` NN · `type` NN 默认 functional · `category`（仅 NFR）· `priority` NN 默认 none · `importance` NN 默认 none · `status` NN 默认 todo（复用 issue_status 枚举，与 issue 同一状态机）· `description`（PRD 正文）· `acceptanceCriteria` · `assigneeId` / `authorId` / `aiOwnerId` → members · `position` NN 默认 0 · `createdAt` / `updatedAt` NN
 
 ### issues（核心工作项；缺陷 = type='bug'）
 `id` PK（内部，不出网）· `key` unique NN（BLG/TKT/BUG-N）· `teamId` → teams · `title` NN · `description` · `type` NN 默认 ticket · `status` NN 默认 todo · `priority` / `importance` NN 默认 none · `assigneeId` → members · `projectId` → projects set null · `requirementId` → requirements set null · `sprintId` → sprints set null · `estimate` int · `storyPoints` int · `backlogRank` int NN 默认 0 · `aiAssigned` bool NN 默认 false · `commentsCount` int NN 默认 0 · `archivedAt`（归档；全部 Issues/产品待办默认隐藏）· `completedAt`（进入 done 写入、离开清空；「最近一周完成」过滤依据；Notion 同步的 done 回写为页面 created_time）· `createdAt` / `updatedAt` NN

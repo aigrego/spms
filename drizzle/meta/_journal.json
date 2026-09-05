@@ -176,6 +176,13 @@
       "when": 1788005408733,
       "tag": "0024_cooing_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788603871197,
+      "tag": "0025_requirement_status_to_issue_status",
+      "breakpoints": true
     }
   ]
 }

@@ -91,7 +91,7 @@
 | GET | `/sprints/:id/burndown` | ideal 线性 + snapshots actual |
 | PATCH | `/sprints/:id/issues/:issueKey` | 移入/移出（`:id` 可为 `_backlog`）；迭代有项目时 issue 的项目必须在其中（否则 LIFECYCLE_MISMATCH），issue 无项目且迭代恰好一个项目时自动归属 |
 | POST | `/sprints/:id/start` | planned → active；迭代任一项目已有进行中迭代 → CONFLICT（PATCH 直改 status=active 同样校验） |
-| POST | `/sprints/:id/complete` | active → completed；未完成（非 done/canceled）issues sprintId set null 移回待办，未交付（非 shipped/rejected）需求同样退出迭代，返回 `{ sprint, movedCount }`（两者合计） |
+| POST | `/sprints/:id/complete` | active → completed；未完成（非 done/canceled）issues sprintId set null 移回待办，未完成（非 done/canceled）需求同样退出迭代，返回 `{ sprint, movedCount }`（两者合计） |
 
 ## Catalog 生命周期目录
 

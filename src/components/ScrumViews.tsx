@@ -3,7 +3,7 @@
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { useRouter } from 'next/navigation';
-import { Target, GripVertical, ArrowRight, Flame, Gauge, ChevronRight, ChevronDown, Plus, Pencil, Play, CheckCircle2, Trash2, FileText } from 'lucide-react';
+import { Target, GripVertical, ArrowRight, Flame, Gauge, ChevronRight, ChevronDown, Plus, Pencil, Play, CheckCircle2, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -610,49 +610,39 @@ export function SprintsView({
               </div>
             </div>
 
-            {/* committed requirements — 纯 AI 开发场景:需求不拆 issue,直接关联
-                迭代开发;点击跳需求详情。 */}
-            {detail.requirements.length > 0 && (
-              <div className="mb-5 rounded-[14px] border border-border bg-surface p-4 shadow-1">
-                <div className="mb-2.5 flex items-center gap-1.5 px-1 text-[12.5px] font-semibold text-fg-2">
-                  <FileText size={14} className="text-fg-3" /> {t('scrum.requirements')} · {detail.requirements.length}
-                </div>
-                <div className="flex flex-col gap-2">
-                  {detail.requirements.map((r) => (
-                    <div
-                      key={r.id}
-                      onClick={() => router.push(`/requirements/${encodeURIComponent(r.id)}`)}
-                      className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border bg-surface px-3 py-2 shadow-1 transition-shadow hover:shadow-2"
-                    >
-                      <PriorityIcon priority={r.priority} size={15} />
-                      <span className="flex-none font-mono text-[11px] text-fg-3">{r.id}</span>
-                      <span className="min-w-0 flex-1 truncate text-[13px] text-fg-1">{r.title}</span>
-                      <Badge tone={REQUIREMENT_STATUS[r.status].tone} dot>
-                        {t(`reqStatus.${r.status}`)}
-                      </Badge>
-                      <Avatar person={memberById(r.assigneeId)} size={20} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* sprint board (read-only columns; planning happens via drag & drop
-                on the backlog view) */}
+                on the backlog view). 需求卡片与 issue 同列展示(复用列的 match
+                规则;需求无故事点,不计入列头 pts),点击跳需求详情。 */}
             <div className="grid grid-cols-4 gap-4">
               {cols.map((col) => {
                 const items = detail.issues.filter((i) => col.match(i.status));
+                const reqs = detail.requirements.filter((r) => col.match(r.status));
                 const pts = items.reduce((s, i) => s + (i.storyPoints ?? 0), 0);
                 return (
                   <div key={col.k}>
                     <div className="mb-2.5 flex items-center gap-2">
                       <span className="text-[13px] font-semibold text-fg-1">{col.label}</span>
-                      <span className="text-[12px] text-fg-3">{items.length}</span>
+                      <span className="text-[12px] text-fg-3">{items.length + reqs.length}</span>
                       <span className="ml-auto rounded-full bg-surface-2 px-1.5 text-[11px] font-semibold text-fg-3">
                         {pts}
                       </span>
                     </div>
                     <div className="flex flex-col gap-2">
+                      {reqs.map((r) => (
+                        <div
+                          key={r.id}
+                          onClick={() => router.push(`/requirements/${encodeURIComponent(r.id)}`)}
+                          className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border bg-surface px-3 py-2 shadow-1 transition-shadow hover:shadow-2"
+                        >
+                          <PriorityIcon priority={r.priority} size={15} />
+                          <span className="flex-none font-mono text-[11px] text-fg-3">{r.id}</span>
+                          <span className="min-w-0 flex-1 truncate text-[13px] text-fg-1">{r.title}</span>
+                          <Badge tone={REQUIREMENT_STATUS[r.status].tone} dot>
+                            {t(`reqStatus.${r.status}`)}
+                          </Badge>
+                          <Avatar person={memberById(r.assigneeId)} size={20} />
+                        </div>
+                      ))}
                       {items.map((i) => (
                         <ScrumIssueRow key={i.id} issue={i} onOpen={(issueKey) => onOpen(sprintId, issueKey)} />
                       ))}
@@ -682,7 +672,7 @@ export function SprintsView({
             onOpenChange={setConfirmComplete}
             unfinished={
               detail.issues.filter((i) => !['done', 'canceled'].includes(i.status)).length +
-              detail.requirements.filter((r) => !['shipped', 'rejected'].includes(r.status)).length
+              detail.requirements.filter((r) => !['done', 'canceled'].includes(r.status)).length
             }
             busy={complete.isPending}
             error={lifecycleErr}

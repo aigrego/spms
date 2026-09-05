@@ -88,8 +88,8 @@ export function useDeleteSprint() {
 }
 
 /* Lifecycle: planned → active → completed. Completing also moves unfinished
-   issues back to the backlog and detaches unshipped requirements, so the
-   backlog/burndown/requirements caches go too. */
+   issues back to the backlog and detaches unfinished (not done/canceled)
+   requirements, so the backlog/burndown/requirements caches go too. */
 function useInvalidateSprintLifecycle() {
   const qc = useQueryClient();
   const invalidate = useInvalidateSprints();

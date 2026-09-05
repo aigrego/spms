@@ -93,14 +93,7 @@ export const requirementCategoryEnum = pgEnum('requirement_category', [
   'compatibility',
   'maintainability',
 ]);
-export const requirementStatusEnum = pgEnum('requirement_status', [
-  'draft',
-  'reviewing',
-  'approved',
-  'in_dev',
-  'shipped',
-  'rejected',
-]);
+// Requirements share the issue_status enum (需求状态与 issue 同口径).
 export const activityKindEnum = pgEnum('activity_kind', [
   'created',
   'status',
@@ -517,7 +510,7 @@ export const requirements = pgTable(
     category: requirementCategoryEnum('category'),
     priority: issuePriorityEnum('priority').notNull().default('none'),
     importance: issueImportanceEnum('importance').notNull().default('none'),
-    status: requirementStatusEnum('status').notNull().default('draft'),
+    status: issueStatusEnum('status').notNull().default('todo'),
     description: text('description'), // the PRD body / spec
     acceptanceCriteria: text('acceptance_criteria'),
     // 负责人 — mirrors issues.assigneeId (members are revoked, never hard-deleted).

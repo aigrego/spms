@@ -13,9 +13,10 @@ import type { Actor } from '@/server/services/types';
    规则：
    1) 处理任何 issue/需求前必须先经 spms_review_issue 完成功能审查
       （工单审查是否已实现，BUG 审查是否可复现）；
-   2) 审查通过 → issue 自动置 in_progress（需求置 in_dev）；
-   3) 开发完成（update_issue 传 status='done' 或审查结论 already_done）→
-      自动置 testing 并指派测试人员（优先当前项目的测试人员，回退 AI 测试员工）。 */
+   2) 审查通过 → issue/需求自动置 in_progress；
+   3) 开发完成（update 传 status='done' 或审查结论 already_done）→
+      自动置 testing 并指派测试人员（优先当前项目的测试人员，回退 AI 测试员工）。
+      需求无评论能力：不写评论，自动化说明放进工具返回值。 */
 
 export type ReviewVerdict = 'passed' | 'failed' | 'already_done';
 
@@ -102,6 +103,39 @@ export async function reviewWithWorkflow(actor: Actor, key: string, verdict: Rev
   return reviewIssue(actor, key, verdict, note);
 }
 
+/* spms_update_requirement 的工作流包装（与 updateIssueWithWorkflow 同口径）：
+   - status='done' → 拦截，实际落库 'testing'（需求同样需测试/验收，不直接关单）；
+     未显式传 assigneeId 时自动指派测试人员（需求必有 projectId）。
+   - status='testing' 且未显式传 assigneeId → 自动指派测试人员。
+   - 需求无评论能力：不写评论，自动化说明以 workflowNote 放进返回值。
+   - 其余入参原样透传。 */
+export async function updateRequirementWithWorkflow(actor: Actor, key: string, input: requirementSvc.UpdateRequirementInput) {
+  if (input.status === 'done') {
+    const current = input.assigneeId === undefined ? await requirementSvc.getRequirement(actor, key) : null;
+    const tester = input.assigneeId === undefined ? await findTester(actor.companyId, current?.projectId) : null;
+    const requirement = await requirementSvc.updateRequirement(actor, key, {
+      ...input,
+      status: 'testing',
+      ...(tester ? { assigneeId: tester.id } : {}),
+    });
+    const workflowNote = tester
+      ? `已完成开发，自动流转待测试（testing）并指派测试人员 ${tester.name}（status 传 done 被工作流拦截；需求无评论能力，未写评论）。`
+      : input.assigneeId === undefined
+        ? '已完成开发，自动流转待测试（testing）（status 传 done 被工作流拦截）；未找到可用的测试人员（项目测试成员或 agent 成员中 role=test），请手动指派。'
+        : '已完成开发，自动流转待测试（testing）（status 传 done 被工作流拦截）。';
+    return { ...requirement, workflowNote };
+  }
+  if (input.status === 'testing' && input.assigneeId === undefined) {
+    const current = await requirementSvc.getRequirement(actor, key);
+    const tester = await findTester(actor.companyId, current?.projectId);
+    if (tester) {
+      const requirement = await requirementSvc.updateRequirement(actor, key, { ...input, assigneeId: tester.id });
+      return { ...requirement, workflowNote: `已自动指派测试人员 ${tester.name}。` };
+    }
+  }
+  return requirementSvc.updateRequirement(actor, key, input);
+}
+
 async function reviewIssue(actor: Actor, key: string, verdict: ReviewVerdict, note?: string) {
   const before = await issueSvc.getIssue(actor, key);
   if (!before) throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
@@ -170,19 +204,42 @@ async function reviewRequirement(actor: Actor, key: string, verdict: ReviewVerdi
   void note; // 需求无评论能力，note 不落库。
 
   if (verdict === 'passed') {
-    // 需求池中的需求同样处理：审查通过 → 自动置 in_dev。
-    const requirement = await requirementSvc.updateRequirement(actor, key, { status: 'in_dev' });
+    // 审查通过 → 自动置 in_progress（与 issue 同口径）。
+    const requirement = await requirementSvc.updateRequirement(actor, key, { status: 'in_progress' });
     return {
       key,
       target: 'requirement',
       verdict,
-      status: { before: before.status, after: 'in_dev' },
+      status: { before: before.status, after: 'in_progress' },
       autoAssignee: null,
       comment: null,
-      message: '需求审查通过，状态已自动置为 in_dev（需求无评论能力，note 未落库）。',
+      message: '需求审查通过，状态已自动置为 in_progress（需求无评论能力，note 未落库）。',
       requirement,
     };
   }
+
+  if (verdict === 'already_done') {
+    // 已实现/无需修改 → 自动置 testing 并指派测试人员（与 issue 同口径）。
+    const tester = await findTester(actor.companyId, before.projectId);
+    const requirement = await requirementSvc.updateRequirement(actor, key, {
+      status: 'testing',
+      ...(tester ? { assigneeId: tester.id } : {}),
+    });
+    return {
+      key,
+      target: 'requirement',
+      verdict,
+      status: { before: before.status, after: 'testing' },
+      autoAssignee: tester,
+      comment: null,
+      message:
+        '需求已实现/无需修改，自动流转待测试（testing）' +
+        (tester ? `并指派测试人员 ${tester.name}。` : '；未找到可用的测试人员（项目测试成员或 agent 成员中 role=test），请手动指派。') +
+        '（需求无评论能力，note 未落库）。',
+      requirement,
+    };
+  }
+
   return {
     key,
     target: 'requirement',
@@ -190,7 +247,7 @@ async function reviewRequirement(actor: Actor, key: string, verdict: ReviewVerdi
     status: { before: before.status, after: before.status },
     autoAssignee: null,
     comment: null,
-    message: '审查结论非 passed：需求状态保持不变（需求无评论能力，note 未落库）。',
+    message: '审查未通过：需求状态保持不变（需求无评论能力，note 未落库）。',
     requirement: before,
   };
 }

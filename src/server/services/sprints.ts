@@ -550,7 +550,7 @@ async function applyStartSprint(tx: Tx, companyId: string, id: string, projectId
 }
 
 /* active→completed 的落库核心(在调用方的事务里执行):未完成 issue 退回产品
-   待办(sprintId → null,保留项目),未交付需求(shipped/rejected 之外)同样退出
+   待办(sprintId → null,保留项目),未完成需求(done/canceled 之外)同样退出
    迭代,再置状态;返回退回数量(issue + 需求合计)。completeSprint 与
    updateSprint 的合法流转转发共用;收尾快照由调用方在事务提交后补记。 */
 async function applyCompleteSprint(tx: Tx, companyId: string, id: string): Promise<number> {
@@ -572,7 +572,7 @@ async function applyCompleteSprint(tx: Tx, companyId: string, id: string): Promi
       and(
         eq(requirements.companyId, companyId),
         eq(requirements.sprintId, id),
-        notInArray(requirements.status, ['shipped', 'rejected']),
+        notInArray(requirements.status, ['done', 'canceled']),
       ),
     )
     .returning({ id: requirements.id });
@@ -606,7 +606,7 @@ export async function startSprint(actor: Actor, id: string) {
 /* ---- lifecycle: complete (active → completed) ----
    Unfinished issues move back to the product backlog (sprintId → null, they
    keep their project); done/canceled issues stay on the completed sprint.
-   Unshipped requirements (not shipped/rejected) likewise leave the sprint. */
+   Unfinished requirements (not done/canceled) likewise leave the sprint. */
 export async function completeSprint(actor: Actor, id: string) {
   await requirePerm(actor, 'sprints', 'write');
   const [existing] = await db

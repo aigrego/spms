@@ -20,7 +20,7 @@ import * as resourceSvc from '@/server/services/resources';
 import * as sprintSvc from '@/server/services/sprints';
 import * as testCaseSvc from '@/server/services/testcases';
 import type { Actor } from '@/server/services/types';
-import { reviewWithWorkflow, updateIssueWithWorkflow } from './workflow';
+import { reviewWithWorkflow, updateIssueWithWorkflow, updateRequirementWithWorkflow } from './workflow';
 
 /* MCP server (Phase D) — a thin adapter over src/server/services/*. Tools share
    the exact business rules of the REST API; this file only does zod validation,
@@ -228,7 +228,7 @@ const issueImportance = z.enum(['critical', 'high', 'medium', 'low', 'none']);
 const issueType = z.enum(['backlog', 'ticket', 'bug']);
 const requirementType = z.enum(['functional', 'non_functional']);
 const requirementCategory = z.enum(['performance', 'security', 'usability', 'reliability', 'compatibility', 'maintainability']);
-const requirementStatus = z.enum(['draft', 'reviewing', 'approved', 'in_dev', 'shipped', 'rejected']);
+const requirementStatus = z.enum(['backlog', 'todo', 'in_progress', 'testing', 'done', 'canceled']);
 const testCaseStatus = z.enum(['draft', 'active', 'deprecated']);
 const testResult = z.enum(['untested', 'passed', 'failed', 'blocked']);
 const releaseStatus = z.enum(['planned', 'in_progress', 'released', 'deprecated']);
@@ -247,7 +247,7 @@ const companyIdParam = z
 const CONCEPTS = [
   '概念：Issue 是统一工作项，type=bug 即缺陷、ticket 即工单/任务、backlog 即备忘。',
   '所有实体用展示 key 引用（BUG-3 / TKT-7 / FR-2 / NFR-1 / TC-1 / PLAN-1），内部 uuid 不暴露。',
-  'issue 状态枚举：backlog|todo|in_progress|testing|done|canceled；需求状态：draft|reviewing|approved|in_dev|shipped|rejected。',
+  'issue 状态枚举：backlog|todo|in_progress|testing|done|canceled；需求状态与 issue 相同（复用同一状态机）。',
   'priority（紧急度）：urgent|high|medium|low|none；importance（重要度）：critical|high|medium|low|none，两者正交。',
   '成员（member）分 human 与 agent（atlas/forge/sentry/scribe 四个内置 AI），assigneeId 用 member id，issue 可指派给 agent。',
 ].join(' ');
@@ -523,7 +523,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   reg(
     'spms_complete_sprint',
     {
-      description: `完成迭代（active → completed）。未完成（非 done/canceled）的 Issue 自动移回产品待办，未交付（非 shipped/rejected）的需求同样退出迭代，返回 { sprint, movedCount }（两者合计）。${CONCEPTS}`,
+      description: `完成迭代（active → completed）。未完成（非 done/canceled）的 Issue 自动移回产品待办，未完成（非 done/canceled）的需求同样退出迭代，返回 { sprint, movedCount }（两者合计）。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         id: z.string().describe('迭代 id（uuid）'),
@@ -651,7 +651,8 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         `verdict='already_done'（工单已实现 / 无需修改）→ 状态自动置 testing 并自动指派测试人员` +
         `（优先当前项目资源池中公司角色为 tester 的成员；没有则回退 agent 成员中 role='test' 者，内置为 Sentry；都找不到则不指派并在返回中说明）；` +
         `verdict='failed'（BUG 不可复现等）→ 只写评论、状态不变，返回的 suggestion 给出后续建议。` +
-        `对需求（FR/NFR key）：verdict='passed' → 状态自动置 in_dev；其余 verdict 状态不变（需求无评论能力，note 不落库）。` +
+        `对需求（FR/NFR key）：verdict='passed' → 状态自动置 in_progress；verdict='already_done' → 状态自动置 testing 并自动指派测试人员（同 issue 口径）；` +
+        `verdict='failed' → 状态不变（需求无评论能力，note 不落库）。` +
         `note 会写为 issue 评论。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
@@ -804,7 +805,10 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         `更新需求（按展示 key，如 FR-2）：可改 status/title/type/category/priority/importance/description/` +
         `acceptanceCriteria/releaseId/sprintId/assigneeId/projectId/position。sprintId 关联/移出迭代（null 移出；` +
         `迭代包含项目时需求的项目必须在其中，冲突报 LIFECYCLE_MISMATCH）；assigneeId 传负责人 member id（null 取消指派）。` +
-        `需求状态：draft|reviewing|approved|in_dev|shipped|rejected。只传要改的字段。${CONCEPTS}`,
+        `需求状态与 issue 相同：backlog|todo|in_progress|testing|done|canceled。只传要改的字段。` +
+        `工作流自动化：status 传 'done' 会被拦截并实际落库为 'testing'（与 issue 同口径，不直接关单），此时若未显式传 assigneeId ` +
+        `会自动指派测试人员（优先当前项目资源池中公司角色为 tester 的成员；没有则回退 agent 成员中 role='test' 者，内置为 Sentry）；` +
+        `status 传 'testing' 且未传 assigneeId 时同样自动指派测试人员。需求无评论能力，不写评论，拦截说明放在返回值的 workflowNote 字段。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         key: z.string().describe("需求展示 key，如 'FR-2'"),
@@ -827,7 +831,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       run(async () => {
         const actor = await actorFor(args.companyId);
         const { companyId: _companyId, key, ...input } = args;
-        return requirementSvc.updateRequirement(actor, key, input);
+        return updateRequirementWithWorkflow(actor, key, input);
       }),
   );
 
@@ -836,7 +840,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
     {
       description:
         `把需求拆解为工单：按验收标准逐行（为空则回退 PRD 描述逐行）批量创建 TKT 并关联回该需求，` +
-        `继承需求的项目/紧急度/重要度，一次最多 20 条、key 连号；首个工单开工时需求自动转 in_dev。` +
+        `继承需求的项目/紧急度/重要度，一次最多 20 条、key 连号。需求状态由人/Agent 经 spms_review_issue、spms_update_requirement 推进，拆解本身不改需求状态。` +
         `验收标准和描述均为空（没有可拆分内容）时报 VALIDATION_FAILED。返回创建的 issue 列表。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,

@@ -98,7 +98,7 @@ function NewRequirementModal({
   const [category, setCategory] = React.useState<RequirementCategory>('performance');
   const [priority, setPriority] = React.useState<IssuePriority>('none');
   const [importance, setImportance] = React.useState<Importance>('none');
-  const [status, setStatus] = React.useState<RequirementStatus>('draft');
+  const [status, setStatus] = React.useState<RequirementStatus>('todo');
   const [assignee, setAssignee] = React.useState<string | null>(null);
   const [desc, setDesc] = React.useState('');
   const [acceptance, setAcceptance] = React.useState('');
@@ -129,7 +129,7 @@ function NewRequirementModal({
       setCategory('performance');
       setPriority('none');
       setImportance('none');
-      setStatus('draft');
+      setStatus('todo');
       setAssignee(null);
       setDesc('');
       setAcceptance('');
@@ -891,7 +891,7 @@ export function RequirementsView({
     if (project != null) setProjectFilter(project);
   }, [project]);
   const [typeTab, setTypeTab] = usePersistentState<RequirementType>('requirements.typeTab', 'functional', isTypeTab);
-  const [statusFilter, setStatusFilter] = usePersistentState<StatusFilter>('requirements.statusFilter', 'draft', isStatusFilter);
+  const [statusFilter, setStatusFilter] = usePersistentState<StatusFilter>('requirements.statusFilter', '', isStatusFilter);
   const [q, setQ] = React.useState('');
   const { data: requirements = [] } = useRequirements(projectFilter ? { project: projectFilter } : undefined);
   const create = useCreateRequirement();
@@ -909,7 +909,7 @@ export function RequirementsView({
   const targetProject = projectFilter || projects[0]?.id || '';
   const quickCreate = (title: string) => {
     if (!targetProject) return;
-    create.mutate({ projectId: targetProject, title, type: typeTab, status: 'draft', releaseId: projectById(targetProject)?.releaseId ?? null });
+    create.mutate({ projectId: targetProject, title, type: typeTab, status: 'todo', releaseId: projectById(targetProject)?.releaseId ?? null });
   };
 
   return (
@@ -957,7 +957,7 @@ export function RequirementsView({
             ))}
           </div>
           <div className="flex-1" />
-          {/* status segmented toggle (defaults to 草稿) */}
+          {/* status segmented toggle (defaults to 全部) */}
           <div className="inline-flex items-center gap-0.5 overflow-x-auto rounded-lg bg-surface-2 p-0.5">
             <SegBtn active={statusFilter === ''} onClick={() => setStatusFilter('')}>{t('common.all')}</SegBtn>
             {REQUIREMENT_STATUS_ORDER.map((s) => (

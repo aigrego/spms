@@ -116,11 +116,11 @@ export const GUIDE: Record<Locale, GuideContent> = {
       },
       {
         letter: 'i',
-        title: '第二道验收：全部工单完成后，把需求转「已上线」',
+        title: '第二道验收：全部工单完成后，把需求转「已完成」',
         badges: ['human'],
         owner: '需求作者与负责人',
         body: [
-          '需求名下的工单全部完成后，由需求作者或负责人在需求详情手动把状态转为「已上线」。「已上线」是需求侧的终态：点这一下就是需求级验收，系统绝不自动改状态。',
+          '需求名下的工单全部完成后，由需求作者或负责人在需求详情手动把状态转为「已完成」（经「待测试」验收）。「已完成」是需求侧的终态：点这一下就是需求级验收，系统绝不自动改状态。',
         ],
         link: { label: '打开需求池', href: '/requirements' },
       },
@@ -220,11 +220,11 @@ export const GUIDE: Record<Locale, GuideContent> = {
       },
       {
         letter: 'i',
-        title: 'Second acceptance: once all tickets are done, mark the requirement "Shipped"',
+        title: 'Second acceptance: once all tickets are done, mark the requirement "Done"',
         badges: ['human'],
         owner: 'Requirement author and owner',
         body: [
-          'When every ticket under a requirement is done, the requirement author or owner manually moves it to "Shipped" on the requirement detail. "Shipped" is the terminal state on the requirement side: that one click IS the requirement-level acceptance — the system never changes status on its own.',
+          'When every ticket under a requirement is done, the requirement author or owner manually moves it to "Done" on the requirement detail (accepted via "Ready for Testing"). "Done" is the terminal state on the requirement side: that one click IS the requirement-level acceptance — the system never changes status on its own.',
         ],
         link: { label: 'Open Requirement Pool', href: '/requirements' },
       },
@@ -323,11 +323,11 @@ export const GUIDE: Record<Locale, GuideContent> = {
       },
       {
         letter: 'i',
-        title: '第二道驗收：全部工單完成後，把需求轉「已上線」',
+        title: '第二道驗收：全部工單完成後，把需求轉「已完成」',
         badges: ['human'],
         owner: '需求作者與負責人',
         body: [
-          '需求名下的工單全部完成後，由需求作者或負責人在需求詳情手動把狀態轉為「已上線」。「已上線」是需求側的終態：點這一下就是需求級驗收，系統絕不自動改狀態。',
+          '需求名下的工單全部完成後，由需求作者或負責人在需求詳情手動把狀態轉為「已完成」（經「待測試」驗收）。「已完成」是需求側的終態：點這一下就是需求級驗收，系統絕不自動改狀態。',
         ],
         link: { label: '打開需求池', href: '/requirements' },
       },

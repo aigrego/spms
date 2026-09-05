@@ -200,7 +200,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
               {canWriteRequirements && (
                 <InlineCreateRow
                   label={t('requirements.new')}
-                  onCreate={(title) => createReq.mutate({ projectId, title, type: 'functional', status: 'draft', releaseId: project.releaseId })}
+                  onCreate={(title) => createReq.mutate({ projectId, title, type: 'functional', status: 'todo', releaseId: project.releaseId })}
                   className="border-b border-border"
                 />
               )}

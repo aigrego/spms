@@ -368,12 +368,12 @@ export async function teamSummary(actor: Actor, query: SummaryQuery): Promise<Te
     }
   }
   const requirementStatus = {
-    draft: 0,
-    reviewing: 0,
-    approved: 0,
-    in_dev: 0,
-    shipped: 0,
-    rejected: 0,
+    backlog: 0,
+    todo: 0,
+    in_progress: 0,
+    testing: 0,
+    done: 0,
+    canceled: 0,
   } as Record<RequirementStatus, number>;
   for (const r of reqRows) {
     if (projectOk(r.projectId)) requirementStatus[r.status] += 1;

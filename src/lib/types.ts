@@ -29,13 +29,8 @@ export type RequirementCategory =
   | 'reliability'
   | 'compatibility'
   | 'maintainability';
-export type RequirementStatus =
-  | 'draft'
-  | 'reviewing'
-  | 'approved'
-  | 'in_dev'
-  | 'shipped'
-  | 'rejected';
+// 需求状态与 issue 同口径（复用同一状态机与 issue_status 枚举）。
+export type RequirementStatus = IssueStatus;
 
 // Product lifecycle phases — PMS-2: live on the Release (version), not the project.
 export type ProjectPhase = 'concept' | 'development' | 'release' | 'maintenance' | 'retired';

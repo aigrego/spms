@@ -42,7 +42,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 - **Issue 是统一工作项**：`type: 'bug'` = 缺陷，`'ticket'` = 工单/任务，`'backlog'` = 备忘
 - 所有实体用**展示 key** 引用：`BUG-3`、`TKT-7`、`FR-2`、`TC-1`、`PLAN-1`、`PL-1`/`PD-1`/`RL-1`（内部 uuid 不暴露）
-- 状态枚举：issue `backlog|todo|in_progress|testing|done|canceled`；需求 `draft|reviewing|approved|in_dev|shipped|rejected`
+- 状态枚举：issue 与需求相同，均为 `backlog|todo|in_progress|testing|done|canceled`（需求复用 issue_status 枚举）
 - 优先级 `urgent|high|medium|low|none`（紧急度）与重要度 `critical|high|medium|low|none` 正交
 - 成员分 `human` 与 `agent`（atlas/forge/sentry/scribe 四个内置 AI），issue 可指派给 agent
 - 列表默认排除**已归档** issue 及已归档项目的 issue（与 UI 一致；归档/取消归档暂只支持 UI/REST）
@@ -74,18 +74,18 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | Tool | 参数 | 说明 |
 |---|---|---|
 | `spms_create_issue` | `title, type?, status?, priority?, importance?, description?, assigneeId?, projectId?, requirementId?, sprintId?, estimate?, storyPoints?, labels?` | 创建 issue（缺陷传 type='bug'）；返回展示 key |
-| `spms_review_issue` | `key, verdict, note?` | **新增**：功能审查（工作流入口，处理任何 issue/需求前必须先调用）。`verdict='passed'` → issue 自动置 `in_progress`（需求置 `in_dev`）；`'already_done'` → 自动置 `testing` 并指派测试人员；`'failed'` → 只写评论、状态不变，返回 `suggestion` 后续建议 |
+| `spms_review_issue` | `key, verdict, note?` | **新增**：功能审查（工作流入口，处理任何 issue/需求前必须先调用）。`verdict='passed'` → issue/需求自动置 `in_progress`；`'already_done'` → 自动置 `testing` 并指派测试人员；`'failed'` → 只写评论、状态不变（需求无评论能力，状态不变），返回 `suggestion` 后续建议 |
 | `spms_update_issue` | `key, ...任意可更新字段` | 改状态/指派/优先级/标题/描述等。`status='done'` 会被拦截并实际落库 `testing`，未显式传 `assigneeId` 时自动指派测试人员并写说明评论 |
 | `spms_add_comment` | `key, body` | 给 issue 加评论 |
 | `spms_upload_issue_attachment` | `key, filename, data, contentType?` | 上传图片附件（data 为 base64；≤10MB，jpeg/png/gif/webp/avif）。配合 `spms_update_issue`（status='done'）实现"传图并关单" |
 | `spms_create_requirement` | `projectId, title, type?, category?, priority?, importance?, description?, acceptanceCriteria?, releaseId?, sprintId?, assigneeId?` | 创建需求（自动分配 FR/NFR key）；sprintId 直接关联迭代（纯 AI 开发可不拆 issue 按需求开发；迭代项目口径冲突报 LIFECYCLE_MISMATCH） |
-| `spms_update_requirement` | `key, ...` | 更新需求；sprintId 关联/移出迭代（null 移出），assigneeId 指派负责人（null 取消） |
+| `spms_update_requirement` | `key, ...` | 更新需求；sprintId 关联/移出迭代（null 移出），assigneeId 指派负责人（null 取消）。`status='done'` 会被拦截并实际落库 `testing`，未显式传 `assigneeId` 时自动指派测试人员（需求无评论能力，拦截说明放在返回值的 `workflowNote` 字段） |
 | `spms_decompose_requirement` | `key` | **新增**：把需求拆解为工单（按验收标准逐行、空则回退 PRD 描述逐行；继承项目/紧急度/重要度，一次最多 20 条、key 连号） |
 | `spms_create_test_case` | `projectId, title, requirementId?, priority?, preconditions?, steps?, expected?` | 创建测试用例 |
 | `spms_update_test_case` | `key, ...` | 更新用例（含 result: passed/failed/blocked） |
 | `spms_move_issue_to_sprint` | `sprintId（或 '_backlog'）, issueKey, storyPoints?` | 移入/移出迭代 |
 | `spms_start_sprint` | `id` | 启动迭代（planned → active；迭代可跨多项目，任一项目已有进行中迭代即冲突） |
-| `spms_complete_sprint` | `id` | 完成迭代（active → completed；未完成 Issue 移回待办、未交付需求退出迭代，返回 movedCount 合计） |
+| `spms_complete_sprint` | `id` | 完成迭代（active → completed；未完成 Issue 移回待办、未完成需求退出迭代，返回 movedCount 合计） |
 | `spms_create_project` | `name, releaseId?, leadId?, target?, description?` | 创建项目 |
 | `spms_update_project` | `id, name?, releaseId?, status?, leadId?, aiLeadId?, icon?, color?, target?, description?, summary?, goal?, nonGoals?` | **新增**：更新项目（releaseId 换绑版本即调整关联） |
 | `spms_create_plan` | `projectId, title, requirementIds?, templateMd?` | **新增**：创建开发计划（自动 PLAN-N key，初始 draft/待生成；requirementIds 传需求展示 key 数组）。Agent 生成内容后调 `spms_update_plan` 写入 content 并置 `generated` |
@@ -103,8 +103,8 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 - **处理前审查**：处理任何 issue/需求前必须先调 `spms_review_issue`——工单审查是否已实现，BUG 审查是否可复现。
   - issue（TKT/BUG/BLG key）：`passed` → 自动置 `in_progress`；`already_done` → 自动置 `testing` 并自动指派测试人员；`failed` → 只写评论、状态不变，返回 `suggestion` 给出后续建议。
-  - 需求（FR/NFR key）：`passed` → 自动置 `in_dev`；其余 verdict 状态不变（需求无评论能力，`note` 不落库）。
-- **完成即流转**：`spms_update_issue` 传 `status='done'` 会被拦截，实际落库为 `testing`（开发完成需测试验证，不直接关单）；未显式传 `assigneeId` 时自动指派测试人员，并自动写一条说明评论。`status='testing'` 且未传 `assigneeId` 时同样自动指派。
+  - 需求（FR/NFR key）：`passed` → 自动置 `in_progress`；`already_done` → 自动置 `testing` 并自动指派测试人员；`failed` → 状态不变（需求无评论能力，`note` 不落库）。
+- **完成即流转**：`spms_update_issue` / `spms_update_requirement` 传 `status='done'` 会被拦截，实际落库为 `testing`（开发完成需测试验证，不直接关单）；未显式传 `assigneeId` 时自动指派测试人员（issue 自动写一条说明评论；需求无评论能力，说明放在返回值的 `workflowNote` 字段）。`status='testing'` 且未传 `assigneeId` 时同样自动指派。
 - **测试人员**：本公司 `type='agent'`、`role='test'`、`status='active'` 的第一个成员（内置即 Sentry）；找不到则不指派，在返回结果与评论中说明。
 
 ## 操作者身份
