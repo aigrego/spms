@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Filter, SlidersHorizontal, List, Columns3, GitBranch, MessageSquare, ChevronDown, ChevronRight, Archive } from 'lucide-react';
+import { Plus, SlidersHorizontal, List, Columns3, GitBranch, MessageSquare, ChevronDown, ChevronRight, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent, MenuItem } from '@/components/ui/popover';
 import { StatusIcon } from '@/components/glyphs/StatusIcon';
@@ -13,6 +13,7 @@ import { AISlaBadge, ProjectIcon } from '@/components/glyphs/misc';
 import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, AssigneeMenu } from '@/components/menus';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
 import { SegBtn } from '@/components/ui/segmented';
+import { ProjectFilterMenu, useProjectFilter } from '@/components/ProjectFilterMenu';
 import { STATUS_ORDER, PRIORITY_ORDER, IMPORTANCE_ORDER } from '@/lib/constants';
 import { usePersistentState } from '@/lib/prefs';
 import { useDragHighlight } from '@/lib/useDragHighlight';
@@ -36,7 +37,6 @@ const GROUP_BYS: GroupBy[] = ['status', 'priority', 'importance', 'assignee', 'p
 const isGroupBy = (v: unknown): v is GroupBy => GROUP_BYS.includes(v as GroupBy);
 const isTypeFilter = (v: unknown): v is TypeFilter => TYPE_FILTERS.includes(v as TypeFilter);
 const isViewMode = (v: unknown): v is ViewMode => v === 'list' || v === 'board';
-const isProjectFilter = (v: unknown): v is string => typeof v === 'string';
 
 interface RowProps {
   issue: Issue;
@@ -291,14 +291,13 @@ export function IssuesView({
   const [viewMode, setViewMode] = usePersistentState<ViewMode>('issues.viewMode', 'list', isViewMode);
   const [groupBy, setGroupBy] = usePersistentState<GroupBy>('issues.groupBy', 'status', isGroupBy);
   const [typeFilter, setTypeFilter] = usePersistentState<TypeFilter>('issues.typeFilter', 'all', isTypeFilter);
-  const [projectFilter, setProjectFilter] = usePersistentState<string>('issues.projectFilter', 'all', isProjectFilter);
+  const [projectFilter] = useProjectFilter();
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
   /* BUG-3：拖放高亮走计数器 hook（dragover 不再 setState），告别列内子元素
      冒泡引起的 null↔key 震荡与整板重渲染。 */
   const { overKey: dragOver, targetProps: dragTargetProps, reset: resetDragHighlight } =
     useDragHighlight<string>();
   const [grpOpen, setGrpOpen] = React.useState(false);
-  const [fltOpen, setFltOpen] = React.useState(false);
 
   const labelsFor = React.useCallback(
     (ids: string[]) => ids.map((id) => labelById(id)).filter(Boolean) as Label[],
@@ -418,43 +417,7 @@ export function IssuesView({
           )}
         </div>
         <div className="flex items-center gap-2 px-5 pb-3">
-          <Popover open={fltOpen} onOpenChange={setFltOpen}>
-            <PopoverTrigger asChild>
-              <button className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-[13px] text-fg-2 hover:bg-surface-2">
-                <Filter size={14} /> {t('issues.filter')}
-                {projectFilter !== 'all' && (projectById(projectFilter)?.name ?? projectFilter)}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent style={{ width: 200 }} align="start">
-              <MenuItem
-                label={t('common.all')}
-                selected={projectFilter === 'all'}
-                onClick={() => {
-                  setProjectFilter('all');
-                  setFltOpen(false);
-                }}
-              />
-              {projects.map((p) => (
-                <MenuItem
-                  key={p.id}
-                  glyph={
-                    <span
-                      className="grid h-4 w-4 flex-none place-items-center rounded"
-                      style={{ background: p.color }}
-                    >
-                      <ProjectIcon name={p.icon} size={11} />
-                    </span>
-                  }
-                  label={p.name}
-                  selected={projectFilter === p.id}
-                  onClick={() => {
-                    setProjectFilter(p.id);
-                    setFltOpen(false);
-                  }}
-                />
-              ))}
-            </PopoverContent>
-          </Popover>
+          <ProjectFilterMenu />
           <Popover open={grpOpen} onOpenChange={setGrpOpen}>
             <PopoverTrigger asChild>
               <button className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-[13px] text-fg-2 hover:bg-surface-2">

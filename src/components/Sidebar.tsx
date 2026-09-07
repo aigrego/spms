@@ -79,9 +79,11 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-/* 左侧菜单的快捷筛选项:整行即触发器,点击向右弹出筛选框(全部 + 条目列表);
-   选中写入页面内同一个浏览器记忆 key 并跳转对应页面 —— 与页面工具栏的筛选是
-   同一状态、两处入口。右侧常驻 chevron;筛选生效时换成选中条目的彩色图标。 */
+/* 左侧菜单的快捷筛选项:「进入页面」与「展开筛选」是两个独立点击区 ——
+   菜单本体是 Link,点击直接进入页面;右侧独立的带边框小按钮才是筛选触发器,
+   点击向右弹出筛选框(全部 + 条目列表)。选中写入页面内同一个浏览器记忆 key
+   并跳转对应页面 —— 与页面工具栏的筛选是同一状态、两处入口。
+   筛选生效时按钮内换成选中条目的彩色图标。 */
 function FilterNavItem({
   active,
   icon,
@@ -114,47 +116,54 @@ function FilterNavItem({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          title={title}
-          className={cn(
-            'flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1 text-left text-[13.5px] transition-colors',
-            active ? 'font-semibold text-brand-blue' : 'font-medium text-fg-2 hover:bg-surface-2',
-          )}
-          style={active ? { background: 'var(--brand-blue-tint-8)' } : undefined}
-        >
-          <span style={{ color: active ? 'var(--brand-blue)' : 'var(--fg-3)' }}>{icon}</span>
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-          {activeItem ? (
-            <span
-              className="grid h-4 w-4 flex-none place-items-center rounded"
-              style={{ background: activeItem.color }}
-            >
-              <ProjectIcon name={activeItem.icon} size={10} />
-            </span>
-          ) : (
-            <ChevronDown size={14} className="flex-none text-fg-3" />
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent side="right" align="start" style={{ width: 220 }}>
-        <MenuItem label={t('common.all')} selected={effective === 'all'} onClick={() => pick('all')} />
-        {items.map((p) => (
-          <MenuItem
-            key={p.id}
-            glyph={
-              <span className="grid h-4 w-4 flex-none place-items-center rounded" style={{ background: p.color }}>
-                <ProjectIcon name={p.icon} size={11} />
+    <div className="flex items-center gap-1">
+      <Link
+        href={navigateTo}
+        className={cn(
+          'flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-md py-1.5 pl-2 pr-1 text-[13.5px] transition-colors',
+          active ? 'font-semibold text-brand-blue' : 'font-medium text-fg-2 hover:bg-surface-2',
+        )}
+        style={active ? { background: 'var(--brand-blue-tint-8)' } : undefined}
+      >
+        <span style={{ color: active ? 'var(--brand-blue)' : 'var(--fg-3)' }}>{icon}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+      </Link>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            title={title}
+            className="grid h-6 w-6 flex-none place-items-center rounded-md border border-border bg-surface text-fg-3 transition-colors hover:border-border-strong hover:text-fg-1"
+          >
+            {activeItem ? (
+              <span
+                className="grid h-4 w-4 place-items-center rounded"
+                style={{ background: activeItem.color }}
+              >
+                <ProjectIcon name={activeItem.icon} size={10} />
               </span>
-            }
-            label={p.name}
-            selected={effective === p.id}
-            onClick={() => pick(p.id)}
-          />
-        ))}
-      </PopoverContent>
-    </Popover>
+            ) : (
+              <ChevronDown size={15} />
+            )}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent side="right" align="start" style={{ width: 220 }}>
+          <MenuItem label={t('common.all')} selected={effective === 'all'} onClick={() => pick('all')} />
+          {items.map((p) => (
+            <MenuItem
+              key={p.id}
+              glyph={
+                <span className="grid h-4 w-4 flex-none place-items-center rounded" style={{ background: p.color }}>
+                  <ProjectIcon name={p.icon} size={11} />
+                </span>
+              }
+              label={p.name}
+              selected={effective === p.id}
+              onClick={() => pick(p.id)}
+            />
+          ))}
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 

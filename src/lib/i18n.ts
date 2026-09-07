@@ -335,7 +335,7 @@ const zhCN: Dict = {
   'newIssue.noResources': '该项目暂无研发资源，可先在项目里添加',
 
   // command palette
-  'cmd.placeholder': '搜索 Issue、跳转或执行命令…',
+  'cmd.placeholder': '搜索 Issue、需求、用例，跳转或执行命令…',
   'cmd.commands': '命令',
   'cmd.empty': '没有匹配结果',
   'cmd.title': '命令面板',
@@ -470,7 +470,6 @@ const zhCN: Dict = {
   'requirements.new': '新建需求',
   'requirements.empty': '暂无需求，点击「新建需求」开始',
   'requirements.count': '{n} 条需求',
-  'requirements.allProjects': '全部项目',
   'requirements.group.functional': '功能性需求',
   'requirements.group.non_functional': '非功能性需求',
   'requirements.acceptance': '验收标准',
@@ -994,7 +993,7 @@ const en: Dict = {
   'newIssue.pickProjectFirst': 'Select a project first',
   'newIssue.noResources': 'This project has no resources yet — add them in the project',
 
-  'cmd.placeholder': 'Search issues, jump or run a command…',
+  'cmd.placeholder': 'Search issues, requirements, test cases, jump or run a command…',
   'cmd.commands': 'Commands',
   'cmd.empty': 'No matching results',
   'cmd.title': 'Command palette',
@@ -1121,7 +1120,6 @@ const en: Dict = {
   'requirements.new': 'New requirement',
   'requirements.empty': 'No requirements yet — click “New requirement”',
   'requirements.count': '{n} requirements',
-  'requirements.allProjects': 'All projects',
   'requirements.group.functional': 'Functional requirements',
   'requirements.group.non_functional': 'Non-functional requirements',
   'requirements.acceptance': 'Acceptance criteria',
@@ -1630,7 +1628,7 @@ const zhTW: Dict = {
   'newIssue.pickProjectFirst': '先選擇專案',
   'newIssue.noResources': '此專案尚無研發資源，可先在專案中加入',
 
-  'cmd.placeholder': '搜尋 Issue、跳轉或執行命令…',
+  'cmd.placeholder': '搜尋 Issue、需求、用例，跳轉或執行命令…',
   'cmd.commands': '命令',
   'cmd.empty': '沒有符合的結果',
   'cmd.title': '命令面板',
@@ -1757,7 +1755,6 @@ const zhTW: Dict = {
   'requirements.new': '新增需求',
   'requirements.empty': '尚無需求，點擊「新增需求」開始',
   'requirements.count': '{n} 條需求',
-  'requirements.allProjects': '全部專案',
   'requirements.group.functional': '功能性需求',
   'requirements.group.non_functional': '非功能性需求',
   'requirements.acceptance': '驗收標準',

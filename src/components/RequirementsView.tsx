@@ -2,13 +2,14 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, X, Trash2, GitBranch, Sparkles, FileText, Search, ListTree, FlaskConical } from 'lucide-react';
+import { Plus, X, Trash2, GitBranch, Sparkles, FileText, ListTree, FlaskConical } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger, MenuItem } from '@/components/ui/popover';
 import { SegBtn, TabBtn } from '@/components/ui/segmented';
+import { ProjectFilterMenu, useProjectFilter } from '@/components/ProjectFilterMenu';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
 import { StatusIcon } from '@/components/glyphs/StatusIcon';
 import { PriorityIcon } from '@/components/glyphs/PriorityIcon';
@@ -894,15 +895,16 @@ export function RequirementsView({
   const router = useRouter();
   const { projects, projectById, can } = useAppData();
   const canWrite = can('requirements', 'write');
-  const [projectFilter, setProjectFilter] = React.useState(project ?? '');
+  // 项目筛选复用「全部 Issues」的共享 hook,与测试用例/侧边栏即时互相同步。
+  const [projectFilter, setProjectFilter] = useProjectFilter();
   // Follow an external ?project= change (e.g. arriving from a project hub tab).
   React.useEffect(() => {
-    if (project != null) setProjectFilter(project);
-  }, [project]);
+    if (project != null) setProjectFilter(project || 'all');
+  }, [project, setProjectFilter]);
   const [typeTab, setTypeTab] = usePersistentState<RequirementType>('requirements.typeTab', 'functional', isTypeTab);
   const [statusFilter, setStatusFilter] = usePersistentState<StatusFilter>('requirements.statusFilter', 'draft', isStatusFilter);
-  const [q, setQ] = React.useState('');
-  const { data: requirements = [] } = useRequirements(projectFilter ? { project: projectFilter } : undefined);
+  const projectId = projectFilter === 'all' ? '' : projectFilter;
+  const { data: requirements = [] } = useRequirements(projectId ? { project: projectId } : undefined);
   const create = useCreateRequirement();
   const [newOpen, setNewOpen] = React.useState(false);
 
@@ -912,10 +914,9 @@ export function RequirementsView({
   };
   const list = requirements
     .filter((r) => r.type === typeTab)
-    .filter((r) => (statusFilter ? r.status === statusFilter : true))
-    .filter((r) => (q ? (r.title + r.id).toLowerCase().includes(q.toLowerCase()) : true));
+    .filter((r) => (statusFilter ? r.status === statusFilter : true));
 
-  const targetProject = projectFilter || projects[0]?.id || '';
+  const targetProject = projectId || projects[0]?.id || '';
   const quickCreate = (title: string) => {
     if (!targetProject) return;
     create.mutate({ projectId: targetProject, title, type: typeTab, status: 'draft', releaseId: projectById(targetProject)?.releaseId ?? null });
@@ -923,40 +924,25 @@ export function RequirementsView({
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      {/* toolbar */}
-      <div className="flex flex-col gap-2.5 border-b border-border px-6 pt-3">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <h1 className="m-0 text-[18px] font-semibold tracking-tight text-fg-1">{t('requirements.title')}</h1>
-          <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">{requirements.length}</span>
-          <div className="relative ml-1">
-            <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-fg-3" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={t('common.search')}
-              className="h-8 w-[180px] rounded-lg border border-border bg-surface pl-7 pr-2 text-[12.5px] text-fg-1 outline-none focus:border-brand-blue"
-            />
+      {/* toolbar —— 与「全部 Issues」同款两行布局:标题行(标题/计数/新建) + 筛选行(项目筛选在最前)。 */}
+      <div className="border-b border-border">
+        <div className="flex items-center gap-3 px-6 pb-3 pt-3.5">
+          <div className="flex items-center gap-2.5">
+            <h1 className="m-0 text-[18px] font-semibold tracking-tight text-fg-1">{t('requirements.title')}</h1>
+            <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">{requirements.length}</span>
           </div>
           <div className="flex-1" />
-          <select
-            className="h-8 rounded-lg border border-border bg-surface px-2 text-[12.5px] text-fg-2 outline-none focus:border-brand-blue"
-            value={projectFilter}
-            onChange={(e) => setProjectFilter(e.target.value)}
-          >
-            <option value="">{t('requirements.allProjects')}</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
           {canWrite && (
             <Button variant="primary" size="md" onClick={() => setNewOpen(true)}>
               <Plus size={14} /> {t('requirements.new')}
             </Button>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 px-6 pb-3">
+          {/* 项目筛选 —— 复用「全部 Issues」的共享组件,共享浏览器记忆。 */}
+          <ProjectFilterMenu />
           {/* type tabs — functional / non-functional */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 px-1">
             {TYPE_ORDER.map((ty) => (
               <TabBtn key={ty} active={typeTab === ty} onClick={() => setTypeTab(ty)}>
                 <span className="h-2 w-2 rounded-full" style={{ background: REQUIREMENT_TYPE[ty].color }} />
@@ -998,7 +984,7 @@ export function RequirementsView({
       <NewRequirementModal
         open={newOpen}
         onOpenChange={setNewOpen}
-        defaultProject={projectFilter || projectById(project ?? '')?.id}
+        defaultProject={projectId || projectById(project ?? '')?.id}
         onCreated={onSelect}
       />
     </div>

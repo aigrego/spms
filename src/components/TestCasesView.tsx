@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { X, Trash2, FlaskConical, Search, Link2, CircleDot, Plus, Filter } from 'lucide-react';
+import { X, Trash2, FlaskConical, Link2, CircleDot, Plus } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
@@ -9,9 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { PriorityIcon } from '@/components/glyphs/PriorityIcon';
 import { PriorityMenu } from '@/components/menus';
-import { ProjectIcon } from '@/components/glyphs/misc';
 import { Popover, PopoverContent, PopoverTrigger, MenuItem } from '@/components/ui/popover';
 import { SegBtn } from '@/components/ui/segmented';
+import { ProjectFilterMenu, useProjectFilter } from '@/components/ProjectFilterMenu';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
 import { TEST_CASE_STATUS, TEST_CASE_STATUS_ORDER, TEST_RESULT, TEST_RESULT_ORDER, TEST_CATEGORY, TEST_CATEGORY_ORDER, PRIORITY_ORDER } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
@@ -22,7 +22,6 @@ import { useTestCases, useTestCase, useCreateTestCase, useUpdateTestCase, useDel
 import { ApiError } from '@/lib/api';
 import type { TestCase, TestResult, TestCaseStatus, TestCaseCategory, IssuePriority } from '@/lib/types';
 
-const isStr = (v: unknown): v is string => typeof v === 'string';
 const isCategoryFilter = (v: unknown): v is TestCaseCategory | '' =>
   v === '' || (TEST_CATEGORY_ORDER as readonly string[]).includes(v as string);
 const isResultFilter = (v: unknown): v is TestResult | '' =>
@@ -483,11 +482,10 @@ export function TestCasesView({
   onSelect: (id: string | null) => void;
 }) {
   const t = useT();
-  const { projects, projectById, can } = useAppData();
+  const { projects, can } = useAppData();
   const canWrite = can('testcases', 'write');
-  // 项目筛选与「全部 Issues」/侧边栏共享同一份浏览器记忆 key('issues.projectFilter'),
-  // 三处任一改动互相同步;'all' 为全部项目的哨兵值。
-  const [projectFilter, setProjectFilter] = usePersistentState<string>('issues.projectFilter', 'all', isStr);
+  // 项目筛选复用「全部 Issues」的共享 hook,与需求池/侧边栏即时互相同步。
+  const [projectFilter, setProjectFilter] = useProjectFilter();
   // Follow an external ?project= change (e.g. arriving from a project hub tab).
   React.useEffect(() => {
     if (project != null) setProjectFilter(project || 'all');
@@ -495,8 +493,6 @@ export function TestCasesView({
   // 类别/结果筛选各自持久化(本页私有 key)。
   const [result, setResult] = usePersistentState<TestResult | ''>('testcases.resultFilter', '', isResultFilter);
   const [category, setCategory] = usePersistentState<TestCaseCategory | ''>('testcases.categoryFilter', '', isCategoryFilter);
-  const [q, setQ] = React.useState('');
-  const [fltOpen, setFltOpen] = React.useState(false);
   const projectId = projectFilter === 'all' ? '' : projectFilter;
   const { data: cases = [] } = useTestCases({
     project: projectId || undefined,
@@ -506,7 +502,6 @@ export function TestCasesView({
   const create = useCreateTestCase();
   const [newOpen, setNewOpen] = React.useState(false);
 
-  const filtered = q ? cases.filter((c) => c.title.toLowerCase().includes(q.toLowerCase()) || c.id.toLowerCase().includes(q.toLowerCase())) : cases;
   const targetProject = projectId || projects[0]?.id || '';
 
   const quickCreate = (title: string) => {
@@ -516,90 +511,54 @@ export function TestCasesView({
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-6 py-3">
-        <h1 className="m-0 text-[18px] font-semibold tracking-tight text-fg-1">{t('testcases.title')}</h1>
-        <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">{filtered.length}</span>
-        <div className="relative ml-1">
-          <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-fg-3" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder={t('common.search')}
-            className="h-8 w-[180px] rounded-lg border border-border bg-surface pl-7 pr-2 text-[12.5px] text-fg-1 outline-none focus:border-brand-blue"
-          />
+      {/* toolbar —— 与「全部 Issues」同款两行布局:标题行(标题/计数/新建) + 筛选行(项目筛选在最前)。 */}
+      <div className="border-b border-border">
+        <div className="flex items-center gap-3 px-6 pb-3 pt-3.5">
+          <div className="flex items-center gap-2.5">
+            <h1 className="m-0 text-[18px] font-semibold tracking-tight text-fg-1">{t('testcases.title')}</h1>
+            <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">{cases.length}</span>
+          </div>
+          <div className="flex-1" />
+          {canWrite && (
+            <Button variant="primary" size="md" onClick={() => setNewOpen(true)}>
+              <Plus size={14} /> {t('testcases.new')}
+            </Button>
+          )}
         </div>
-        <div className="flex-1" />
-        {/* 项目筛选 —— 与「全部 Issues」同款 Popover 组件,共享浏览器记忆。 */}
-        <Popover open={fltOpen} onOpenChange={setFltOpen}>
-          <PopoverTrigger asChild>
-            <button className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-[13px] text-fg-2 hover:bg-surface-2">
-              <Filter size={14} /> {t('issues.filter')}
-              {projectFilter !== 'all' && (projectById(projectFilter)?.name ?? projectFilter)}
-            </button>
-          </PopoverTrigger>
-          <PopoverContent style={{ width: 200 }} align="start">
-            <MenuItem
-              label={t('common.all')}
-              selected={projectFilter === 'all'}
-              onClick={() => {
-                setProjectFilter('all');
-                setFltOpen(false);
-              }}
-            />
-            {projects.map((p) => (
-              <MenuItem
-                key={p.id}
-                glyph={
-                  <span className="grid h-4 w-4 flex-none place-items-center rounded" style={{ background: p.color }}>
-                    <ProjectIcon name={p.icon} size={11} />
-                  </span>
-                }
-                label={p.name}
-                selected={projectFilter === p.id}
-                onClick={() => {
-                  setProjectFilter(p.id);
-                  setFltOpen(false);
-                }}
-              />
+        <div className="flex flex-wrap items-center gap-2 px-6 pb-3">
+          {/* 项目筛选 —— 复用「全部 Issues」的共享组件,共享浏览器记忆。 */}
+          <ProjectFilterMenu />
+          {/* category segmented filter */}
+          <div className="inline-flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
+            <SegBtn active={category === ''} onClick={() => setCategory('')}>{t('testcases.allCategories')}</SegBtn>
+            {TEST_CATEGORY_ORDER.map((c) => (
+              <SegBtn key={c} active={category === c} onClick={() => setCategory(c)}>
+                <CategoryDot category={c} size={7} /> {t(`tcCategory.${c}`)}
+              </SegBtn>
             ))}
-          </PopoverContent>
-        </Popover>
-        {/* category segmented filter */}
-        <div className="inline-flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
-          <SegBtn active={category === ''} onClick={() => setCategory('')}>{t('testcases.allCategories')}</SegBtn>
-          {TEST_CATEGORY_ORDER.map((c) => (
-            <SegBtn key={c} active={category === c} onClick={() => setCategory(c)}>
-              <CategoryDot category={c} size={7} /> {t(`tcCategory.${c}`)}
-            </SegBtn>
-          ))}
+          </div>
+          {/* result segmented filter */}
+          <div className="inline-flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
+            <SegBtn active={result === ''} onClick={() => setResult('')}>{t('common.all')}</SegBtn>
+            {TEST_RESULT_ORDER.map((r) => (
+              <SegBtn key={r} active={result === r} onClick={() => setResult(r)}>
+                <ResultDot result={r} size={7} /> {t(`tcResult.${r}`)}
+              </SegBtn>
+            ))}
+          </div>
         </div>
-        {/* result segmented filter */}
-        <div className="inline-flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
-          <SegBtn active={result === ''} onClick={() => setResult('')}>{t('common.all')}</SegBtn>
-          {TEST_RESULT_ORDER.map((r) => (
-            <SegBtn key={r} active={result === r} onClick={() => setResult(r)}>
-              <ResultDot result={r} size={7} /> {t(`tcResult.${r}`)}
-            </SegBtn>
-          ))}
-        </div>
-        {canWrite && (
-          <Button variant="primary" size="md" onClick={() => setNewOpen(true)}>
-            <Plus size={14} /> {t('testcases.new')}
-          </Button>
-        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
         {canWrite && (
           <InlineCreateRow label={t('testcases.new')} placeholder={t('newTc.titlePlaceholder')} onCreate={quickCreate} className="border-b border-border" />
         )}
-        {filtered.length === 0 ? (
+        {cases.length === 0 ? (
           <div className="grid h-[40vh] place-items-center text-[13px] text-fg-3">
             <span className="flex items-center gap-2"><CircleDot size={14} /> {t('testcases.empty')}</span>
           </div>
         ) : (
-          filtered.map((tc) => <TcRow key={tc.id} tc={tc} onOpen={onSelect} />)
+          cases.map((tc) => <TcRow key={tc.id} tc={tc} onOpen={onSelect} />)
         )}
       </div>
 

@@ -2,13 +2,18 @@
 
 import * as React from 'react';
 import { Command } from 'cmdk';
-import { Plus, LayoutGrid, Box, Map, Search, Layers, FileText } from 'lucide-react';
+import { Plus, LayoutGrid, Box, Map, Search, Layers, FileText, FlaskConical } from 'lucide-react';
 import { Dialog, DialogContent, DialogPortal, DialogOverlay } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { StatusIcon } from '@/components/glyphs/StatusIcon';
 import { AISlaBadge } from '@/components/glyphs/misc';
 import { useT } from '@/lib/i18n';
 import { useAllIssues } from '@/store/issues';
+import { useAllRequirements } from '@/store/requirements';
+import { useTestCases } from '@/store/testcases';
+
+const GROUP_HEADING_CLS =
+  '[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-fg-3';
 
 export function CommandPalette({
   open,
@@ -26,6 +31,8 @@ export function CommandPalette({
 }) {
   const t = useT();
   const { data: issues = [] } = useAllIssues();
+  const { data: requirements = [] } = useAllRequirements();
+  const { data: testCases = [] } = useTestCases();
   const [q, setQ] = React.useState('');
 
   const run = (fn: () => void) => {
@@ -69,10 +76,7 @@ export function CommandPalette({
               <Command.Empty className="px-2.5 py-6 text-center text-[13px] text-fg-3">
                 {t('cmd.empty')}
               </Command.Empty>
-              <Command.Group
-                heading={t('cmd.commands')}
-                className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-fg-3"
-              >
+              <Command.Group heading={t('cmd.commands')} className={GROUP_HEADING_CLS}>
                 {navItems
                   .filter((n) => !q || n.label.toLowerCase().includes(q.toLowerCase()))
                   .map((n) => (
@@ -93,28 +97,72 @@ export function CommandPalette({
                   ))}
               </Command.Group>
               {q && (
-                <Command.Group>
-                  {issues
-                    .filter(
-                      (i) =>
-                        i.title.toLowerCase().includes(q.toLowerCase()) ||
-                        i.id.toLowerCase().includes(q.toLowerCase()),
-                    )
-                    .slice(0, 6)
-                    .map((i) => (
-                      <Command.Item
-                        key={i.id}
-                        value={`${i.id} ${i.title}`}
-                        onSelect={() => run(() => onOpenIssue(i.id))}
-                        className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2.5 data-[selected=true]:bg-[var(--brand-blue-tint-8)]"
-                      >
-                        <StatusIcon status={i.status} size={15} />
-                        <span className="flex-none font-mono text-[11.5px] text-fg-3">{i.id}</span>
-                        <span className="flex-1 truncate text-[13.5px] text-fg-1">{i.title}</span>
-                        {i.aiAssigned && <AISlaBadge />}
-                      </Command.Item>
-                    ))}
-                </Command.Group>
+                <>
+                  <Command.Group heading={t('nav.allIssues')} className={GROUP_HEADING_CLS}>
+                    {issues
+                      .filter(
+                        (i) =>
+                          i.title.toLowerCase().includes(q.toLowerCase()) ||
+                          i.id.toLowerCase().includes(q.toLowerCase()),
+                      )
+                      .slice(0, 6)
+                      .map((i) => (
+                        <Command.Item
+                          key={i.id}
+                          value={`${i.id} ${i.title}`}
+                          onSelect={() => run(() => onOpenIssue(i.id))}
+                          className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2.5 data-[selected=true]:bg-[var(--brand-blue-tint-8)]"
+                        >
+                          <StatusIcon status={i.status} size={15} />
+                          <span className="flex-none font-mono text-[11.5px] text-fg-3">{i.id}</span>
+                          <span className="flex-1 truncate text-[13.5px] text-fg-1">{i.title}</span>
+                          {i.aiAssigned && <AISlaBadge />}
+                        </Command.Item>
+                      ))}
+                  </Command.Group>
+                  <Command.Group heading={t('nav.requirements')} className={GROUP_HEADING_CLS}>
+                    {requirements
+                      .filter(
+                        (r) =>
+                          r.title.toLowerCase().includes(q.toLowerCase()) ||
+                          r.id.toLowerCase().includes(q.toLowerCase()),
+                      )
+                      .slice(0, 4)
+                      .map((r) => (
+                        <Command.Item
+                          key={r.id}
+                          value={`${r.id} ${r.title}`}
+                          onSelect={() => run(() => onNavigate(`/requirements/${encodeURIComponent(r.id)}`))}
+                          className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2.5 data-[selected=true]:bg-[var(--brand-blue-tint-8)]"
+                        >
+                          <FileText size={15} className="flex-none text-fg-2" />
+                          <span className="flex-none font-mono text-[11.5px] text-fg-3">{r.id}</span>
+                          <span className="flex-1 truncate text-[13.5px] text-fg-1">{r.title}</span>
+                        </Command.Item>
+                      ))}
+                  </Command.Group>
+                  <Command.Group heading={t('nav.testcases')} className={GROUP_HEADING_CLS}>
+                    {testCases
+                      .filter(
+                        (c) =>
+                          c.title.toLowerCase().includes(q.toLowerCase()) ||
+                          c.id.toLowerCase().includes(q.toLowerCase()),
+                      )
+                      .slice(0, 4)
+                      .map((c) => (
+                        <Command.Item
+                          key={c.id}
+                          value={`${c.id} ${c.title}`}
+                          onSelect={() => run(() => onNavigate(`/testcases/${encodeURIComponent(c.id)}`))}
+                          className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2.5 data-[selected=true]:bg-[var(--brand-blue-tint-8)]"
+                        >
+                          <FlaskConical size={15} className="flex-none text-fg-2" />
+                          <span className="flex-none font-mono text-[11.5px] text-fg-3">{c.id}</span>
+                          <span className="flex-1 truncate text-[13.5px] text-fg-1">{c.title}</span>
+                        </Command.Item>
+                      ))}
+                  </Command.Group>
+                </>
               )}
             </Command.List>
           </Command>
