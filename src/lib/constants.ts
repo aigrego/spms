@@ -122,31 +122,23 @@ export const REQUIREMENT_TYPE: Record<RequirementType, { tone: Tone; color: stri
   non_functional: { tone: 'orange', color: '#7A5AE0' },
 };
 
-// 与 issue 状态同一语义:backlog/todo 待办、in_progress 进行中、testing 待测试、
-// done 完成、canceled 取消;tone 与看板列配色保持一致。
 export const REQUIREMENT_STATUS: Record<RequirementStatus, { tone: Tone }> = {
-  backlog: { tone: 'neutral' },
-  todo: { tone: 'neutral' },
-  in_progress: { tone: 'orange' },
-  testing: { tone: 'blue' },
-  done: { tone: 'success' },
-  canceled: { tone: 'neutral' },
+  draft: { tone: 'neutral' },
+  reviewing: { tone: 'orange' },
+  approved: { tone: 'blue' },
+  in_dev: { tone: 'orange' },
+  shipped: { tone: 'success' },
+  rejected: { tone: 'neutral' },
 };
 
 export const REQUIREMENT_STATUS_ORDER: RequirementStatus[] = [
-  'backlog',
-  'todo',
-  'in_progress',
-  'testing',
-  'done',
-  'canceled',
+  'draft',
+  'reviewing',
+  'approved',
+  'in_dev',
+  'shipped',
+  'rejected',
 ];
-
-/* 部署先于迁移的窗口期兜底:服务端仍可能返回旧枚举值(draft/shipped 等),
-   未知状态按 neutral 渲染而不是整页崩溃。 */
-export function requirementStatusTone(status: string): Tone {
-  return (REQUIREMENT_STATUS as Record<string, { tone: Tone }>)[status]?.tone ?? 'neutral';
-}
 
 export const REQUIREMENT_CATEGORY_ORDER: RequirementCategory[] = [
   'performance',

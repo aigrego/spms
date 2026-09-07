@@ -183,6 +183,13 @@
       "when": 1788603871197,
       "tag": "0025_requirement_status_to_issue_status",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1788747619926,
+      "tag": "0026_nosy_agent_brand",
+      "breakpoints": true
     }
   ]
 }

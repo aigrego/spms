@@ -77,7 +77,6 @@ export function serializeRequirement(row: {
   key: string;
   projectId: string;
   releaseId: string | null;
-  sprintId: string | null;
   title: string;
   type: string;
   category: string | null;
@@ -100,7 +99,6 @@ export function serializeRequirement(row: {
     id: row.key,
     projectId: row.projectId,
     releaseId: row.releaseId,
-    sprintId: row.sprintId,
     title: row.title,
     type: row.type,
     category: row.category,

@@ -29,8 +29,13 @@ export type RequirementCategory =
   | 'reliability'
   | 'compatibility'
   | 'maintainability';
-// 需求状态与 issue 同口径（复用同一状态机与 issue_status 枚举）。
-export type RequirementStatus = IssueStatus;
+export type RequirementStatus =
+  | 'draft'
+  | 'reviewing'
+  | 'approved'
+  | 'in_dev'
+  | 'shipped'
+  | 'rejected';
 
 // Product lifecycle phases — PMS-2: live on the Release (version), not the project.
 export type ProjectPhase = 'concept' | 'development' | 'release' | 'maintenance' | 'retired';
@@ -176,7 +181,6 @@ export interface Requirement {
   id: string; // display key (functional → "FR-3", non-functional → "NFR-2")
   projectId: string;
   releaseId: string | null; // the version this requirement targets
-  sprintId: string | null; // the sprint this requirement is committed to
   title: string;
   type: RequirementType;
   category: RequirementCategory | null;
@@ -252,12 +256,10 @@ export interface SprintStats {
   remainingPoints: number;
   issueCount: number;
   doneCount: number;
-  requirementCount: number;
 }
 
 export interface SprintDetail extends Sprint {
   issues: Issue[];
-  requirements: Requirement[];
   stats: SprintStats;
 }
 

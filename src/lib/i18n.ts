@@ -372,7 +372,6 @@ const zhCN: Dict = {
   'scrum.completeTitle': '完成此迭代？',
   'scrum.completeBody': '还有 {count} 个未完成事项，完成后它们将移回产品待办列表。',
   'scrum.completeBodyDone': '所有事项均已完成，确认结束这个迭代？',
-  'scrum.requirements': '关联需求',
 
   // projects / cycles / roadmap / inbox
   'projects.title': '项目',
@@ -503,12 +502,12 @@ const zhCN: Dict = {
   'reqCategory.reliability': '可靠性',
   'reqCategory.compatibility': '兼容性',
   'reqCategory.maintainability': '可维护性',
-  'reqStatus.backlog': '待办池',
-  'reqStatus.todo': '待处理',
-  'reqStatus.in_progress': '进行中',
-  'reqStatus.testing': '待测试',
-  'reqStatus.done': '已完成',
-  'reqStatus.canceled': '已取消',
+  'reqStatus.draft': '草稿',
+  'reqStatus.reviewing': '评审中',
+  'reqStatus.approved': '已批准',
+  'reqStatus.in_dev': '开发中',
+  'reqStatus.shipped': '已交付',
+  'reqStatus.rejected': '已拒绝',
 
   // new requirement modal
   'newReq.title': '新建需求',
@@ -634,8 +633,6 @@ const zhCN: Dict = {
   // requirement → release picker
   'requirements.release': '目标版本',
   'requirements.noRelease': '未指定版本',
-  'requirements.sprint': '关联迭代',
-  'requirements.noSprint': '不关联迭代',
 
   // common
   'common.all': '全部',
@@ -1022,7 +1019,6 @@ const en: Dict = {
   'scrum.completeTitle': 'Complete this sprint?',
   'scrum.completeBody': '{count} unfinished issue(s) will move back to the product backlog.',
   'scrum.completeBodyDone': 'All issues are done. Close out this sprint?',
-  'scrum.requirements': 'Requirements',
 
   'projects.title': 'Projects',
   'projects.new': 'New Project',
@@ -1146,12 +1142,12 @@ const en: Dict = {
   'reqCategory.reliability': 'Reliability',
   'reqCategory.compatibility': 'Compatibility',
   'reqCategory.maintainability': 'Maintainability',
-  'reqStatus.backlog': 'Backlog',
-  'reqStatus.todo': 'Todo',
-  'reqStatus.in_progress': 'In Progress',
-  'reqStatus.testing': 'Ready for Testing',
-  'reqStatus.done': 'Done',
-  'reqStatus.canceled': 'Canceled',
+  'reqStatus.draft': 'Draft',
+  'reqStatus.reviewing': 'In review',
+  'reqStatus.approved': 'Approved',
+  'reqStatus.in_dev': 'In development',
+  'reqStatus.shipped': 'Shipped',
+  'reqStatus.rejected': 'Rejected',
 
   'newReq.title': 'New requirement',
   'newReq.titleLabel': 'Title',
@@ -1266,8 +1262,6 @@ const en: Dict = {
 
   'requirements.release': 'Target release',
   'requirements.noRelease': 'No release',
-  'requirements.sprint': 'Sprint',
-  'requirements.noSprint': 'No sprint',
 
   'common.all': 'All',
   'common.search': 'Search…',
@@ -1650,7 +1644,6 @@ const zhTW: Dict = {
   'scrum.completeTitle': '完成此迭代？',
   'scrum.completeBody': '還有 {count} 個未完成事項，完成後將移回產品待辦清單。',
   'scrum.completeBodyDone': '所有事項均已完成，確認結束這個迭代？',
-  'scrum.requirements': '關聯需求',
 
   'projects.title': '專案',
   'projects.new': '新增專案',
@@ -1774,12 +1767,12 @@ const zhTW: Dict = {
   'reqCategory.reliability': '可靠性',
   'reqCategory.compatibility': '相容性',
   'reqCategory.maintainability': '可維護性',
-  'reqStatus.backlog': '待辦池',
-  'reqStatus.todo': '待處理',
-  'reqStatus.in_progress': '進行中',
-  'reqStatus.testing': '待測試',
-  'reqStatus.done': '已完成',
-  'reqStatus.canceled': '已取消',
+  'reqStatus.draft': '草稿',
+  'reqStatus.reviewing': '審查中',
+  'reqStatus.approved': '已批准',
+  'reqStatus.in_dev': '開發中',
+  'reqStatus.shipped': '已交付',
+  'reqStatus.rejected': '已拒絕',
 
   'newReq.title': '新增需求',
   'newReq.titleLabel': '標題',
@@ -1894,8 +1887,6 @@ const zhTW: Dict = {
 
   'requirements.release': '目標版本',
   'requirements.noRelease': '未指定版本',
-  'requirements.sprint': '關聯迭代',
-  'requirements.noSprint': '不關聯迭代',
 
   'common.all': '全部',
   'common.search': '搜尋…',

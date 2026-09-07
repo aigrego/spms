@@ -18,10 +18,10 @@ import { ProjectIcon } from '@/components/glyphs/misc';
 import { PriorityMenu, ImportanceMenu, ScopedAssigneeMenu } from '@/components/menus';
 import {
   REQUIREMENT_TYPE,
+  REQUIREMENT_STATUS,
   REQUIREMENT_STATUS_ORDER,
   REQUIREMENT_CATEGORY_ORDER,
   PRIORITY_ORDER,
-  requirementStatusTone,
 } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
@@ -98,7 +98,7 @@ function NewRequirementModal({
   const [category, setCategory] = React.useState<RequirementCategory>('performance');
   const [priority, setPriority] = React.useState<IssuePriority>('none');
   const [importance, setImportance] = React.useState<Importance>('none');
-  const [status, setStatus] = React.useState<RequirementStatus>('todo');
+  const [status, setStatus] = React.useState<RequirementStatus>('draft');
   const [assignee, setAssignee] = React.useState<string | null>(null);
   const [desc, setDesc] = React.useState('');
   const [acceptance, setAcceptance] = React.useState('');
@@ -129,7 +129,7 @@ function NewRequirementModal({
       setCategory('performance');
       setPriority('none');
       setImportance('none');
-      setStatus('todo');
+      setStatus('draft');
       setAssignee(null);
       setDesc('');
       setAcceptance('');
@@ -488,18 +488,16 @@ function RequirementDetail({
   onOpenIssue: (key: string) => void;
 }) {
   const t = useT();
-  const { projectById, memberById, releases, productById, agents, sprints } = useAppData();
+  const { projectById, memberById, releases, productById, agents } = useAppData();
   const { data: req } = useRequirement(id);
   const { data: allIssues = [] } = useAllIssues();
   const update = useUpdateRequirement();
   const del = useDeleteRequirement();
   const [decompOpen, setDecompOpen] = React.useState(false);
 
-  // 负责人候选池:迭代资源池(已关联迭代)否则项目资源池 + AI agents,
+  // 负责人候选池:项目资源池 + AI agents,
   // 与 IssueDetail 的 issueCandidates 口径一致(客户端组法同 NewIssueModal)。
-  const poolNodeType = req?.sprintId ? 'sprint' : 'project';
-  const poolNodeId = req?.sprintId ?? req?.projectId ?? null;
-  const { data: poolAssignments = [] } = useNodeAssignments(poolNodeType, poolNodeId);
+  const { data: poolAssignments = [] } = useNodeAssignments('project', req?.projectId ?? null);
   const candidates = React.useMemo<Member[]>(() => {
     const humans = poolAssignments
       .map((a) => a.member)
@@ -532,13 +530,6 @@ function RequirementDetail({
   const assignee = memberById(req.assigneeId);
   const author = memberById(req.authorId);
   const aiOwner = memberById(req.aiOwnerId);
-  // 可选迭代:未结束且项目口径匹配(无项目迭代对任何需求开放);当前已关联的
-  // 迭代始终保留在选项里(即使已结束/口径已变),保证可见可移除。
-  const sprintOptions = sprints.filter(
-    (s) =>
-      s.id === req.sprintId ||
-      (s.status !== 'completed' && (s.projectIds.length === 0 || s.projectIds.includes(req.projectId))),
-  );
   const linked = req.issues.map((k) => allIssues.find((i) => i.id === k)).filter(Boolean) as typeof allIssues;
   const acceptanceLines = (req.acceptanceCriteria ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
 
@@ -777,20 +768,6 @@ function RequirementDetail({
                 ))}
               </select>
             </PropRow>
-            <PropRow label={t('requirements.sprint')}>
-              <select
-                className={selCls}
-                value={req.sprintId ?? ''}
-                onChange={(e) => patch({ sprintId: e.target.value || null })}
-              >
-                <option value="">{t('requirements.noSprint')}</option>
-                {sprintOptions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </PropRow>
 
             <div className="my-4 h-px bg-border" />
             <PropRow label={t('requirements.author')}>
@@ -824,7 +801,7 @@ function ReqStatusMenu({ value, onPick }: { value: RequirementStatus; onPick: (s
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button onClick={(e) => e.stopPropagation()}>
-          <Badge tone={requirementStatusTone(value)} dot>{t(`reqStatus.${value}`)}</Badge>
+          <Badge tone={REQUIREMENT_STATUS[value].tone} dot>{t(`reqStatus.${value}`)}</Badge>
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[140px]" onClick={(e) => e.stopPropagation()}>
@@ -891,7 +868,7 @@ export function RequirementsView({
     if (project != null) setProjectFilter(project);
   }, [project]);
   const [typeTab, setTypeTab] = usePersistentState<RequirementType>('requirements.typeTab', 'functional', isTypeTab);
-  const [statusFilter, setStatusFilter] = usePersistentState<StatusFilter>('requirements.statusFilter', '', isStatusFilter);
+  const [statusFilter, setStatusFilter] = usePersistentState<StatusFilter>('requirements.statusFilter', 'draft', isStatusFilter);
   const [q, setQ] = React.useState('');
   const { data: requirements = [] } = useRequirements(projectFilter ? { project: projectFilter } : undefined);
   const create = useCreateRequirement();
@@ -909,7 +886,7 @@ export function RequirementsView({
   const targetProject = projectFilter || projects[0]?.id || '';
   const quickCreate = (title: string) => {
     if (!targetProject) return;
-    create.mutate({ projectId: targetProject, title, type: typeTab, status: 'todo', releaseId: projectById(targetProject)?.releaseId ?? null });
+    create.mutate({ projectId: targetProject, title, type: typeTab, status: 'draft', releaseId: projectById(targetProject)?.releaseId ?? null });
   };
 
   return (
@@ -957,7 +934,7 @@ export function RequirementsView({
             ))}
           </div>
           <div className="flex-1" />
-          {/* status segmented toggle (defaults to 全部) */}
+          {/* status segmented toggle (defaults to 草稿) */}
           <div className="inline-flex items-center gap-0.5 overflow-x-auto rounded-lg bg-surface-2 p-0.5">
             <SegBtn active={statusFilter === ''} onClick={() => setStatusFilter('')}>{t('common.all')}</SegBtn>
             {REQUIREMENT_STATUS_ORDER.map((s) => (

@@ -13,7 +13,7 @@ import { ResourcePanel } from '@/components/ResourcePanel';
 import { ResourcePanelCompact } from '@/components/ResourcePanelCompact';
 import { TabBtn } from '@/components/ui/segmented';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
-import { PROJECT_STATUS, PROJECT_PHASE, REQUIREMENT_TYPE, TEST_RESULT, SPRINT_STATUS, requirementStatusTone } from '@/lib/constants';
+import { PROJECT_STATUS, PROJECT_PHASE, REQUIREMENT_TYPE, REQUIREMENT_STATUS, TEST_RESULT, SPRINT_STATUS } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useAllIssues, useCreateIssue, useUpdateIssue } from '@/store/issues';
@@ -200,7 +200,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
               {canWriteRequirements && (
                 <InlineCreateRow
                   label={t('requirements.new')}
-                  onCreate={(title) => createReq.mutate({ projectId, title, type: 'functional', status: 'todo', releaseId: project.releaseId })}
+                  onCreate={(title) => createReq.mutate({ projectId, title, type: 'functional', status: 'draft', releaseId: project.releaseId })}
                   className="border-b border-border"
                 />
               )}
@@ -213,7 +213,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
                     <span className="flex-none font-mono text-[11.5px] text-fg-3">{r.id}</span>
                     <EditableTitle value={r.title} onSave={(title) => updateReq.mutate({ id: r.id, input: { title } })} className="min-w-0 flex-1 text-[13px] text-fg-1" />
                     <span className="hidden text-[11.5px] tabular-nums text-fg-3 sm:inline">{t('requirements.issuesProgress', { done: r.issueStats.done, total: r.issueStats.total })}</span>
-                    <Badge tone={requirementStatusTone(r.status)}>{t(`reqStatus.${r.status}`)}</Badge>
+                    <Badge tone={REQUIREMENT_STATUS[r.status].tone}>{t(`reqStatus.${r.status}`)}</Badge>
                   </div>
                 ))
               )}

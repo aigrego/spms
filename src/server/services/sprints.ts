@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { sprints, sprintProjects, sprintSnapshots, issues, projects, requirements } from '@/db/schema';
-import { serializeIssueList, serializeRequirement } from '@/lib/serialize';
+import { sprints, sprintProjects, sprintSnapshots, issues, projects } from '@/db/schema';
+import { serializeIssueList } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { requirePerm } from '@/lib/permissions';
 import { assertProjectWritable, clampAllowed, issueVisible, visibleSetsFor } from '@/lib/visibility';
@@ -112,9 +112,8 @@ function passesWhitelist(actor: Actor, projectIds: string[]): boolean {
 
 /* 迭代级写操作的可见性门槛:与 getSprint 读路径同一套过滤(指派可见性
    sprintIds + 令牌白名单项目交集),范围外按 SPRINT_NOT_FOUND 处理。
-   返回该迭代的项目列表,供调用方继续使用。导出供 requirements 服务复用
-   (需求关联迭代时同一套校验)。 */
-export async function assertSprintWritable(actor: Actor, sprintId: string): Promise<string[]> {
+   返回该迭代的项目列表,供调用方继续使用。 */
+async function assertSprintWritable(actor: Actor, sprintId: string): Promise<string[]> {
   const visible = await visibleSetsFor(actor);
   if (visible && !visible.sprintIds.includes(sprintId)) throw new ApiException('SPRINT_NOT_FOUND');
   const projectIds = await sprintProjectIds(actor.companyId, sprintId);
@@ -228,7 +227,7 @@ export async function getVelocity(actor: Actor, filter?: { team?: string }) {
   return { series, avgVelocity };
 }
 
-/* ---- single sprint: meta + committed issues & requirements + computed stats.
+/* ---- single sprint: meta + committed issues + computed stats.
    Missing or outside the actor's visibility → null ---- */
 export async function getSprint(actor: Actor, id: string) {
   await requirePerm(actor, 'sprints', 'read');
@@ -250,25 +249,16 @@ export async function getSprint(actor: Actor, id: string) {
   const committedPoints = sumPoints(rows);
   const completedPoints = sumPoints(rows.filter((r) => r.status === 'done'));
 
-  // 关联到迭代的需求(纯 AI 开发场景不拆 issue、直接按需求开发)。
-  const reqRows = await db.query.requirements.findMany({
-    where: and(eq(requirements.companyId, actor.companyId), eq(requirements.sprintId, id)),
-    with: { issues: { columns: { key: true, status: true } } },
-    orderBy: [asc(requirements.position)],
-  });
-
   return {
     ...sprint,
     projectIds,
     issues: rows.map(serializeIssueList),
-    requirements: reqRows.map(serializeRequirement),
     stats: {
       committedPoints,
       completedPoints,
       remainingPoints: committedPoints - completedPoints,
       issueCount: rows.length,
       doneCount: rows.filter((r) => DONE_STATUSES.includes(r.status)).length,
-      requirementCount: reqRows.length,
     },
   };
 }
@@ -550,8 +540,7 @@ async function applyStartSprint(tx: Tx, companyId: string, id: string, projectId
 }
 
 /* active→completed 的落库核心(在调用方的事务里执行):未完成 issue 退回产品
-   待办(sprintId → null,保留项目),未完成需求(done/canceled 之外)同样退出
-   迭代,再置状态;返回退回数量(issue + 需求合计)。completeSprint 与
+   待办(sprintId → null,保留项目),再置状态;返回退回数量。completeSprint 与
    updateSprint 的合法流转转发共用;收尾快照由调用方在事务提交后补记。 */
 async function applyCompleteSprint(tx: Tx, companyId: string, id: string): Promise<number> {
   const moved = await tx
@@ -565,19 +554,8 @@ async function applyCompleteSprint(tx: Tx, companyId: string, id: string): Promi
       ),
     )
     .returning({ id: issues.id });
-  const movedReqs = await tx
-    .update(requirements)
-    .set({ sprintId: null, updatedAt: new Date() })
-    .where(
-      and(
-        eq(requirements.companyId, companyId),
-        eq(requirements.sprintId, id),
-        notInArray(requirements.status, ['done', 'canceled']),
-      ),
-    )
-    .returning({ id: requirements.id });
   await tx.update(sprints).set({ status: 'completed' }).where(eq(sprints.id, id));
-  return moved.length + movedReqs.length;
+  return moved.length;
 }
 
 /* ---- lifecycle: start (planned → active) ---- */
@@ -605,8 +583,7 @@ export async function startSprint(actor: Actor, id: string) {
 
 /* ---- lifecycle: complete (active → completed) ----
    Unfinished issues move back to the product backlog (sprintId → null, they
-   keep their project); done/canceled issues stay on the completed sprint.
-   Unfinished requirements (not done/canceled) likewise leave the sprint. */
+   keep their project); done/canceled issues stay on the completed sprint. */
 export async function completeSprint(actor: Actor, id: string) {
   await requirePerm(actor, 'sprints', 'write');
   const [existing] = await db
@@ -630,7 +607,7 @@ export async function completeSprint(actor: Actor, id: string) {
   return { sprint: row, movedCount };
 }
 
-/* ---- delete ---- (committed issues & requirements detach: sprintId → null) */
+/* ---- delete ---- (committed issues detach: sprintId → null) */
 export async function deleteSprint(actor: Actor, id: string) {
   await requirePerm(actor, 'sprints', 'write');
   const [existing] = await db
@@ -647,10 +624,6 @@ export async function deleteSprint(actor: Actor, id: string) {
     .update(issues)
     .set({ sprintId: null })
     .where(and(eq(issues.companyId, actor.companyId), eq(issues.sprintId, id)));
-  await db
-    .update(requirements)
-    .set({ sprintId: null, updatedAt: new Date() })
-    .where(and(eq(requirements.companyId, actor.companyId), eq(requirements.sprintId, id)));
   await db.delete(sprints).where(eq(sprints.id, id));
   return { id };
 }

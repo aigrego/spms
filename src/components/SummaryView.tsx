@@ -299,7 +299,14 @@ function CycleRow({
 /* 状态分布横条(Issue / 需求)                                          */
 /* ------------------------------------------------------------------ */
 
-/* 需求状态与 issue 相同(复用 issue_status 枚举),分布图直接共用 STATUS 配色。 */
+const REQ_STATUS_COLOR: Record<RequirementStatus, string> = {
+  draft: '#8E99B0',
+  reviewing: '#D89400',
+  approved: '#0063D3',
+  in_dev: '#FF8423',
+  shipped: '#1F9D55',
+  rejected: '#D6293E',
+};
 
 function DistBar<T extends string>({
   counts,
@@ -640,7 +647,7 @@ export function SummaryView() {
                   </div>
                   <div>
                     <div className="mb-1.5 text-[12px] font-semibold text-fg-2">{t('summary.flow.reqStatus')}</div>
-                    <DistBar<RequirementStatus> counts={data.flowHealth.requirementStatus} colorOf={(k) => STATUS[k].color} labelOf={(k) => t(`reqStatus.${k}`)} />
+                    <DistBar<RequirementStatus> counts={data.flowHealth.requirementStatus} colorOf={(k) => REQ_STATUS_COLOR[k]} labelOf={(k) => t(`reqStatus.${k}`)} />
                   </div>
                   <div className="grid grid-cols-2 gap-3 border-t border-border pt-3 sm:grid-cols-4">
                     {[

@@ -105,7 +105,6 @@ export interface UpdateIssueInput {
 export interface CreateRequirementInput {
   projectId: string;
   releaseId?: string | null;
-  sprintId?: string | null;
   title: string;
   type?: RequirementType;
   category?: RequirementCategory | null;
@@ -394,7 +393,7 @@ export const api = {
     request<{ id: string; archived: boolean }>(`/projects/${id}/archive`, json('POST', { archived })),
 
   /* ---- Requirements / PRD ---- */
-  requirements: (params?: { project?: string; type?: RequirementType; sprint?: string }) => {
+  requirements: (params?: { project?: string; type?: RequirementType }) => {
     const q = new URLSearchParams(
       Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
     ).toString();

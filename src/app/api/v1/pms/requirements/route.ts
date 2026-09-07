@@ -3,7 +3,7 @@ import { createRequirement, listRequirements, type RequirementType } from '@/ser
 import { requireActor, route } from '@/server/http';
 import { jsonBodyWith, requirementCreateSchema } from '@/server/validate';
 
-/* GET  /api/v1/pms/requirements?project&type&sprint — list (position asc).
+/* GET  /api/v1/pms/requirements?project&type — list (position asc).
    POST /api/v1/pms/requirements — create (auto FR-N / NFR-N key). */
 export const GET = route(async (req) => {
   const actor = await requireActor();
@@ -12,7 +12,6 @@ export const GET = route(async (req) => {
     await listRequirements(actor, {
       project: sp.get('project') ?? undefined,
       type: (sp.get('type') as RequirementType | null) ?? undefined,
-      sprint: sp.get('sprint') ?? undefined,
     }),
   );
 });
