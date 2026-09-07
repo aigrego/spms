@@ -15,12 +15,21 @@ export interface GuideStep {
   link?: { label: string; href: string };
 }
 
+export interface GuideTestScenario {
+  title: string; // 场景名
+  when: string; // 触发时机
+  prompt: string; // 可直接下发给 Agent 的示例提示词
+  codes: string[]; // 等宽代码块(MCP 调用链)
+}
+
 export interface GuideContent {
   title: string;
   subtitle: string;
   badgeHuman: string;
   badgeAgent: string;
   steps: GuideStep[];
+  /* Agent 驱动的测试场景:时间轴之后的补充区块,列出三类套件执行的提示词范式。 */
+  testSection: { title: string; intro: string; scenarios: GuideTestScenario[] };
   footer: string;
 }
 
@@ -128,6 +137,31 @@ export const GUIDE: Record<Locale, GuideContent> = {
         link: { label: '打开需求池', href: '/requirements' },
       },
     ],
+    testSection: {
+      title: 'Agent 驱动的测试场景',
+      intro:
+        '三类套件执行都由 AI Agent 经 MCP 一条命令完成：先调 spms_run_test_suite（不传 results）取出待执行套件，逐条执行后再带 results 回调记录——结果写入用例并留痕 test_runs（谁/何时/哪类套件）。下面三段提示词可以直接下发给已接入的 Agent。',
+      scenarios: [
+        {
+          title: '功能开发 · TDD 最小闭环',
+          when: '时机：工单开发完成转入「待测试」之后。关联用例（挂工单的 ∪ 挂需求的 functional 用例）全部 passed 才允许关单。',
+          prompt: '「给 TKT-124 建 functional 测试用例并挂到工单（issueId=TKT-124）。执行这些用例并用 spms_run_test_suite 记录结果，全部 passed 后把工单转 done 关单；被门禁拦了就把阻塞用例清单报给我。」',
+          codes: ['spms_create_test_case (category=functional, issueId)', 'spms_run_test_suite (category=functional) → spms_update_issue (done / force)'],
+        },
+        {
+          title: '版本部署 · 冒烟 + 上线前集成',
+          when: '时机：每次部署后立即冒烟；版本全部开发完、转「已发布」之前跑集成测试——integration 用例全过才放行。',
+          prompt: '「项目 X 刚部署完，跑冒烟套件，note 写 v1.2.0 部署后冒烟。」「版本 V 准备发布：执行集成测试并记录，全部 passed 后把版本转已发布；被拦就列出没过的用例。」',
+          codes: ['spms_run_test_suite (category=smoke, projectId)', 'spms_run_test_suite (category=integration, releaseId) → spms_update_release (released / force)'],
+        },
+        {
+          title: 'hotfix · 回归',
+          when: '时机：hotfix 修复部署后，验证既有功能无退化；失败的用例可直接转成 BUG 工单继续跟踪。',
+          prompt: '「hotfix 已部署，对项目 X 跑回归套件，failed 的用例 raiseBugs=true 自动建 BUG，最后把执行汇总和新建的 BUG key 给我。」',
+          codes: ['spms_run_test_suite (category=regression, raiseBugs=true)', 'spms_list_test_runs（执行历史）'],
+        },
+      ],
+    },
     footer:
       '本页是推荐流程。除两处测试门禁（工单关单看 functional 用例、版本发布看 integration 用例，均可 force 覆盖）外，SPMS 不按这九步拦截任何操作。这里写的是团队约定的做法，遇到例外按实际情况来。',
   },
@@ -235,6 +269,31 @@ export const GUIDE: Record<Locale, GuideContent> = {
         link: { label: 'Open Requirement Pool', href: '/requirements' },
       },
     ],
+    testSection: {
+      title: 'Agent-driven test scenarios',
+      intro:
+        'All three suite runs are done by an AI Agent over MCP in a single command: call spms_run_test_suite without results to fetch the pending suite, execute each case, then call it again with results to record — outcomes land on the cases and are logged in test_runs (who / when / which suite). The three prompts below can be handed to a connected Agent as-is.',
+      scenarios: [
+        {
+          title: 'Feature development · the TDD minimal loop',
+          when: 'When: after a ticket finishes development and moves to "Testing". Linked cases (attached to the ticket ∪ functional cases on its requirement) must all pass before it can close.',
+          prompt: '"Create functional test cases for TKT-124 linked to the ticket (issueId=TKT-124). Execute them and record the results with spms_run_test_suite, then move the ticket to done once everything passes; if the gate blocks you, report the blocking cases back to me."',
+          codes: ['spms_create_test_case (category=functional, issueId)', 'spms_run_test_suite (category=functional) → spms_update_issue (done / force)'],
+        },
+        {
+          title: 'Release deployment · smoke + pre-release integration',
+          when: 'When: smoke right after every deployment; run integration tests before a fully-developed version turns "Released" — it only proceeds once every integration case has passed.',
+          prompt: '"Project X was just deployed — run the smoke suite with note \u2018v1.2.0 post-deploy smoke\u2019." "Version V is ready to ship: execute the integration tests and record them, then mark the release as released; if blocked, list the cases that have not passed."',
+          codes: ['spms_run_test_suite (category=smoke, projectId)', 'spms_run_test_suite (category=integration, releaseId) → spms_update_release (released / force)'],
+        },
+        {
+          title: 'Hotfix · regression',
+          when: 'When: after a hotfix is deployed, to verify nothing else broke; failed cases can be turned straight into BUG tickets for tracking.',
+          prompt: '"The hotfix is deployed — run the regression suite on project X with raiseBugs=true so failed cases auto-file BUGs, then give me the run summary and the new BUG keys."',
+          codes: ['spms_run_test_suite (category=regression, raiseBugs=true)', 'spms_list_test_runs (run history)'],
+        },
+      ],
+    },
     footer:
       'This page is a recommended workflow. Apart from the two test gates (functional cases guard ticket closure, integration cases guard releases — both force-overridable), SPMS does not block any operation based on these nine steps. It records the team\u2019s agreed practice — handle exceptions case by case.',
   },
@@ -341,6 +400,31 @@ export const GUIDE: Record<Locale, GuideContent> = {
         link: { label: '打開需求池', href: '/requirements' },
       },
     ],
+    testSection: {
+      title: 'Agent 驅動的測試場景',
+      intro:
+        '三類套件執行都由 AI Agent 經 MCP 一條命令完成：先呼叫 spms_run_test_suite（不傳 results）取出待執行套件，逐條執行後再帶 results 回呼記錄——結果寫入用例並留痕 test_runs（誰/何時/哪類套件）。下面三段提示詞可以直接下發給已接入的 Agent。',
+      scenarios: [
+        {
+          title: '功能開發 · TDD 最小閉環',
+          when: '時機：工單開發完成轉入「待測試」之後。關聯用例（掛工單的 ∪ 掛需求的 functional 用例）全部 passed 才允許關單。',
+          prompt: '「給 TKT-124 建 functional 測試用例並掛到工單（issueId=TKT-124）。執行這些用例並用 spms_run_test_suite 記錄結果，全部 passed 後把工單轉 done 關單；被門禁攔了就把阻塞用例清單報給我。」',
+          codes: ['spms_create_test_case (category=functional, issueId)', 'spms_run_test_suite (category=functional) → spms_update_issue (done / force)'],
+        },
+        {
+          title: '版本部署 · 冒煙 + 上線前整合',
+          when: '時機：每次部署後立即冒煙；版本全部開發完、轉「已發佈」之前跑整合測試——integration 用例全過才放行。',
+          prompt: '「專案 X 剛部署完，跑冒煙套件，note 寫 v1.2.0 部署後冒煙。」「版本 V 準備發佈：執行整合測試並記錄，全部 passed 後把版本轉已發佈；被攔就列出沒過的用例。」',
+          codes: ['spms_run_test_suite (category=smoke, projectId)', 'spms_run_test_suite (category=integration, releaseId) → spms_update_release (released / force)'],
+        },
+        {
+          title: 'hotfix · 回歸',
+          when: '時機：hotfix 修復部署後，驗證既有功能無退化；失敗的用例可直接轉成 BUG 工單繼續跟蹤。',
+          prompt: '「hotfix 已部署，對專案 X 跑回歸套件，failed 的用例 raiseBugs=true 自動建 BUG，最後把執行匯總和新建的 BUG key 給我。」',
+          codes: ['spms_run_test_suite (category=regression, raiseBugs=true)', 'spms_list_test_runs（執行歷史）'],
+        },
+      ],
+    },
     footer:
       '本頁是推薦流程。除兩處測試門禁（工單關單看 functional 用例、版本發佈看 integration 用例，均可 force 覆蓋）外，SPMS 不按這九步攔截任何操作。這裡寫的是團隊約定的做法，遇到例外按實際情況來。',
   },

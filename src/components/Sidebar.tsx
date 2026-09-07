@@ -18,7 +18,6 @@ import {
   KeyRound,
   Plug,
   BarChart3,
-  Compass,
   ChevronDown,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent, MenuItem } from '@/components/ui/popover';
@@ -184,8 +183,9 @@ export function Sidebar({ myCount }: { myCount: number }) {
   const showSprints = can('sprints', 'read');
 
   const showLifecycle = showProducts || showRequirements || showTestcases;
-  // 生命周期指引(/guide)无权限门、对所有登录用户可见,工作区区块因此恒展示。
-  const showWorkspace = true;
+  // 生命周期指引(/guide)的入口已挪到全局 Header 的"?"图标按钮,不再占侧边栏;
+  // 工作区区块因此只在有权限项时展示。
+  const showWorkspace = showProjects || showResources || showRoadmap || showSummary;
   const showScrum = showBacklog || showSprints;
 
   return (
@@ -249,12 +249,6 @@ export function Sidebar({ myCount }: { myCount: number }) {
           <>
             <SectionLabel>{t('nav.section.workspace')}</SectionLabel>
             <div className="flex flex-col gap-px">
-              <NavItem
-                icon={<Compass size={16} />}
-                label={t('nav.guide')}
-                active={pathname.startsWith('/guide')}
-                href="/guide"
-              />
               {/* 项目的按产品快捷筛选:与页面工具栏筛选同一 key。 */}
               {showProjects && (
                 <FilterNavItem

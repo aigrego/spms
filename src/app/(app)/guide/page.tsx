@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { ArrowRight, Info } from 'lucide-react';
+import { ArrowRight, Info, MessagesSquare } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { GUIDE } from '@/lib/i18n/guide';
 import { useLocale } from '@/lib/i18n';
@@ -67,7 +67,31 @@ export default function GuidePage() {
           ))}
         </div>
 
-        <div className="mt-2 flex items-start gap-2.5 rounded-[10px] border border-border bg-surface-2 px-3.5 py-3">
+        {/* Agent 驱动的测试场景:三类套件执行的提示词范式 */}
+        <h2 className="m-0 mt-4 text-[17px] font-semibold tracking-tight text-fg-1">{g.testSection.title}</h2>
+        <p className="mb-5 mt-2 text-[13.5px] leading-relaxed text-fg-3">{g.testSection.intro}</p>
+        <div className="grid gap-3 md:grid-cols-3">
+          {g.testSection.scenarios.map((sc) => (
+            <div key={sc.title} className="flex flex-col rounded-[12px] border border-border bg-surface px-4 py-3.5">
+              <h3 className="m-0 text-[13.5px] font-semibold text-fg-1">{sc.title}</h3>
+              <p className="mb-0 mt-2 text-[12.5px] leading-relaxed text-fg-3">{sc.when}</p>
+              <div className="mt-2.5 flex items-start gap-2 rounded-[8px] border border-border bg-surface-2 px-3 py-2 text-[12.5px] leading-relaxed text-fg-1">
+                <MessagesSquare size={13} className="mt-0.5 flex-none text-fg-3" />
+                <span>{sc.prompt}</span>
+              </div>
+              {sc.codes.map((c) => (
+                <div
+                  key={c}
+                  className="mt-2 overflow-x-auto rounded-[8px] border border-border bg-surface-sunken px-3 py-2 font-mono text-[11.5px] text-fg-1"
+                >
+                  {c}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6 flex items-start gap-2.5 rounded-[10px] border border-border bg-surface-2 px-3.5 py-3">
           <Info size={15} className="mt-px flex-none text-fg-3" />
           <p className="m-0 text-[12.5px] leading-relaxed text-fg-2">{g.footer}</p>
         </div>

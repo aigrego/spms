@@ -2,9 +2,9 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, Languages, LogOut, NotebookPen, Search, Settings, Shield, Sun } from 'lucide-react';
+import { Check, ChevronDown, HelpCircle, Languages, LogOut, NotebookPen, Search, Settings, Shield, Sun } from 'lucide-react';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { Logo } from '@/components/Logo';
 import { Badge } from '@/components/ui/badge';
@@ -320,12 +320,15 @@ function UserMenu() {
 }
 
 /* Global 52px header: logo + company switcher on the left, centered command
-   palette trigger, user menu on the right. Session not ready → skeleton. */
+   palette trigger, 生命周期指引入口 + user menu on the right.
+   Session not ready → skeleton. */
 export function Header() {
   const t = useT();
   const { openCmd } = useShell();
   const { session, sessionLoading } = useAppData();
   const [showLangSwitcher] = usePersistentState('showLangSwitcher', true);
+  const pathname = usePathname();
+  const onGuide = pathname.startsWith('/guide');
 
   return (
     <header
@@ -363,8 +366,19 @@ export function Header() {
         </button>
       </div>
 
-      {/* Right: user menu */}
-      <div className="flex min-w-0 flex-1 items-center justify-end">
+      {/* Right: 生命周期指引入口("?"图标按钮) + user menu */}
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
+        <Link
+          href="/guide"
+          title={t('nav.guide')}
+          aria-label={t('nav.guide')}
+          className={cn(
+            'grid h-8 w-8 flex-none place-items-center rounded-lg transition-colors',
+            onGuide ? 'bg-surface-2 text-brand-blue' : 'text-fg-3 hover:bg-surface-2 hover:text-fg-1',
+          )}
+        >
+          <HelpCircle size={17} />
+        </Link>
         {sessionLoading || !session ? (
           <div className="skeleton h-8 w-[120px] rounded-lg" />
         ) : (
