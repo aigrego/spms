@@ -4,6 +4,7 @@ import { companyMemberships, members, resourceAssignments } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import * as issueSvc from '@/server/services/issues';
 import * as requirementSvc from '@/server/services/requirements';
+import { blockingCasesForIssue, testsNotPassedError } from '@/server/services/testruns';
 import type { Actor } from '@/server/services/types';
 
 /* MCP 工作流驱动（TKT-6）：把「功能审查 → 状态流转 → 自动化指派」内置进 MCP
@@ -15,9 +16,15 @@ import type { Actor } from '@/server/services/types';
       （工单审查是否已实现，BUG 审查是否可复现）；
    2) 审查通过 → issue 自动置 in_progress（需求置 in_dev）；
    3) 开发完成（update_issue 传 status='done' 或审查结论 already_done）→
-      自动置 testing 并指派测试人员（优先当前项目的测试人员，回退 AI 测试员工）。 */
+      自动置 testing 并指派测试人员（优先当前项目的测试人员，回退 AI 测试员工）；
+   4) testing → done 为测试关单门禁（TDD 最小闭环）：关联用例（直接挂该 issue
+      的全部用例 ∪ 挂其需求的 functional 用例,排除 deprecated）须全部 passed,
+      否则报 TESTS_NOT_PASSED;显式 force=true 可强制关单并留痕评论。 */
 
 export type ReviewVerdict = 'passed' | 'failed' | 'already_done';
+
+/* spms_update_issue 的工作流入参:在 issue 更新字段之外带 force 覆盖开关。 */
+export type WorkflowIssueInput = issueSvc.UpdateIssueInput & { force?: boolean };
 
 /* 默认测试人员查找（BUG-15），按优先级：
    1) 当前项目的测试人员 —— 项目资源池（resourceAssignments）中、本公司席位角色
@@ -62,16 +69,30 @@ export async function findTester(companyId: string, projectId?: string | null) {
 }
 
 /* spms_update_issue 的工作流包装：
-   - status='done' → 拦截，实际落库 'testing'（开发完成不直接关单，需测试验证）；
-     未显式传 assigneeId 时自动指派测试人员；并自动写一条说明评论。
+   - status='done' 且当前在 testing → 测试关单门禁：关联用例须全部 passed,
+     否则抛 TESTS_NOT_PASSED(附阻塞清单);force=true 强制关单并写留痕评论。
+   - status='done' 且当前不在 testing → 拦截,实际落库 'testing'(开发完成不直接
+     关单,需测试验证);未显式传 assigneeId 时自动指派测试人员;并自动写说明评论。
    - status='testing' 且未显式传 assigneeId → 自动指派测试人员。
    - 其余入参原样透传。 */
-export async function updateIssueWithWorkflow(actor: Actor, key: string, input: issueSvc.UpdateIssueInput) {
-  if (input.status === 'done') {
-    const current = input.assigneeId === undefined ? await issueSvc.getIssue(actor, key) : null;
-    const tester = input.assigneeId === undefined ? await findTester(actor.companyId, current?.projectId) : null;
+export async function updateIssueWithWorkflow(actor: Actor, key: string, input: WorkflowIssueInput) {
+  const { force, ...issueInput } = input;
+  if (issueInput.status === 'done') {
+    const current = await issueSvc.getIssue(actor, key);
+    if (!current) throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
+    if (current.status === 'testing') {
+      const blocking = await blockingCasesForIssue(actor, key);
+      if (blocking.length && !force) throw testsNotPassedError(`Issue ${key} 关单被拦截`, blocking);
+      const issue = await issueSvc.updateIssue(actor, key, issueInput);
+      if (blocking.length) {
+        const list = blocking.map((c) => `${c.key}(${c.category}/${c.result})`).join('、');
+        await issueSvc.addComment(actor, key, `强制执行关单(force=true),关单时仍有 ${blocking.length} 条未通过用例:${list}。`);
+      }
+      return issue;
+    }
+    const tester = issueInput.assigneeId === undefined ? await findTester(actor.companyId, current.projectId) : null;
     const issue = await issueSvc.updateIssue(actor, key, {
-      ...input,
+      ...issueInput,
       status: 'testing',
       ...(tester ? { assigneeId: tester.id } : {}),
     });
@@ -80,18 +101,18 @@ export async function updateIssueWithWorkflow(actor: Actor, key: string, input: 
       key,
       tester
         ? `已完成开发，自动流转待测试（testing）并指派测试人员 ${tester.name}。`
-        : input.assigneeId === undefined
+        : issueInput.assigneeId === undefined
           ? '已完成开发，自动流转待测试（testing）；未找到可用的测试人员（项目测试成员或 agent 成员中 role=test），请手动指派。'
           : '已完成开发，自动流转待测试（testing）。',
     );
     return issue;
   }
-  if (input.status === 'testing' && input.assigneeId === undefined) {
+  if (issueInput.status === 'testing' && issueInput.assigneeId === undefined) {
     const current = await issueSvc.getIssue(actor, key);
     const tester = await findTester(actor.companyId, current?.projectId);
-    if (tester) return issueSvc.updateIssue(actor, key, { ...input, assigneeId: tester.id });
+    if (tester) return issueSvc.updateIssue(actor, key, { ...issueInput, assigneeId: tester.id });
   }
-  return issueSvc.updateIssue(actor, key, input);
+  return issueSvc.updateIssue(actor, key, issueInput);
 }
 
 /* spms_review_issue：功能审查驱动。key 前缀 FR-/NFR- 按需求处理，其余按

@@ -13,6 +13,7 @@ import {
   requirementStatusEnum,
   requirementTypeEnum,
   sprintStatusEnum,
+  testCaseCategoryEnum,
   testCaseStatusEnum,
   testResultEnum,
 } from '@/db/schema';
@@ -62,7 +63,10 @@ export const issueCreateSchema = z.object({
   labels: z.array(z.string()).optional(),
 });
 // key 只在创建时接受;其余字段全部可选(partial update)。
-export const issueUpdateSchema = issueCreateSchema.omit({ key: true }).partial();
+// force:testing → done 关单门禁的覆盖开关(关联用例未全过时强制关单)。
+export const issueUpdateSchema = issueCreateSchema.omit({ key: true }).partial().extend({
+  force: z.boolean().optional(),
+});
 
 export const commentCreateSchema = z.object({
   body: z.string().trim().min(1, '评论内容不能为空').max(10000),
@@ -104,8 +108,10 @@ export const requirementUpdateSchema = requirementCreateSchema.partial();
 export const testCaseCreateSchema = z.object({
   projectId: z.string().min(1),
   requirementId: idRef,
+  issueId: idRef,
   title,
   priority: z.enum(issuePriorityEnum.enumValues).optional(),
+  category: z.enum(testCaseCategoryEnum.enumValues).optional(),
   status: z.enum(testCaseStatusEnum.enumValues).optional(),
   result: z.enum(testResultEnum.enumValues).optional(),
   preconditions: longText,
@@ -115,6 +121,26 @@ export const testCaseCreateSchema = z.object({
   position: z.number().optional(),
 });
 export const testCaseUpdateSchema = testCaseCreateSchema.partial();
+
+/* ---- test runs (测试执行) ---- */
+export const testRunCreateSchema = z
+  .object({
+    projectId: z.string().optional(),
+    releaseId: z.string().optional(),
+    category: z.enum(testCaseCategoryEnum.enumValues),
+    results: z
+      .array(
+        z.object({
+          key: z.string().min(1),
+          result: z.enum(testResultEnum.enumValues),
+          note: z.string().max(20000).optional(),
+        }),
+      )
+      .min(1, 'results 不能为空'),
+    note: z.string().max(20000).optional(),
+    raiseBugs: z.boolean().optional(),
+  })
+  .refine((v) => (v.projectId ? !v.releaseId : !!v.releaseId), 'projectId 与 releaseId 必须二选一');
 
 /* ---- dev plans (开发计划) ---- */
 export const planCreateSchema = z.object({
@@ -160,7 +186,10 @@ export const releaseCreateSchema = z.object({
   progress: z.number().optional(),
   position: z.number().optional(),
 });
-export const releaseUpdateSchema = releaseCreateSchema.partial();
+export const releaseUpdateSchema = releaseCreateSchema.partial().extend({
+  /* 发布门禁覆盖:status='released' 时 integration 用例未全过可强制放行。 */
+  force: z.boolean().optional(),
+});
 
 /* ---- sprints ---- */
 export const sprintCreateSchema = z.object({

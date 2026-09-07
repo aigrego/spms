@@ -112,6 +112,16 @@ export const sprintStatusEnum = pgEnum('sprint_status', ['planned', 'active', 'c
 // Test cases (测试用例): lifecycle status + last-run result.
 export const testCaseStatusEnum = pgEnum('test_case_status', ['draft', 'active', 'deprecated']);
 export const testResultEnum = pgEnum('test_result', ['untested', 'passed', 'failed', 'blocked']);
+// Test case category (测试类别) — drives suite runs and gates:
+//   functional (default) = requirement/issue-level verification, the TDD gate;
+//   smoke = post-deploy core-path check; integration = cross-module, release gate;
+//   regression = post-hotfix no-degradation check (回滚验证也归入此类).
+export const testCaseCategoryEnum = pgEnum('test_case_category', [
+  'smoke',
+  'functional',
+  'integration',
+  'regression',
+]);
 // Dev plans (开发计划): draft = 待生成 (壳已建、内容待 AI Agent 产出),
 // generated = 已生成。内容本身仍可继续编辑,状态不再自动回退。
 export const planStatusEnum = pgEnum('plan_status', ['draft', 'generated']);
@@ -705,8 +715,11 @@ export const testCases = pgTable(
       .notNull(),
     // the requirement this case validates (nullable); detaches if that req is deleted.
     requirementId: text('requirement_id').references((): any => requirements.id, { onDelete: 'set null' }),
+    // the issue this case verifies (nullable, TDD loop); detaches if the issue is deleted.
+    issueId: text('issue_id').references(() => issues.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
     priority: issuePriorityEnum('priority').notNull().default('none'),
+    category: testCaseCategoryEnum('category').notNull().default('functional'),
     status: testCaseStatusEnum('status').notNull().default('draft'),
     result: testResultEnum('result').notNull().default('untested'),
     preconditions: text('preconditions'),
@@ -722,7 +735,55 @@ export const testCases = pgTable(
   (t) => [
     uniqueIndex('test_cases_key_uidx').on(t.companyId, t.key),
     index('test_cases_project_idx').on(t.projectId),
+    index('test_cases_issue_idx').on(t.issueId),
   ],
+);
+
+/* ------------------------------------------------------------------ */
+/* Test runs (测试执行) — one row per suite execution (e.g. post-deploy   */
+/* smoke, pre-release integration, post-hotfix regression), with per-    */
+/* case outcomes in test_run_items. test_cases.result stays the "last    */
+/* known result"; runs give it provenance (who/when/which suite).        */
+/* ------------------------------------------------------------------ */
+export const testRuns = pgTable(
+  'test_runs',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' })
+      .notNull(),
+    // scope: exactly one of projectId / releaseId is set (release scope spans
+    // the release's projects at execution time).
+    projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    releaseId: text('release_id').references(() => releases.id, { onDelete: 'set null' }),
+    category: testCaseCategoryEnum('category').notNull(),
+    executorId: text('executor_id').references(() => members.id, { onDelete: 'set null' }),
+    total: integer('total').notNull().default(0),
+    passed: integer('passed').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    blocked: integer('blocked').notNull().default(0),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('test_runs_company_time_idx').on(t.companyId, t.createdAt),
+    index('test_runs_project_idx').on(t.projectId),
+  ],
+);
+
+export const testRunItems = pgTable(
+  'test_run_items',
+  {
+    runId: text('run_id')
+      .references(() => testRuns.id, { onDelete: 'cascade' })
+      .notNull(),
+    testCaseId: text('test_case_id')
+      .references(() => testCases.id, { onDelete: 'cascade' })
+      .notNull(),
+    result: testResultEnum('result').notNull(),
+    note: text('note'),
+  },
+  (t) => [primaryKey({ columns: [t.runId, t.testCaseId] })],
 );
 
 /* ------------------------------------------------------------------ */
@@ -1018,6 +1079,19 @@ export const resourceAssignmentsRelations = relations(resourceAssignments, ({ on
 export const testCasesRelations = relations(testCases, ({ one }) => ({
   project: one(projects, { fields: [testCases.projectId], references: [projects.id] }),
   requirement: one(requirements, { fields: [testCases.requirementId], references: [requirements.id] }),
+  issue: one(issues, { fields: [testCases.issueId], references: [issues.id] }),
+}));
+
+export const testRunsRelations = relations(testRuns, ({ one, many }) => ({
+  project: one(projects, { fields: [testRuns.projectId], references: [projects.id] }),
+  release: one(releases, { fields: [testRuns.releaseId], references: [releases.id] }),
+  executor: one(members, { fields: [testRuns.executorId], references: [members.id] }),
+  items: many(testRunItems),
+}));
+
+export const testRunItemsRelations = relations(testRunItems, ({ one }) => ({
+  run: one(testRuns, { fields: [testRunItems.runId], references: [testRuns.id] }),
+  testCase: one(testCases, { fields: [testRunItems.testCaseId], references: [testCases.id] }),
 }));
 
 export const plansRelations = relations(plans, ({ one, many }) => ({

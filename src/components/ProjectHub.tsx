@@ -13,7 +13,7 @@ import { ResourcePanel } from '@/components/ResourcePanel';
 import { ResourcePanelCompact } from '@/components/ResourcePanelCompact';
 import { TabBtn } from '@/components/ui/segmented';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
-import { PROJECT_STATUS, PROJECT_PHASE, REQUIREMENT_TYPE, REQUIREMENT_STATUS, TEST_RESULT, SPRINT_STATUS } from '@/lib/constants';
+import { PROJECT_STATUS, PROJECT_PHASE, REQUIREMENT_TYPE, REQUIREMENT_STATUS, TEST_RESULT, TEST_CATEGORY, TEST_CATEGORY_ORDER, SPRINT_STATUS } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useAllIssues, useCreateIssue, useUpdateIssue } from '@/store/issues';
@@ -230,27 +230,40 @@ export function ProjectHub({ projectId }: { projectId: string }) {
                 {t('testcases.title')} <ChevronsRight size={13} />
               </Button>
             </div>
-            <div className="overflow-hidden rounded-[12px] border border-border">
-              {canWriteTestcases && (
-                <InlineCreateRow
-                  label={t('testcases.new')}
-                  onCreate={(title) => createTc.mutate({ projectId, title, status: 'draft', result: 'untested', priority: 'medium' })}
-                  className="border-b border-border"
-                />
-              )}
-              {testCases.length === 0 ? (
-                <div className="px-3 py-5 text-center text-[12.5px] text-fg-3">{t('testcases.empty')}</div>
-              ) : (
-                testCases.map((c) => (
-                  <div key={c.id} className="flex items-center gap-2.5 border-b border-border bg-surface px-3 py-2 last:border-b-0">
-                    <span className="h-2 w-2 flex-none rounded-full" style={{ background: TEST_RESULT[c.result].color }} />
-                    <span className="flex-none font-mono text-[11.5px] text-fg-3">{c.id}</span>
-                    <EditableTitle value={c.title} onSave={(title) => updateTc.mutate({ id: c.id, input: { title } })} className="min-w-0 flex-1 text-[13px] text-fg-1" />
-                    {c.requirementId && <span className="hidden items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-[10.5px] text-fg-2 sm:inline-flex"><Link2 size={10} /> {c.requirementId}</span>}
-                    <Badge tone={TEST_RESULT[c.result].tone}>{t(`tcResult.${c.result}`)}</Badge>
+            {/* category board: 冒烟 / 功能 / 集成 / 回归 四列,列内快速创建带上该列类别 */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {TEST_CATEGORY_ORDER.map((cat) => {
+                const list = testCases.filter((c) => c.category === cat);
+                return (
+                  <div key={cat} className="overflow-hidden rounded-[12px] border border-border">
+                    <div className="flex items-center gap-2 border-b border-border bg-surface px-3 py-2">
+                      <span className="h-2 w-2 flex-none rounded-full" style={{ background: TEST_CATEGORY[cat].color }} />
+                      <span className="text-[12.5px] font-semibold text-fg-1">{t(`tcCategory.${cat}`)}</span>
+                      <span className="rounded-full bg-surface-2 px-1.5 text-[11px] font-semibold text-fg-3">{list.length}</span>
+                    </div>
+                    {canWriteTestcases && (
+                      <InlineCreateRow
+                        label={t('testcases.new')}
+                        onCreate={(title) => createTc.mutate({ projectId, title, category: cat, status: 'draft', result: 'untested', priority: 'medium' })}
+                        className="border-b border-border"
+                      />
+                    )}
+                    {list.length === 0 ? (
+                      <div className="px-3 py-5 text-center text-[12.5px] text-fg-3">{t('testcases.colEmpty')}</div>
+                    ) : (
+                      list.map((c) => (
+                        <div key={c.id} className="flex items-center gap-2.5 border-b border-border bg-surface px-3 py-2 last:border-b-0">
+                          <span className="h-2 w-2 flex-none rounded-full" style={{ background: TEST_RESULT[c.result].color }} />
+                          <span className="flex-none font-mono text-[11.5px] text-fg-3">{c.id}</span>
+                          <EditableTitle value={c.title} onSave={(title) => updateTc.mutate({ id: c.id, input: { title } })} className="min-w-0 flex-1 text-[13px] text-fg-1" />
+                          {c.requirementId && <span className="hidden items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-[10.5px] text-fg-2 sm:inline-flex"><Link2 size={10} /> {c.requirementId}</span>}
+                          <Badge tone={TEST_RESULT[c.result].tone}>{t(`tcResult.${c.result}`)}</Badge>
+                        </div>
+                      ))
+                    )}
                   </div>
-                ))
-              )}
+                );
+              })}
             </div>
           </div>
         )}

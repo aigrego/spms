@@ -1,13 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { CreateTestCaseInput, UpdateTestCaseInput } from '@/lib/api';
-import type { TestCaseStatus, TestResult } from '@/lib/types';
+import type { TestCaseStatus, TestResult, TestCaseCategory } from '@/lib/types';
 
 /* Test case queries + mutations. Mirrors the requirements store. */
 
 export function useTestCases(params?: {
   project?: string;
   requirement?: string;
+  issue?: string;
+  category?: TestCaseCategory;
   status?: TestCaseStatus;
   result?: TestResult;
 }) {

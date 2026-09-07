@@ -12,13 +12,13 @@ import { PriorityMenu } from '@/components/menus';
 import { Popover, PopoverContent, PopoverTrigger, MenuItem } from '@/components/ui/popover';
 import { SegBtn } from '@/components/ui/segmented';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
-import { TEST_CASE_STATUS, TEST_CASE_STATUS_ORDER, TEST_RESULT, TEST_RESULT_ORDER, PRIORITY_ORDER } from '@/lib/constants';
+import { TEST_CASE_STATUS, TEST_CASE_STATUS_ORDER, TEST_RESULT, TEST_RESULT_ORDER, TEST_CATEGORY, TEST_CATEGORY_ORDER, PRIORITY_ORDER } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useAllRequirements } from '@/store/requirements';
 import { useTestCases, useTestCase, useCreateTestCase, useUpdateTestCase, useDeleteTestCase } from '@/store/testcases';
 import { ApiError } from '@/lib/api';
-import type { TestCase, TestResult, TestCaseStatus, IssuePriority } from '@/lib/types';
+import type { TestCase, TestResult, TestCaseStatus, TestCaseCategory, IssuePriority } from '@/lib/types';
 
 const inputCls =
   'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
@@ -28,6 +28,10 @@ const selCls =
 
 function ResultDot({ result, size = 9 }: { result: TestResult; size?: number }) {
   return <span className="inline-block flex-none rounded-full" style={{ width: size, height: size, background: TEST_RESULT[result].color }} />;
+}
+
+function CategoryDot({ category, size = 9 }: { category: TestCaseCategory; size?: number }) {
+  return <span className="inline-block flex-none rounded-full" style={{ width: size, height: size, background: TEST_CATEGORY[category].color }} />;
 }
 
 /* Quick-change the last-run result from the list without opening the drawer. */
@@ -190,6 +194,13 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
               <PropRow label={t('testcases.status')}>
                 <StatusMenu value={tc.status} onPick={(status) => patch({ status })} />
               </PropRow>
+              <PropRow label={t('testcases.category')}>
+                <select className={selCls} value={tc.category} onChange={(e) => patch({ category: e.target.value as TestCaseCategory })}>
+                  {TEST_CATEGORY_ORDER.map((c) => (
+                    <option key={c} value={c}>{t(`tcCategory.${c}`)}</option>
+                  ))}
+                </select>
+              </PropRow>
               <PropRow label={t('requirements.priority')}>
                 <PriorityMenu
                   current={tc.priority}
@@ -206,6 +217,20 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
                 <option key={r.id} value={r.id}>{r.id} · {r.title}</option>
               ))}
             </select>
+            <div className="mb-1.5 mt-3 text-[11px] font-semibold uppercase tracking-wider text-fg-3">{t('testcases.issue')}</div>
+            <input
+              key={tc.id}
+              defaultValue={tc.issueId ?? ''}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v !== (tc.issueId ?? '')) patch({ issueId: v || null });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.currentTarget.blur();
+              }}
+              placeholder={t('testcases.issuePlaceholder')}
+              className={selCls}
+            />
             <div className="my-4 h-px bg-border" />
             <PropRow label={t('detail.belong')}>
               <span className="truncate text-[13px] text-fg-1">{project?.name ?? '—'}</span>
@@ -233,6 +258,7 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
 /* List view                                                           */
 /* ------------------------------------------------------------------ */
 function TcRow({ tc, onOpen }: { tc: TestCase; onOpen: (id: string) => void }) {
+  const t = useT();
   const { memberById } = useAppData();
   const update = useUpdateTestCase();
   return (
@@ -243,6 +269,9 @@ function TcRow({ tc, onOpen }: { tc: TestCase; onOpen: (id: string) => void }) {
       <ResultDot result={tc.result} />
       <span className="w-[52px] flex-none font-mono text-xs text-fg-3">{tc.id}</span>
       <EditableTitle value={tc.title} onSave={(title) => update.mutate({ id: tc.id, input: { title } })} className="min-w-0 flex-1 text-[13.5px] text-fg-1" />
+      <Badge tone={TEST_CATEGORY[tc.category].tone}>
+        <CategoryDot category={tc.category} size={7} /> {t(`tcCategory.${tc.category}`)}
+      </Badge>
       {tc.requirementId && (
         <span className="hidden items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-[10.5px] font-medium text-fg-2 sm:inline-flex">
           <Link2 size={10} /> {tc.requirementId}
@@ -275,6 +304,8 @@ function NewTestCaseModal({
   const [title, setTitle] = React.useState('');
   const [projectId, setProjectId] = React.useState('');
   const [requirementId, setRequirementId] = React.useState('');
+  const [issueId, setIssueId] = React.useState('');
+  const [category, setCategory] = React.useState<TestCaseCategory>('functional');
   const [priority, setPriority] = React.useState<IssuePriority>('medium');
   const [status, setStatus] = React.useState<TestCaseStatus>('draft');
   const [result, setResult] = React.useState<TestResult>('untested');
@@ -288,6 +319,8 @@ function NewTestCaseModal({
       setTitle('');
       setProjectId(defaultProject || projects[0]?.id || '');
       setRequirementId('');
+      setIssueId('');
+      setCategory('functional');
       setPriority('medium');
       setStatus('draft');
       setResult('untested');
@@ -313,6 +346,8 @@ function NewTestCaseModal({
         projectId: pid,
         title: title.trim(),
         requirementId: requirementId || null,
+        issueId: issueId.trim() || null,
+        category,
         priority,
         status,
         result,
@@ -373,6 +408,10 @@ function NewTestCaseModal({
                 ))}
               </select>
             </div>
+            <div className="flex-1">
+              <span className={fieldLabel}>{t('testcases.issue')}</span>
+              <input value={issueId} onChange={(e) => setIssueId(e.target.value)} placeholder={t('testcases.issuePlaceholder')} className={inputCls} />
+            </div>
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
@@ -396,6 +435,14 @@ function NewTestCaseModal({
               <select className={inputCls} value={result} onChange={(e) => setResult(e.target.value as TestResult)}>
                 {TEST_RESULT_ORDER.map((r) => (
                   <option key={r} value={r}>{t(`tcResult.${r}`)}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1">
+              <span className={fieldLabel}>{t('testcases.category')}</span>
+              <select className={inputCls} value={category} onChange={(e) => setCategory(e.target.value as TestCaseCategory)}>
+                {TEST_CATEGORY_ORDER.map((c) => (
+                  <option key={c} value={c}>{t(`tcCategory.${c}`)}</option>
                 ))}
               </select>
             </div>
@@ -436,10 +483,12 @@ export function TestCasesView({
     if (project != null) setProjectFilter(project);
   }, [project]);
   const [result, setResult] = React.useState<TestResult | ''>('');
+  const [category, setCategory] = React.useState<TestCaseCategory | ''>('');
   const [q, setQ] = React.useState('');
   const { data: cases = [] } = useTestCases({
     project: projectFilter || undefined,
     result: result || undefined,
+    category: category || undefined,
   });
   const create = useCreateTestCase();
   const [newOpen, setNewOpen] = React.useState(false);
@@ -449,7 +498,7 @@ export function TestCasesView({
 
   const quickCreate = (title: string) => {
     if (!targetProject) return;
-    create.mutate({ projectId: targetProject, title, status: 'draft', result: 'untested', priority: 'medium' });
+    create.mutate({ projectId: targetProject, title, status: 'draft', result: 'untested', priority: 'medium', category: category || undefined });
   };
 
   return (
@@ -468,6 +517,15 @@ export function TestCasesView({
           />
         </div>
         <div className="flex-1" />
+        {/* category segmented filter */}
+        <div className="inline-flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
+          <SegBtn active={category === ''} onClick={() => setCategory('')}>{t('testcases.allCategories')}</SegBtn>
+          {TEST_CATEGORY_ORDER.map((c) => (
+            <SegBtn key={c} active={category === c} onClick={() => setCategory(c)}>
+              <CategoryDot category={c} size={7} /> {t(`tcCategory.${c}`)}
+            </SegBtn>
+          ))}
+        </div>
         {/* result segmented filter */}
         <div className="inline-flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
           <SegBtn active={result === ''} onClick={() => setResult('')}>{t('common.all')}</SegBtn>

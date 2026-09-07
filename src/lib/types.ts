@@ -202,11 +202,16 @@ export interface Requirement {
 // Test cases (测试用例).
 export type TestCaseStatus = 'draft' | 'active' | 'deprecated';
 export type TestResult = 'untested' | 'passed' | 'failed' | 'blocked';
+// 测试类别: smoke 冒烟(部署后) / functional 功能(TDD 关单门禁,默认) /
+// integration 集成(发布门禁) / regression 回归(hotfix 后)。
+export type TestCaseCategory = 'smoke' | 'functional' | 'integration' | 'regression';
 
 export interface TestCase {
   id: string; // display key ("TC-12")
   projectId: string;
   requirementId: string | null; // the requirement display key it validates
+  issueId: string | null; // the linked issue display key ("TKT-3" / "BUG-3")
+  category: TestCaseCategory;
   title: string;
   priority: IssuePriority;
   status: TestCaseStatus;

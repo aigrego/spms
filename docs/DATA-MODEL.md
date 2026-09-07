@@ -28,6 +28,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 | sprint_status | `planned \| active \| completed` |
 | test_case_status | `draft \| active \| deprecated` |
 | test_result | `untested \| passed \| failed \| blocked` |
+| test_case_category | `smoke \| functional \| integration \| regression`（冒烟/功能(默认)/集成/回归；驱动套件执行与两级门禁：issue 关单看 functional，版本发布看 integration） |
 | plan_status | `draft \| generated`（开发计划：待生成/已生成） |
 | activity_kind | `created \| status \| assign \| comment \| ai` |
 | assignment_node | `product \| release \| project \| sprint`（不含 product_line） |
@@ -114,7 +115,13 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 `id` PK · `companyId` NN → companies cascade · `issueId` NN → issues cascade · `fromStatus`（NULL = 起始状态未知）· `toStatus` NN · `whoId` → members set null（行为人）· `createdAt` NN · 索引 `(companyId, createdAt)`、`(issueId)`。唯一写入点是 updateIssue（UI/REST/MCP 同路），与 kind='status' 的 activity 并列落库；迁移 0022 把历史 status 活动回放回填（旧值 `in_review` 映射为 `testing`，枚举外旧值丢弃）。Notion 同步直接改行、不写流转（验收侧由 `issues.completedAt` 兜底）。
 
 ### test_cases
-`id` PK · `key` unique NN（TC-N）· `projectId` NN → projects cascade · `requirementId` → requirements set null · `title` NN · `priority` NN 默认 none · `status` NN 默认 draft · `result` NN 默认 untested · `preconditions` / `steps` / `expected` · `authorId` / `assigneeId` → members set null · `position` NN 默认 0 · `createdAt` / `updatedAt` NN
+`id` PK · `key` unique NN（TC-N）· `projectId` NN → projects cascade · `requirementId` → requirements set null · `issueId` → issues set null（TDD 场景把用例直接挂到工单）· `title` NN · `priority` NN 默认 none · `category` NN 默认 functional（smoke|functional|integration|regression）· `status` NN 默认 draft · `result` NN 默认 untested · `preconditions` / `steps` / `expected` · `authorId` / `assigneeId` → members set null · `position` NN 默认 0 · `createdAt` / `updatedAt` NN
+
+### test_runs（测试执行，一次套件执行一行）
+`id` PK · `projectId` → projects set null / `releaseId` → releases set null（范围二选一；release 范围跨其下所有项目）· `category` NN · `executorId` → members set null · `total/passed/failed/blocked` int NN 汇总 · `note` · `createdAt` NN · 索引 `(companyId, createdAt)`、`(projectId)` —— `test_cases.result` 仍是"最近结果"，test_runs 给它来源（谁/何时/哪类套件）；写入点是 testruns.recordRun（MCP `spms_run_test_suite` / REST `POST /test-runs`），落结果时 draft 用例自动转 active。
+
+### test_run_items（执行明细）
+`(runId, testCaseId)` 复合 PK，均 cascade · `result` NN · `note`
 
 ### plans（开发计划，TKT-68）
 `id` PK · `key` unique NN（PLAN-N）· `projectId` NN → projects cascade · `title` NN · `content` text NN 默认 `''`（markdown 正文，AI Agent 生成前为空）· `templateMd`（上传的 markdown 模板，存文本不走 blob）· `status` NN 默认 draft（待生成；generated=已生成）· `authorId` → members set null · `createdAt` / `updatedAt` NN
@@ -149,6 +156,7 @@ product_line ─cascade→ product ─cascade→ release ─cascade→ project �
                                                           └─set null→ issue.projectId
 sprint ─cascade→ sprint_projects / sprint_snapshots；─set null→ issue.sprintId
 requirement ─set null→ issue.requirementId / test_case.requirementId；─cascade→ plan_requirements
+issue ─set null→ test_case.issueId；test_run ─cascade→ test_run_items
 member ─cascade→ assignments；─set null→ author/assignee/lead 引用
 daily_report ─cascade→ daily_report_entries；member/product/company 删除均级联清日报
 ```

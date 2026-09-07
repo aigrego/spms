@@ -40,6 +40,8 @@ export const ERROR_CODES = [
   'LIFECYCLE_MISMATCH',
   'INVITE_FAILED',
   'TEST_CASE_NOT_FOUND',
+  // 测试门禁:关联用例未全部通过,阻断关单/发布
+  'TESTS_NOT_PASSED',
   // dev plans (开发计划)
   'PLAN_NOT_FOUND',
   // issue attachments
@@ -77,6 +79,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   LIFECYCLE_MISMATCH: '生命周期归属不一致（迭代/项目/版本冲突）',
   INVITE_FAILED: '邀请失败',
   TEST_CASE_NOT_FOUND: '测试用例不存在',
+  TESTS_NOT_PASSED: '关联测试用例未全部通过',
   PLAN_NOT_FOUND: '开发计划不存在',
   ATTACHMENT_NOT_FOUND: '附件不存在',
   REPORT_NOT_FOUND: '日报不存在',

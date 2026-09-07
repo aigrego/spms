@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
 import { db } from '@/db';
-import { testCases, projects, requirements } from '@/db/schema';
+import { testCases, projects, requirements, issues } from '@/db/schema';
 import { serializeTestCase } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
@@ -10,9 +10,9 @@ import { archivedProjectIds } from './issues';
 import type { Actor } from './types';
 
 /* Test cases (测试用例) business service — project-scoped, optionally validating
-   a requirement. Ported from apps/spms-server/src/routes/testcases.ts (TC-N key
-   via the counters table). Addressed by display `key` ("TC-N"), mirroring the
-   issue/requirement contract.
+   a requirement and/or verifying an issue. Ported from apps/spms-server/src/routes/
+   testcases.ts (TC-N key via the counters table). Addressed by display `key`
+   ("TC-N"), mirroring the issue/requirement contract.
 
    Multi-company: every function takes the Actor and reads/writes strictly
    inside actor.companyId; keys (TC-N) are unique per company. Module gate:
@@ -22,8 +22,12 @@ type TestCaseRow = typeof testCases.$inferSelect;
 export type TestCaseStatus = TestCaseRow['status'];
 export type TestResult = TestCaseRow['result'];
 export type TestCasePriority = TestCaseRow['priority'];
+export type TestCaseCategory = TestCaseRow['category'];
 
-const withRequirement = { requirement: { columns: { key: true } } } as const;
+const withLinks = {
+  requirement: { columns: { key: true } },
+  issue: { columns: { key: true } },
+} as const;
 
 /* 列表服务端上限(与 reports.ts 的 LIST_LIMIT=500 同口径):内存保护,
    超出按 position 截断;不加分页参数、不改响应形状。注意 requirement 过滤是
@@ -42,16 +46,30 @@ async function resolveRequirementId(companyId: string, key: string | null | unde
   return r?.id ?? undefined;
 }
 
+/* Resolve an issue display key (TKT-N / BUG-N / BLG-N) → internal uuid, within
+   the company. undefined = provided but not found; null = unlinked. */
+async function resolveIssueId(companyId: string, key: string | null | undefined) {
+  if (!key) return null;
+  const [r] = await db
+    .select({ id: issues.id })
+    .from(issues)
+    .where(and(eq(issues.companyId, companyId), eq(issues.key, key)))
+    .limit(1);
+  return r?.id ?? undefined;
+}
+
 async function findByKey(companyId: string, key: string) {
   return db.query.testCases.findFirst({ where: and(eq(testCases.companyId, companyId), eq(testCases.key, key)) });
 }
 
-/* ---- list (optionally by project / requirement(display key) / status / result) ---- */
+/* ---- list (optionally by project / requirement|issue(display key) / category / status / result) ---- */
 export async function listTestCases(
   actor: Actor,
   filter?: {
     project?: string;
     requirement?: string;
+    issue?: string;
+    category?: TestCaseCategory;
     status?: TestCaseStatus;
     result?: TestResult;
   },
@@ -59,6 +77,7 @@ export async function listTestCases(
   await requirePerm(actor, 'testcases', 'read');
   const conds = [eq(testCases.companyId, actor.companyId)];
   if (filter?.project) conds.push(eq(testCases.projectId, filter.project));
+  if (filter?.category) conds.push(eq(testCases.category, filter.category));
   if (filter?.status) conds.push(eq(testCases.status, filter.status));
   if (filter?.result) conds.push(eq(testCases.result, filter.result));
   // 指派可见性 ∩ 令牌白名单(与 listIssues 同款);null = 管理员不限制。
@@ -68,12 +87,13 @@ export async function listTestCases(
   conds.push(notInArray(testCases.projectId, await archivedProjectIds(actor.companyId)));
   const rows = await db.query.testCases.findMany({
     where: and(...conds),
-    with: withRequirement,
+    with: withLinks,
     orderBy: [asc(testCases.position)],
     limit: LIST_LIMIT,
   });
-  // requirement filter is by display key → filter post-join.
-  const filtered = filter?.requirement ? rows.filter((r) => r.requirement?.key === filter.requirement) : rows;
+  // requirement / issue filters are by display key → filter post-join.
+  let filtered = filter?.requirement ? rows.filter((r) => r.requirement?.key === filter.requirement) : rows;
+  if (filter?.issue) filtered = filtered.filter((r) => r.issue?.key === filter.issue);
   return filtered.map(serializeTestCase);
 }
 
@@ -82,7 +102,7 @@ export async function getTestCase(actor: Actor, key: string) {
   await requirePerm(actor, 'testcases', 'read');
   const row = await db.query.testCases.findFirst({
     where: and(eq(testCases.companyId, actor.companyId), eq(testCases.key, key)),
-    with: withRequirement,
+    with: withLinks,
   });
   if (!row) return null;
   const visibleProjectIds = clampAllowed(actor, (await visibleSetsFor(actor))?.projectIds ?? null);
@@ -93,8 +113,10 @@ export async function getTestCase(actor: Actor, key: string) {
 export interface CreateTestCaseInput {
   projectId: string;
   requirementId?: string | null; // display key ("FR-N"), not the internal uuid
+  issueId?: string | null; // display key ("TKT-N"), not the internal uuid
   title: string;
   priority?: TestCasePriority;
+  category?: TestCaseCategory;
   status?: TestCaseStatus;
   result?: TestResult;
   preconditions?: string | null;
@@ -120,6 +142,10 @@ export async function createTestCase(actor: Actor, input: CreateTestCaseInput) {
   if (reqId === undefined) {
     throw new ApiException('REQUIREMENT_NOT_FOUND', `需求 ${input.requirementId} 不存在`);
   }
+  const issueId = await resolveIssueId(actor.companyId, input.issueId);
+  if (issueId === undefined) {
+    throw new ApiException('ISSUE_NOT_FOUND', `Issue ${input.issueId} 不存在`);
+  }
 
   const id = crypto.randomUUID();
   const key = await nextKey(actor.companyId, 'TC');
@@ -129,8 +155,10 @@ export async function createTestCase(actor: Actor, input: CreateTestCaseInput) {
     key,
     projectId: input.projectId,
     requirementId: reqId,
+    issueId,
     title: input.title.trim(),
     priority: input.priority ?? 'none',
+    category: input.category ?? 'functional',
     status: input.status ?? 'draft',
     result: input.result ?? 'untested',
     preconditions: input.preconditions ?? null,
@@ -143,7 +171,7 @@ export async function createTestCase(actor: Actor, input: CreateTestCaseInput) {
 
   const row = await db.query.testCases.findFirst({
     where: eq(testCases.id, id),
-    with: withRequirement,
+    with: withLinks,
   });
   return serializeTestCase(row!);
 }
@@ -151,8 +179,10 @@ export async function createTestCase(actor: Actor, input: CreateTestCaseInput) {
 export interface UpdateTestCaseInput {
   projectId?: string;
   requirementId?: string | null; // display key
+  issueId?: string | null; // display key
   title?: string;
   priority?: TestCasePriority;
+  category?: TestCaseCategory;
   status?: TestCaseStatus;
   result?: TestResult;
   preconditions?: string | null;
@@ -178,6 +208,7 @@ export async function updateTestCase(actor: Actor, key: string, input: UpdateTes
   if (input.projectId !== undefined) patch.projectId = input.projectId;
   if (input.title !== undefined) patch.title = input.title;
   if (input.priority !== undefined) patch.priority = input.priority;
+  if (input.category !== undefined) patch.category = input.category;
   if (input.status !== undefined) patch.status = input.status;
   if (input.result !== undefined) patch.result = input.result;
   if (input.preconditions !== undefined) patch.preconditions = input.preconditions;
@@ -192,11 +223,18 @@ export async function updateTestCase(actor: Actor, key: string, input: UpdateTes
     }
     patch.requirementId = reqId;
   }
+  if (input.issueId !== undefined) {
+    const issueId = await resolveIssueId(actor.companyId, input.issueId);
+    if (issueId === undefined) {
+      throw new ApiException('ISSUE_NOT_FOUND', `Issue ${input.issueId} 不存在`);
+    }
+    patch.issueId = issueId;
+  }
 
   await db.update(testCases).set(patch).where(eq(testCases.id, existing.id));
   const row = await db.query.testCases.findFirst({
     where: eq(testCases.id, existing.id),
-    with: withRequirement,
+    with: withLinks,
   });
   return serializeTestCase(row!);
 }

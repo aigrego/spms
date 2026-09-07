@@ -19,6 +19,7 @@ import * as reportSvc from '@/server/services/reports';
 import * as resourceSvc from '@/server/services/resources';
 import * as sprintSvc from '@/server/services/sprints';
 import * as testCaseSvc from '@/server/services/testcases';
+import * as testRunSvc from '@/server/services/testruns';
 import type { Actor } from '@/server/services/types';
 import { reviewWithWorkflow, updateIssueWithWorkflow } from './workflow';
 
@@ -231,6 +232,7 @@ const requirementCategory = z.enum(['performance', 'security', 'usability', 'rel
 const requirementStatus = z.enum(['draft', 'reviewing', 'approved', 'in_dev', 'shipped', 'rejected']);
 const testCaseStatus = z.enum(['draft', 'active', 'deprecated']);
 const testResult = z.enum(['untested', 'passed', 'failed', 'blocked']);
+const testCaseCategory = z.enum(['smoke', 'functional', 'integration', 'regression']);
 const releaseStatus = z.enum(['planned', 'in_progress', 'released', 'deprecated']);
 const lifecyclePhase = z.enum(['concept', 'development', 'release', 'maintenance', 'retired']);
 const productStatus = z.enum(['active', 'maintenance', 'archived']);
@@ -538,12 +540,14 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   reg(
     'spms_list_test_cases',
     {
-      description: `测试用例列表。status：draft|active|deprecated；result：untested|passed|failed|blocked。requirement 传展示 key（FR-N）。${CONCEPTS}`,
+      description: `测试用例列表。category：smoke 冒烟|functional 功能(默认)|integration 集成|regression 回归；status：draft|active|deprecated；result：untested|passed|failed|blocked。requirement / issue 传展示 key（FR-N / TKT-N）。${CONCEPTS}`,
       annotations: { readOnlyHint: true },
       inputSchema: {
         companyId: companyIdParam,
         project: z.string().optional().describe('项目 id'),
         requirement: z.string().optional().describe("需求展示 key，如 'FR-2'"),
+        issue: z.string().optional().describe("Issue 展示 key，如 'TKT-3'"),
+        category: testCaseCategory.optional().describe('测试类别'),
         status: testCaseStatus.optional(),
         result: testResult.optional(),
       },
@@ -553,6 +557,72 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         const actor = await actorFor(args.companyId);
         const { companyId: _companyId, ...filter } = args;
         return testCaseSvc.listTestCases(actor, filter);
+      }),
+  );
+
+  reg(
+    'spms_run_test_suite',
+    {
+      description:
+        `执行测试套件（一条命令完成一类测试）。projectId 与 releaseId 二选一（releaseId 跨版本下所有项目），category 必填。` +
+        `不传 results → 返回该范围内该类别的待执行用例清单（先取套件再去执行）；` +
+        `传 results（[{key, result, note?}]）→ 批量记录执行结果：逐条更新用例 result（draft 用例自动转 active），` +
+        `并写入 test_runs 执行留痕（谁/何时/哪类套件），返回汇总 {run, bugs}。` +
+        `raiseBugs=true 时 failed 用例自动生成 BUG issue（标题【测试失败】…，关联同项目/需求）。` +
+        `典型用法：部署后冒烟（category='smoke'，项目或版本范围）；版本上线前集成测试（category='integration' + releaseId，全部 passed 后 spms_update_release status='released' 才放行）；` +
+        `hotfix 修复部署后回归（category='regression'）。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        projectId: z.string().optional().describe('项目 id（与 releaseId 二选一）'),
+        releaseId: z.string().optional().describe('版本/Release id（与 projectId 二选一）'),
+        category: testCaseCategory.describe('测试类别：smoke 冒烟 / functional 功能 / integration 集成 / regression 回归'),
+        results: z
+          .array(
+            z.object({
+              key: z.string().describe("用例展示 key，如 'TC-1'"),
+              result: testResult.describe('执行结果'),
+              note: z.string().optional().describe('本条备注（failed 时建议填失败现象）'),
+            }),
+          )
+          .optional()
+          .describe('执行结果；不传则只返回待执行套件清单'),
+        note: z.string().optional().describe("本次执行备注，如 'v1.2.0 部署后冒烟'"),
+        raiseBugs: z.boolean().optional().describe('failed 用例是否自动生成 BUG issue（默认 false）'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        const scope = { projectId: args.projectId, releaseId: args.releaseId };
+        if (!args.results) {
+          const cases = await testRunSvc.listSuite(actor, scope, args.category);
+          return { suite: cases, hint: '执行这些用例后,带 results 再次调用本工具记录结果。' };
+        }
+        return testRunSvc.recordRun(actor, {
+          ...scope,
+          category: args.category,
+          results: args.results,
+          note: args.note,
+          raiseBugs: args.raiseBugs,
+        });
+      }),
+  );
+
+  reg(
+    'spms_list_test_runs',
+    {
+      description: `测试执行历史（倒序，含逐条明细）。可按 project（项目 id）/ category 过滤。${CONCEPTS}`,
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        companyId: companyIdParam,
+        project: z.string().optional().describe('项目 id'),
+        category: testCaseCategory.optional().describe('测试类别'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return testRunSvc.listTestRuns(actor, { project: args.project, category: args.category });
       }),
   );
 
@@ -674,9 +744,12 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       description:
         `更新 Issue（按展示 key，如 BUG-3）：可改 status/priority/importance/title/description/assigneeId/projectId/` +
         `requirementId（展示 key）/sprintId/estimate/storyPoints/labels（全量替换）。只传要改的字段；显式传 null 可清空可空字段。` +
-        `工作流自动化：status 传 'done' 会被拦截并实际落库为 'testing'（开发完成需测试验证，不直接关单），此时若未显式传 assigneeId ` +
+        `工作流自动化：status 传 'done' 且当前不在 testing 时会被拦截并实际落库为 'testing'（开发完成需测试验证，不直接关单），此时若未显式传 assigneeId ` +
         `会自动指派测试人员（优先当前项目资源池中公司角色为 tester 的成员；没有则回退 agent 成员中 role='test' 者，内置为 Sentry）并自动写一条说明评论；` +
-        `status 传 'testing' 且未传 assigneeId 时同样自动指派测试人员。处理 issue 前请先调用 spms_review_issue 完成功能审查。${CONCEPTS}`,
+        `status 传 'testing' 且未传 assigneeId 时同样自动指派。` +
+        `测试关单门禁：当前已在 testing 时再传 'done'，要求关联测试用例（直接挂该 issue 的全部用例 ∪ 挂其需求的 functional 用例，排除 deprecated）全部 passed，` +
+        `否则报 TESTS_NOT_PASSED 并附阻塞用例清单——此时应先通过 spms_run_test_suite / spms_update_test_case 把用例执行通过；` +
+        `显式传 force=true 可强制关单（自动写留痕评论）。处理 issue 前请先调用 spms_review_issue 完成功能审查。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         key: z.string().describe("Issue 展示 key，如 'BUG-3'"),
@@ -693,6 +766,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         estimate: z.number().nullable().optional(),
         storyPoints: z.number().nullable().optional(),
         labels: z.array(z.string()).optional().describe('label id 数组（全量替换）'),
+        force: z.boolean().optional().describe('testing → done 关单门禁的覆盖开关（关联用例未全过时强制关单）'),
       },
     },
     async (args) =>
@@ -849,12 +923,19 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   reg(
     'spms_create_test_case',
     {
-      description: `创建测试用例（自动分配 TC-N key，初始 status=draft、result=untested）。requirementId 传需求展示 key（FR-N）。${CONCEPTS}`,
+      description:
+        `创建测试用例（自动分配 TC-N key，初始 status=draft、result=untested）。category：smoke 冒烟|functional 功能(默认)|integration 集成|regression 回归——` +
+        `功能开发的 TDD 用例用 functional（issue 关单门禁依据），部署后冒烟用 smoke，版本上线前用 integration（发布门禁依据），hotfix 后用 regression。` +
+        `requirementId 传需求展示 key（FR-N）；issueId 传 Issue 展示 key（TKT-N，TDD 场景把用例直接挂到工单）。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         projectId: z.string().describe('项目 id（必填）'),
         title: z.string().describe('用例标题（必填）'),
         requirementId: z.string().optional().describe("需求展示 key，如 'FR-2'"),
+        issueId: z.string().optional().describe("Issue 展示 key，如 'TKT-3'"),
+        category: testCaseCategory.optional().describe("测试类别，默认 'functional'"),
+        status: testCaseStatus.optional(),
+        result: testResult.optional(),
         priority: issuePriority.optional(),
         preconditions: z.string().optional().describe('前置条件'),
         steps: z.string().optional().describe('测试步骤'),
@@ -873,12 +954,14 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
     'spms_update_test_case',
     {
       description:
-        `更新测试用例（按展示 key，如 TC-1）：可改 title/priority/status（draft|active|deprecated）/result（untested|passed|failed|blocked）/` +
-        `preconditions/steps/expected/requirementId（展示 key）/assigneeId/position。执行结果用 result 字段记录。只传要改的字段。${CONCEPTS}`,
+        `更新测试用例（按展示 key，如 TC-1）：可改 title/priority/category（smoke|functional|integration|regression）/` +
+        `status（draft|active|deprecated）/result（untested|passed|failed|blocked）/preconditions/steps/expected/` +
+        `requirementId / issueId（均传展示 key）/assigneeId/position。执行结果用 result 字段记录（套件批量执行用 spms_run_test_suite）。只传要改的字段。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         key: z.string().describe("用例展示 key，如 'TC-1'"),
         title: z.string().optional(),
+        category: testCaseCategory.optional(),
         status: testCaseStatus.optional(),
         result: testResult.optional().describe('执行结果：passed/failed/blocked，未执行 untested'),
         priority: issuePriority.optional(),
@@ -886,6 +969,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         steps: z.string().nullable().optional(),
         expected: z.string().nullable().optional(),
         requirementId: z.string().nullable().optional().describe("需求展示 key；null 解除关联"),
+        issueId: z.string().nullable().optional().describe("Issue 展示 key；null 解除关联"),
         assigneeId: z.string().nullable().optional(),
         projectId: z.string().optional(),
         position: z.number().optional(),
@@ -1028,7 +1112,10 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         `更新版本/Release（按 id，spms_get_bootstrap 的 releases 可查）：可改 name/description/status/phase/` +
         `targetDate/progress/position。status：planned|in_progress|released|deprecated；` +
         `phase 为产品生命周期段（concept 构思→development 开发→release 发布→maintenance 维护→retired 退役），` +
-        `项目卡片的生命周期进度条读它。只传要改的字段。${CONCEPTS}`,
+        `项目卡片的生命周期进度条读它。只传要改的字段。` +
+        `发布门禁：status 传 'released' 时，要求版本下所有项目的 integration 测试用例（排除 deprecated）全部 passed，` +
+        `否则报 TESTS_NOT_PASSED 并附阻塞用例清单——先用 spms_run_test_suite(category='integration', releaseId=…) 执行并记录结果；` +
+        `显式传 force=true 可强制发布。${CONCEPTS}`,
       inputSchema: {
         companyId: companyIdParam,
         id: z.string().describe('版本/Release id'),
@@ -1039,6 +1126,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         targetDate: z.string().nullable().optional().describe('目标日期（ISO），传 null 清空'),
         progress: z.number().min(0).max(1).optional().describe('进度 0–1'),
         position: z.number().optional(),
+        force: z.boolean().optional().describe('发布门禁的覆盖开关（integration 用例未全过时强制发布）'),
       },
     },
     async (args) =>

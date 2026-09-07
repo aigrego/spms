@@ -64,7 +64,9 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_list_projects` | — | 项目列表（含派生进度） |
 | `spms_list_sprints` | — | 迭代列表 |
 | `spms_get_sprint` | `id` | 迭代详情（含 committed/completed 点数统计） |
-| `spms_list_test_cases` | `project? requirement? status? result?` | 测试用例列表 |
+| `spms_list_test_cases` | `project? requirement? issue? category? status? result?` | 测试用例列表；category：smoke 冒烟/functional 功能(默认)/integration 集成/regression 回归 |
+| `spms_run_test_suite` | `projectId\|releaseId, category, results?, note?, raiseBugs?` | 测试套件执行（一条命令）：不传 results 返回待执行套件清单；传 results 批量落结果（draft 用例自动转 active）并写 test_runs 留痕；raiseBugs=true 时 failed 用例自动建 BUG。典型：部署后冒烟 smoke、发布前集成 integration、hotfix 后回归 regression |
+| `spms_list_test_runs` | `project? category?` | 测试执行历史（倒序，含明细） |
 | `spms_list_plans` | `project?` | **新增**：开发计划列表（按创建时间倒序；requirements 为关联需求展示 key 数组） |
 | `spms_get_plan` | `key` | **新增**：开发计划详情（markdown 正文/模板/关联需求） |
 | `spms_list_members` | — | 成员列表（human/agent） |
@@ -75,14 +77,14 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 |---|---|---|
 | `spms_create_issue` | `title, type?, status?, priority?, importance?, description?, assigneeId?, projectId?, requirementId?, sprintId?, estimate?, storyPoints?, labels?` | 创建 issue（缺陷传 type='bug'）；返回展示 key |
 | `spms_review_issue` | `key, verdict, note?` | **新增**：功能审查（工作流入口，处理任何 issue/需求前必须先调用）。`verdict='passed'` → issue 自动置 `in_progress`（需求置 `in_dev`）；`'already_done'` → 自动置 `testing` 并指派测试人员；`'failed'` → 只写评论、状态不变，返回 `suggestion` 后续建议 |
-| `spms_update_issue` | `key, ...任意可更新字段` | 改状态/指派/优先级/标题/描述等。`status='done'` 会被拦截并实际落库 `testing`，未显式传 `assigneeId` 时自动指派测试人员并写说明评论 |
+| `spms_update_issue` | `key, ...任意可更新字段, force?` | 改状态/指派/优先级/标题/描述等。`status='done'` 且当前不在 testing → 拦截落库 `testing`，未显式传 `assigneeId` 时自动指派测试人员并写说明评论；testing → done 过测试关单门禁（关联用例须全部 passed，否则 TESTS_NOT_PASSED），`force=true` 强制关单 |
 | `spms_add_comment` | `key, body` | 给 issue 加评论 |
 | `spms_upload_issue_attachment` | `key, filename, data, contentType?` | 上传图片附件（data 为 base64；≤10MB，jpeg/png/gif/webp/avif）。配合 `spms_update_issue`（status='done'）实现"传图并关单" |
 | `spms_create_requirement` | `projectId, title, type?, category?, priority?, importance?, description?, acceptanceCriteria?, releaseId?, assigneeId?` | 创建需求（自动分配 FR/NFR key）；assigneeId 指派负责人 |
 | `spms_update_requirement` | `key, ...` | 更新需求；assigneeId 指派负责人（null 取消） |
 | `spms_decompose_requirement` | `key` | **新增**：把需求拆解为工单（按验收标准逐行、空则回退 PRD 描述逐行；继承项目/紧急度/重要度，一次最多 20 条、key 连号） |
-| `spms_create_test_case` | `projectId, title, requirementId?, priority?, preconditions?, steps?, expected?` | 创建测试用例 |
-| `spms_update_test_case` | `key, ...` | 更新用例（含 result: passed/failed/blocked） |
+| `spms_create_test_case` | `projectId, title, requirementId?, issueId?, category?, status?, result?, priority?, preconditions?, steps?, expected?` | 创建测试用例；category：smoke 冒烟/functional 功能(默认)/integration 集成/regression 回归；issueId 把用例直接挂到工单（TDD） |
+| `spms_update_test_case` | `key, ...` | 更新用例（含 category/issueId/result；套件批量执行用 spms_run_test_suite） |
 | `spms_move_issue_to_sprint` | `sprintId（或 '_backlog'）, issueKey, storyPoints?` | 移入/移出迭代 |
 | `spms_start_sprint` | `id` | 启动迭代（planned → active；迭代可跨多项目，任一项目已有进行中迭代即冲突） |
 | `spms_complete_sprint` | `id` | 完成迭代（active → completed；未完成 Issue 移回待办，返回 movedCount） |
@@ -90,7 +92,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_update_project` | `id, name?, releaseId?, status?, leadId?, aiLeadId?, icon?, color?, target?, description?, summary?, goal?, nonGoals?` | **新增**：更新项目（releaseId 换绑版本即调整关联） |
 | `spms_create_plan` | `projectId, title, requirementIds?, templateMd?` | **新增**：创建开发计划（自动 PLAN-N key，初始 draft/待生成；requirementIds 传需求展示 key 数组）。Agent 生成内容后调 `spms_update_plan` 写入 content 并置 `generated` |
 | `spms_update_plan` | `key, title?, content?, templateMd?, status?, requirementIds?` | **新增**：更新开发计划（status：draft 待生成/generated 已生成；requirementIds 传了即全量替换关联）。「生成」= 写 content + 置 `generated` |
-| `spms_update_release` | `id, name?, description?, status?, phase?, targetDate?, progress?, position?` | 更新版本；`phase` 为产品生命周期段（concept→development→release→maintenance→retired），项目卡片生命周期进度条读它 |
+| `spms_update_release` | `id, name?, description?, status?, phase?, targetDate?, progress?, position?, force?` | 更新版本；`phase` 为产品生命周期段（concept→development→release→maintenance→retired），项目卡片生命周期进度条读它。发布门禁：`status='released'` 要求版本下 integration 用例全部 passed，否则 TESTS_NOT_PASSED；`force=true` 强制发布 |
 | `spms_create_product` | `productLineId, name, description?, icon?, color?, status?, leadId?, position?` | **新增**：创建产品（自动 PD-N key，productLineId 关联到产品线） |
 | `spms_update_product` | `id, productLineId?, name?, description?, icon?, color?, status?, leadId?, position?` | **新增**：更新产品（productLineId 换绑产品线即调整关联；status：active/maintenance/archived） |
 | `spms_submit_report` | `date, entries[{project, content}], mode?` | 按项目提交本人日报（合并式 upsert）：服务端按 项目→版本→产品 推导日报归属产品（项目需已关联版本），同日重复提交同一产品时默认把新内容**追加**到该产品已有条目末尾（`mode='replace'` 才整体替换）、不影响其他产品条目，返回 `created`/`updated` 标明各产品条目新建/更新。`project` 接受项目 id 或项目名（精确匹配），且必须在令牌的项目白名单内；一次调用内多个项目推导到同一产品需先自行合并内容。`content` 会规整为简单 Markdown（普通行自动转为 `- ` 列表项），日报汇总视图按 Markdown 渲染；内容只需把相关 issue 的标题/内容简化总结、说清楚即可，不要额外展开描述。作者固定为令牌所属人，不能代他人提交。典型场景：Agent 按 git 提交记录按项目汇总条目后逐项目上报，多项目/多令牌分别上报互不覆盖 |
@@ -104,7 +106,9 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 - **处理前审查**：处理任何 issue/需求前必须先调 `spms_review_issue`——工单审查是否已实现，BUG 审查是否可复现。
   - issue（TKT/BUG/BLG key）：`passed` → 自动置 `in_progress`；`already_done` → 自动置 `testing` 并自动指派测试人员；`failed` → 只写评论、状态不变，返回 `suggestion` 给出后续建议。
   - 需求（FR/NFR key）：`passed` → 自动置 `in_dev`；其余 verdict 状态不变（需求无评论能力，`note` 不落库）。
-- **完成即流转**：`spms_update_issue` 传 `status='done'` 会被拦截，实际落库为 `testing`（开发完成需测试验证，不直接关单）；未显式传 `assigneeId` 时自动指派测试人员，并自动写一条说明评论。`status='testing'` 且未传 `assigneeId` 时同样自动指派。
+- **完成即流转**：`spms_update_issue` 传 `status='done'` 且当前不在 testing → 拦截，实际落库为 `testing`（开发完成需测试验证，不直接关单）；未显式传 `assigneeId` 时自动指派测试人员，并自动写一条说明评论。`status='testing'` 且未传 `assigneeId` 时同样自动指派。
+- **测试关单门禁（TDD 最小闭环）**：当前已在 testing 再传 `status='done'` → 校验关联用例（直接挂该 issue 的全部用例 ∪ 挂其需求的 functional 用例，排除 deprecated）全部 passed 才放行；否则报 `TESTS_NOT_PASSED` 并附阻塞清单。`force=true` 强制关单并自动写留痕评论。REST `PATCH /issues/:key` 同口径走该工作流。
+- **版本发布门禁**：`spms_update_release` 传 `status='released'` → 校验版本下所有项目的 integration 用例（排除 deprecated）全部 passed，否则报 `TESTS_NOT_PASSED`；`force=true` 强制发布。上线前用 `spms_run_test_suite(category='integration', releaseId=…)` 执行并记录。
 - **测试人员**：本公司 `type='agent'`、`role='test'`、`status='active'` 的第一个成员（内置即 Sentry）；找不到则不指派，在返回结果与评论中说明。
 
 ## 操作者身份

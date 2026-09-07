@@ -1,10 +1,16 @@
 import { ok } from '@/lib/envelope';
-import { createTestCase, listTestCases, type TestCaseStatus, type TestResult } from '@/server/services/testcases';
+import {
+  createTestCase,
+  listTestCases,
+  type TestCaseCategory,
+  type TestCaseStatus,
+  type TestResult,
+} from '@/server/services/testcases';
 import { requireActor, route } from '@/server/http';
 import { jsonBodyWith, testCaseCreateSchema } from '@/server/validate';
 
-/* GET  /api/v1/pms/test-cases?project&requirement&status&result — list
-   (requirement takes the display key "FR-N").
+/* GET  /api/v1/pms/test-cases?project&requirement&issue&category&status&result — list
+   (requirement / issue take display keys, "FR-N" / "TKT-N").
    POST /api/v1/pms/test-cases — create (auto TC-N key; author = current member). */
 export const GET = route(async (req) => {
   const actor = await requireActor();
@@ -13,6 +19,8 @@ export const GET = route(async (req) => {
     await listTestCases(actor, {
       project: sp.get('project') ?? undefined,
       requirement: sp.get('requirement') ?? undefined,
+      issue: sp.get('issue') ?? undefined,
+      category: (sp.get('category') as TestCaseCategory | null) ?? undefined,
       status: (sp.get('status') as TestCaseStatus | null) ?? undefined,
       result: (sp.get('result') as TestResult | null) ?? undefined,
     }),

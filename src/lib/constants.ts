@@ -13,6 +13,7 @@ import type {
   RequirementStatus,
   TestCaseStatus,
   TestResult,
+  TestCaseCategory,
   PlanStatus,
 } from './types';
 
@@ -167,6 +168,17 @@ export const TEST_RESULT: Record<TestResult, { tone: BadgeTone; color: string }>
   blocked: { tone: 'warning', color: '#D89400' },
 };
 export const TEST_RESULT_ORDER: TestResult[] = ['untested', 'passed', 'failed', 'blocked'];
+
+/* Test case category (测试类别). Distinct ramp from result colors (green/red are
+   reserved for pass/fail): smoke=purple, functional=blue, integration=orange,
+   regression=amber. */
+export const TEST_CATEGORY: Record<TestCaseCategory, { tone: BadgeTone; color: string }> = {
+  smoke: { tone: 'purple', color: '#7A5AE0' },
+  functional: { tone: 'blue', color: '#0063D3' },
+  integration: { tone: 'orange', color: '#FF8423' },
+  regression: { tone: 'warning', color: '#D89400' },
+};
+export const TEST_CATEGORY_ORDER: TestCaseCategory[] = ['smoke', 'functional', 'integration', 'regression'];
 
 /* Dev plans (开发计划): draft = 待生成, generated = 已生成. Labels live in i18n
    (t('planStatus.x')). */

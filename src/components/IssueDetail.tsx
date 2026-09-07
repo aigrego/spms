@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronLeft, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2, Archive, ArchiveRestore, Pencil, Calendar, Copy } from 'lucide-react';
+import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronLeft, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2, Archive, ArchiveRestore, Pencil, Calendar, Copy, FlaskConical } from 'lucide-react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,10 +17,12 @@ import { Markdown } from '@/components/Markdown';
 import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, ScopedAssigneeMenu, RequirementMenu, LabelMenu } from '@/components/menus';
 import { useT, useLocale } from '@/lib/i18n';
 import { formatActivityTime, formatDate } from '@/lib/time';
+import { TEST_RESULT, TEST_CATEGORY } from '@/lib/constants';
 import { useAppData } from '@/store/AppData';
 import { useIssue, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue, useArchiveIssue, useRegisterAttachment, useDeleteAttachment } from '@/store/issues';
 import { useIssueCandidates } from '@/store/resources';
 import { useRequirements } from '@/store/requirements';
+import { useTestCases } from '@/store/testcases';
 import { uploadAttachment } from '@/lib/upload';
 import { ATTACHMENT_ACCEPT, isImageType } from '@/lib/attachments';
 import type { Activity, IssueStatus, Member } from '@/lib/types';
@@ -310,6 +312,7 @@ export function IssueDetail({
   const [uploading, setUploading] = React.useState<{ key: string; preview: string; image: boolean }[]>([]);
   const attachInputRef = React.useRef<HTMLInputElement>(null);
   const { data: projectReqs = [] } = useRequirements(issue?.projectId ? { project: issue.projectId } : undefined);
+  const { data: linkedTcs = [] } = useTestCases({ issue: id });
   // Assignee + @-mention pool: the issue's project research resources (+ AI agents).
   const { data: candData } = useIssueCandidates(id);
   const [tab, setTab] = React.useState<'activity' | 'comments'>('activity');
@@ -785,6 +788,31 @@ export function IssueDetail({
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* Linked test cases + close-gate hint (testing → done 门禁) */}
+            {linkedTcs.length > 0 && (
+              <div className="mb-[22px]">
+                <div className="mb-2 flex items-center gap-1.5 text-[12.5px] font-semibold text-fg-2">
+                  <FlaskConical size={14} className="text-fg-3" /> {t('testcases.title')} · {linkedTcs.length}
+                </div>
+                <div className="overflow-hidden rounded-[10px] border border-border">
+                  {linkedTcs.map((tc) => (
+                    <div key={tc.id} className="flex items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0">
+                      <span className="h-2 w-2 flex-none rounded-full" style={{ background: TEST_RESULT[tc.result].color }} />
+                      <span className="flex-none whitespace-nowrap font-mono text-[11.5px] text-fg-3">{tc.id}</span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-fg-1">{tc.title}</span>
+                      <Badge tone={TEST_CATEGORY[tc.category].tone}>{t(`tcCategory.${tc.category}`)}</Badge>
+                      <Badge tone={TEST_RESULT[tc.result].tone}>{t(`tcResult.${tc.result}`)}</Badge>
+                    </div>
+                  ))}
+                </div>
+                {issue.status === 'testing' && linkedTcs.some((tc) => tc.result !== 'passed') && (
+                  <div className="mt-2 rounded-md px-2.5 py-1.5 text-[12px]" style={{ background: 'var(--warning-50)', color: '#7A5300' }}>
+                    {t('issue.testsGate', { n: linkedTcs.filter((tc) => tc.result !== 'passed').length })}
+                  </div>
+                )}
               </div>
             )}
 

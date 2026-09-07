@@ -118,15 +118,17 @@ export function serializeRequirement(row: {
   };
 }
 
-/* Test case → frontend shape. Like issues, the linked requirement is surfaced by
-   its display key (FR-N / NFR-N), not the internal uuid. */
+/* Test case → frontend shape. Like issues, the linked requirement / issue are
+   surfaced by their display keys (FR-N / NFR-N / TKT-N / BUG-N), not internal uuids. */
 export function serializeTestCase(row: {
   id: string;
   key: string;
   projectId: string;
   requirementId: string | null;
+  issueId: string | null;
   title: string;
   priority: string;
+  category: string;
   status: string;
   result: string;
   preconditions: string | null;
@@ -138,13 +140,16 @@ export function serializeTestCase(row: {
   createdAt: Date;
   updatedAt: Date;
   requirement?: { key: string } | null;
+  issue?: { key: string } | null;
 }) {
   return {
     id: row.key,
     projectId: row.projectId,
     requirementId: row.requirement?.key ?? null,
+    issueId: row.issue?.key ?? null,
     title: row.title,
     priority: row.priority,
+    category: row.category,
     status: row.status,
     result: row.result,
     preconditions: row.preconditions,
@@ -155,6 +160,37 @@ export function serializeTestCase(row: {
     position: row.position,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  };
+}
+
+/* Test run (测试执行) → frontend shape. Items carry the case display key. */
+export function serializeTestRun(row: {
+  id: string;
+  projectId: string | null;
+  releaseId: string | null;
+  category: string;
+  executorId: string | null;
+  total: number;
+  passed: number;
+  failed: number;
+  blocked: number;
+  note: string | null;
+  createdAt: Date;
+  items?: { result: string; note: string | null; testCase?: { key: string } | null }[];
+}) {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    releaseId: row.releaseId,
+    category: row.category,
+    executorId: row.executorId,
+    total: row.total,
+    passed: row.passed,
+    failed: row.failed,
+    blocked: row.blocked,
+    note: row.note,
+    createdAt: row.createdAt,
+    items: row.items?.map((it) => ({ testCase: it.testCase?.key ?? null, result: it.result, note: it.note })),
   };
 }
 

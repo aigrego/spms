@@ -6,6 +6,7 @@ import { nextKey } from '@/lib/keys';
 import { assignMember, clearNodesAssignments, sprintsDyingWithProjects, type NodeRef } from '@/lib/assignments';
 import { requirePerm } from '@/lib/permissions';
 import { visibleSetsFor } from '@/lib/visibility';
+import { blockingIntegrationForRelease, testsNotPassedError } from './testruns';
 import type { Actor } from './types';
 
 /* Lifecycle catalog business service: 产品线 → 产品 → 版本/Release.
@@ -390,6 +391,9 @@ export interface UpdateReleaseInput {
   targetDate?: Date | string | null;
   progress?: number;
   position?: number;
+  /* 发布门禁覆盖:status → released 要求版本下所有项目的 integration 用例全部
+     passed;force=true 跳过该门禁(谨慎使用,调用方应自行留痕)。 */
+  force?: boolean;
 }
 
 export async function updateRelease(actor: Actor, id: string, input: UpdateReleaseInput) {
@@ -400,6 +404,10 @@ export async function updateRelease(actor: Actor, id: string, input: UpdateRelea
     .where(and(eq(releases.companyId, actor.companyId), eq(releases.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('RELEASE_NOT_FOUND');
+  if (input.status === 'released' && !input.force) {
+    const blocking = await blockingIntegrationForRelease(actor, id);
+    if (blocking.length) throw testsNotPassedError('版本发布被拦截', blocking);
+  }
   const patch: Partial<typeof releases.$inferInsert> = {};
   if (input.productId !== undefined) patch.productId = input.productId;
   if (input.name !== undefined) patch.name = input.name;

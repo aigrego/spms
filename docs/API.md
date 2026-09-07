@@ -50,7 +50,7 @@
 | GET | `/issues?team&assignee&project&includeArchived&recentDone` | 列表，updatedAt desc；带 labels/subIssues/requirement.key；`sub:{done,total}`；默认排除已归档 issue 及已归档项目的 issue（`includeArchived=1` 放行，项目中心等历史上下文用）；`recentDone=1` 时已完成（done）只显示最近一周完成的记录（按 `completedAt`，全部/我的 Issues 视图 opt-in，其余消费方全量） |
 | GET | `/issues/:key` | 详情（含 activities）；不存在 → `ok(null)` |
 | POST | `/issues` | title 必填；requirementId 收展示 key；sprint-project 一致性（冲突 → LIFECYCLE_MISMATCH）；写 created activity；指派 agent 触发 AI 演示 |
-| PATCH | `/issues/:key` | 部分更新；labels 全量替换；assignee 变更写 assign activity |
+| PATCH | `/issues/:key` | 部分更新；labels 全量替换；assignee 变更写 assign activity。与 MCP 同口径走工作流：`status='done'` 且当前不在 testing → 落 testing 并自动指派测试人员；testing → done 过测试关单门禁（关联用例未全过报 TESTS_NOT_PASSED，`force: true` 覆盖） |
 | POST | `/issues/:key/archive` | `{ archived: boolean }` 归档/取消归档（写 status activity；只影响可见性，不做只读约束） |
 | DELETE | `/issues/:key` | 硬删（级联 labels/subIssues/activities） |
 | POST | `/issues/:key/comments` | `{ body }`；commentsCount+1 |
@@ -102,7 +102,7 @@
 | GET/POST | `/products?line` | POST 分配 PD-N；leadId 双写 |
 | PATCH/DELETE | `/products/:id` | 同上 |
 | GET/POST | `/releases?product` | POST 分配 RL-N；targetDate 收 ISO 字符串 |
-| PATCH/DELETE | `/releases/:id` | 同上 |
+| PATCH/DELETE | `/releases/:id` | PATCH 同上；发布门禁：`status='released'` 要求版本下 integration 用例全部 passed（否则 TESTS_NOT_PASSED），`force: true` 覆盖 |
 
 ## Resources 资源池
 
@@ -135,11 +135,13 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/test-cases?project&requirement&status&result` | requirement 收展示 key；排除归属已归档项目的用例 |
+| GET | `/test-cases?project&requirement&issue&category&status&result` | requirement/issue 收展示 key；category：smoke/functional/integration/regression；排除归属已归档项目的用例 |
 | GET | `/test-cases/:key` | 不存在 → `ok(null)` |
-| POST | `/test-cases` | 项目必须存在；分配 TC-N；authorId=当前成员 |
-| PATCH | `/test-cases/:key` | 部分更新 |
+| POST | `/test-cases` | 项目必须存在；分配 TC-N；authorId=当前成员；接受 category/issueId（展示 key） |
+| PATCH | `/test-cases/:key` | 部分更新（含 category/issueId，null 解除关联） |
 | DELETE | `/test-cases/:key` | 硬删 |
+| GET | `/test-runs?project&category` | 测试执行历史（倒序，含逐条明细） |
+| POST | `/test-runs` | 记录一次套件执行：`{projectId\|releaseId, category, results:[{key,result,note?}], note?, raiseBugs?}`（范围二选一）；逐条更新用例 result（draft 自动转 active）并写 test_runs/test_run_items；raiseBugs=true 时 failed 项自动生成 BUG |
 
 ## Dev Plans 开发计划（`/plans*`，模块门复用 requirements）
 

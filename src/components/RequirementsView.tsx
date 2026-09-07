@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, X, Trash2, GitBranch, Sparkles, FileText, Search, ListTree } from 'lucide-react';
+import { Plus, X, Trash2, GitBranch, Sparkles, FileText, Search, ListTree, FlaskConical } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
@@ -21,12 +21,15 @@ import {
   REQUIREMENT_STATUS,
   REQUIREMENT_STATUS_ORDER,
   REQUIREMENT_CATEGORY_ORDER,
+  TEST_RESULT,
+  TEST_CATEGORY,
   PRIORITY_ORDER,
 } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useAllIssues } from '@/store/issues';
 import { useNodeAssignments } from '@/store/resources';
+import { useTestCases } from '@/store/testcases';
 import {
   useRequirements,
   useRequirement,
@@ -482,15 +485,18 @@ function RequirementDetail({
   id,
   onClose,
   onOpenIssue,
+  onOpenTestCase,
 }: {
   id: string;
   onClose: () => void;
   onOpenIssue: (key: string) => void;
+  onOpenTestCase: (key: string) => void;
 }) {
   const t = useT();
   const { projectById, memberById, releases, productById, agents } = useAppData();
   const { data: req } = useRequirement(id);
   const { data: allIssues = [] } = useAllIssues();
+  const { data: testCases = [] } = useTestCases({ requirement: id });
   const update = useUpdateRequirement();
   const del = useDeleteRequirement();
   const [decompOpen, setDecompOpen] = React.useState(false);
@@ -653,6 +659,32 @@ function RequirementDetail({
                     <PriorityIcon priority={i.priority} size={14} />
                     <ImportanceIcon importance={i.importance} size={14} />
                     <Avatar person={memberById(i.assigneeId)} size={18} />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Test cases validating this requirement */}
+            <div className="mb-2 mt-[22px] flex items-center gap-1.5 text-[12.5px] font-semibold text-fg-2">
+              <FlaskConical size={14} className="text-fg-3" /> {t('testcases.title')} · {testCases.length}
+            </div>
+            {testCases.length === 0 ? (
+              <div className="rounded-[10px] border border-dashed border-border px-3 py-4 text-center text-[12.5px] text-fg-3">
+                {t('testcases.noneLinked')}
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-[10px] border border-border">
+                {testCases.map((tc) => (
+                  <div
+                    key={tc.id}
+                    onClick={() => onOpenTestCase(tc.id)}
+                    className="flex cursor-pointer items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0 hover:bg-surface-2"
+                  >
+                    <span className="h-2 w-2 flex-none rounded-full" style={{ background: TEST_RESULT[tc.result].color }} />
+                    <span className="flex-none whitespace-nowrap font-mono text-[11.5px] text-fg-3">{tc.id}</span>
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-fg-1">{tc.title}</span>
+                    <Badge tone={TEST_CATEGORY[tc.category].tone}>{t(`tcCategory.${tc.category}`)}</Badge>
+                    <Badge tone={TEST_RESULT[tc.result].tone}>{t(`tcResult.${tc.result}`)}</Badge>
                   </div>
                 ))}
               </div>
@@ -960,6 +992,7 @@ export function RequirementsView({
           id={selected}
           onClose={() => onSelect(null)}
           onOpenIssue={(key) => router.push(`/issues/${encodeURIComponent(key)}`)}
+          onOpenTestCase={(key) => router.push(`/testcases/${encodeURIComponent(key)}`)}
         />
       )}
       <NewRequirementModal

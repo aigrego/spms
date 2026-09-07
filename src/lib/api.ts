@@ -35,6 +35,7 @@ import type {
   TestCase,
   TestCaseStatus,
   TestResult,
+  TestCaseCategory,
   Plan,
   PlanStatus,
   DailyReport,
@@ -122,6 +123,8 @@ export type UpdateRequirementInput = Partial<CreateRequirementInput>;
 export interface CreateTestCaseInput {
   projectId: string;
   requirementId?: string | null;
+  issueId?: string | null; // issue display key ("TKT-3"), null unlinks
+  category?: TestCaseCategory;
   title: string;
   priority?: IssuePriority;
   status?: TestCaseStatus;
@@ -409,7 +412,7 @@ export const api = {
     request<IssueDetail[]>(`/requirements/${id}/decompose`, { method: 'POST' }),
 
   /* ---- 测试用例 ---- */
-  testCases: (params?: { project?: string; requirement?: string; status?: TestCaseStatus; result?: TestResult }) => {
+  testCases: (params?: { project?: string; requirement?: string; issue?: string; category?: TestCaseCategory; status?: TestCaseStatus; result?: TestResult }) => {
     const q = new URLSearchParams(
       Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
     ).toString();

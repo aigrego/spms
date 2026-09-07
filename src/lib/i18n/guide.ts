@@ -100,18 +100,20 @@ export const GUIDE: Record<Locale, GuideContent> = {
         owner: '开发人员 / 测试人员',
         body: [
           '在「项目 → 开发计划」tab 新建计划并关联 FR / NFR：一份计划可以覆盖多条需求，一条需求也可以拆给多份计划，关联键是 FR / NFR key 而不是文件名。Agent 通过 MCP 把计划内容写入并转「已生成」。测试用例要覆盖正常、边界、权限、并发四类。',
+          '每条用例还要定测试类别：functional 功能（默认，工单关单的门禁依据，TDD 场景直接挂到工单）、smoke 冒烟（部署后核心链路）、integration 集成（版本发布的门禁依据）、regression 回归（hotfix 后验证无退化）。',
         ],
-        codes: ['MCP: spms_create_plan → spms_update_plan', 'MCP: spms_create_test_case'],
+        codes: ['MCP: spms_create_plan → spms_update_plan', 'MCP: spms_create_test_case (category/issueId)'],
         link: { label: '打开测试用例', href: '/testcases' },
       },
       {
         letter: 'h',
-        title: '第一道验收：工单走完交付链，提出人验收转完成',
+        title: '第一道验收：工单走完交付链，用例通过才关单',
         badges: ['human'],
-        owner: '开发人员（转）+ 提出人（验）',
+        owner: '开发人员（转）+ 测试人员（验）',
         body: [
-          '开发按实际进展推状态：开工转「进行中」，开发完成转「待测试」（系统自动指派测试人员，提出人验收）。提出人验过了才转「已完成」。状态由人写，系统不替谁宣称。',
+          '开发按实际进展推状态：开工转「进行中」，开发完成转「待测试」（系统自动指派测试人员）。测试人员执行关联用例（spms_run_test_suite 一条命令批量记录结果），用例全部通过才能把工单转「已完成」——关联用例未全过时关单会被门禁拦截（TESTS_NOT_PASSED）。',
         ],
+        codes: ['MCP: spms_run_test_suite · spms_update_issue (force)'],
         link: { label: '打开我的 Issues', href: '/my-issues' },
       },
       {
@@ -121,12 +123,13 @@ export const GUIDE: Record<Locale, GuideContent> = {
         owner: '需求作者与负责人',
         body: [
           '需求名下的工单全部完成后，由需求作者或负责人在需求详情手动把状态转为「已上线」。「已上线」是需求侧的终态：点这一下就是需求级验收，系统绝不自动改状态。',
+          '版本上线前先做集成测试：Agent 用 spms_run_test_suite(category=integration, releaseId=…) 批量执行并记录，全部通过后版本才能转「已发布」；部署后用 smoke 套件做冒烟，hotfix 后用 regression 套件做回归。',
         ],
         link: { label: '打开需求池', href: '/requirements' },
       },
     ],
     footer:
-      '本页是推荐流程，不是强制校验。SPMS 不会按这九步拦截任何操作，状态仍可自由流转。这里写的是团队约定的做法，遇到例外按实际情况来。',
+      '本页是推荐流程。除两处测试门禁（工单关单看 functional 用例、版本发布看 integration 用例，均可 force 覆盖）外，SPMS 不按这九步拦截任何操作。这里写的是团队约定的做法，遇到例外按实际情况来。',
   },
   en: {
     title: 'R&D Lifecycle Guide',
@@ -204,18 +207,20 @@ export const GUIDE: Record<Locale, GuideContent> = {
         owner: 'Developer / Tester',
         body: [
           'Create a plan in the "Project → Dev Plans" tab and link FRs / NFRs: one plan can cover several requirements, and one requirement can be split across several plans — the link key is the FR / NFR key, not a file name. The Agent writes the plan content over MCP and marks it "Generated". Test cases must cover four classes: happy path, boundary, permission, and concurrency.',
+          'Every case also gets a category: functional (default — the gate for closing tickets; attach it to the ticket in TDD flows), smoke (post-deploy core-path check), integration (the gate for releasing a version), regression (post-hotfix no-degradation check).',
         ],
-        codes: ['MCP: spms_create_plan → spms_update_plan', 'MCP: spms_create_test_case'],
+        codes: ['MCP: spms_create_plan → spms_update_plan', 'MCP: spms_create_test_case (category/issueId)'],
         link: { label: 'Open Test Cases', href: '/testcases' },
       },
       {
         letter: 'h',
-        title: 'First acceptance: tickets walk the delivery chain, the requester accepts',
+        title: 'First acceptance: tickets walk the delivery chain, cases pass before closing',
         badges: ['human'],
-        owner: 'Developer (hands over) + Requester (accepts)',
+        owner: 'Developer (hands over) + Tester (verifies)',
         body: [
-          'Developers move status with real progress: starting work moves a ticket to "In Progress"; finishing development moves it to "Testing" (the system auto-assigns a tester, and the requester accepts). Only after the requester accepts does it move to "Done". Status is written by people — the system claims nothing on anyone\u2019s behalf.',
+          'Developers move status with real progress: starting work moves a ticket to "In Progress"; finishing development moves it to "Testing" (the system auto-assigns a tester). The tester runs the linked cases (spms_run_test_suite records a whole suite in one call), and the ticket can only move to "Done" once every linked case has passed — closing with unpassed cases is blocked by the gate (TESTS_NOT_PASSED).',
         ],
+        codes: ['MCP: spms_run_test_suite · spms_update_issue (force)'],
         link: { label: 'Open My Issues', href: '/my-issues' },
       },
       {
@@ -225,12 +230,13 @@ export const GUIDE: Record<Locale, GuideContent> = {
         owner: 'Requirement author and owner',
         body: [
           'When every ticket under a requirement is done, the requirement author or owner manually moves it to "Shipped" on the requirement detail. "Shipped" is the terminal state on the requirement side: that one click IS the requirement-level acceptance — the system never changes status on its own.',
+          'Before a version goes live, run integration tests: the Agent executes and records them via spms_run_test_suite(category=integration, releaseId=…), and the release can only turn "Released" once all of them pass. After deployment run the smoke suite; after a hotfix run the regression suite.',
         ],
         link: { label: 'Open Requirement Pool', href: '/requirements' },
       },
     ],
     footer:
-      'This page is a recommended workflow, not an enforced one. SPMS does not block any operation based on these nine steps, and statuses can still flow freely. It records the team\u2019s agreed practice — handle exceptions case by case.',
+      'This page is a recommended workflow. Apart from the two test gates (functional cases guard ticket closure, integration cases guard releases — both force-overridable), SPMS does not block any operation based on these nine steps. It records the team\u2019s agreed practice — handle exceptions case by case.',
   },
   'zh-TW': {
     title: '研發生命週期指引',
@@ -307,18 +313,20 @@ export const GUIDE: Record<Locale, GuideContent> = {
         owner: '開發人員 / 測試人員',
         body: [
           '在「專案 → 開發計劃」tab 新建計劃並關聯 FR / NFR：一份計劃可以覆蓋多條需求，一條需求也可以拆給多份計劃，關聯鍵是 FR / NFR key 而不是檔名。Agent 透過 MCP 把計劃內容寫入並轉「已生成」。測試用例要覆蓋正常、邊界、權限、並發四類。',
+          '每條用例還要定測試類別：functional 功能（預設，工單關單的門禁依據，TDD 場景直接掛到工單）、smoke 冒煙（部署後核心鏈路）、integration 整合（版本發佈的門禁依據）、regression 回歸（hotfix 後驗證無退化）。',
         ],
-        codes: ['MCP: spms_create_plan → spms_update_plan', 'MCP: spms_create_test_case'],
+        codes: ['MCP: spms_create_plan → spms_update_plan', 'MCP: spms_create_test_case (category/issueId)'],
         link: { label: '打開測試用例', href: '/testcases' },
       },
       {
         letter: 'h',
-        title: '第一道驗收：工單走完交付鏈，提出人驗收轉完成',
+        title: '第一道驗收：工單走完交付鏈，用例通過才關單',
         badges: ['human'],
-        owner: '開發人員（轉）+ 提出人（驗）',
+        owner: '開發人員（轉）+ 測試人員（驗）',
         body: [
-          '開發按實際進展推狀態：開工轉「進行中」，開發完成轉「待測試」（系統自動指派測試人員，提出人驗收）。提出人驗過了才轉「已完成」。狀態由人寫，系統不替誰宣稱。',
+          '開發按實際進展推狀態：開工轉「進行中」，開發完成轉「待測試」（系統自動指派測試人員）。測試人員執行關聯用例（spms_run_test_suite 一條命令批量記錄結果），用例全部通過才能把工單轉「已完成」——關聯用例未全過時關單會被門禁攔截（TESTS_NOT_PASSED）。',
         ],
+        codes: ['MCP: spms_run_test_suite · spms_update_issue (force)'],
         link: { label: '打開我的 Issues', href: '/my-issues' },
       },
       {
@@ -328,11 +336,12 @@ export const GUIDE: Record<Locale, GuideContent> = {
         owner: '需求作者與負責人',
         body: [
           '需求名下的工單全部完成後，由需求作者或負責人在需求詳情手動把狀態轉為「已上線」。「已上線」是需求側的終態：點這一下就是需求級驗收，系統絕不自動改狀態。',
+          '版本上線前先做整合測試：Agent 用 spms_run_test_suite(category=integration, releaseId=…) 批量執行並記錄，全部通過後版本才能轉「已發佈」；部署後用 smoke 套件做冒煙，hotfix 後用 regression 套件做回歸。',
         ],
         link: { label: '打開需求池', href: '/requirements' },
       },
     ],
     footer:
-      '本頁是推薦流程，不是強制校驗。SPMS 不會按這九步攔截任何操作，狀態仍可自由流轉。這裡寫的是團隊約定的做法，遇到例外按實際情況來。',
+      '本頁是推薦流程。除兩處測試門禁（工單關單看 functional 用例、版本發佈看 integration 用例，均可 force 覆蓋）外，SPMS 不按這九步攔截任何操作。這裡寫的是團隊約定的做法，遇到例外按實際情況來。',
   },
 };
