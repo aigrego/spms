@@ -1,0 +1,174 @@
+# Docker 化部署流水线（风格对齐 vscode .gitea/workflows/docker-deploy.yaml）：
+#   push main（或手动触发）→ ① buildx 构建镜像并推送 Gitea Packages → ② 本机 docker 拉取镜像、重建并启动容器。
+# 零第三方 action：run 步骤直连 git/docker，runner 无需访问 github.com。
+# 命名约定：自定义变量/密钥一律 INNEV_ 前缀（仓库 → 设置 → Actions 配置，清单见本文件尾部注释）。
+# 凭证回退链：INNEV_REGISTRY_USER / INNEV_REGISTRY_TOKEN → gitea.actor / 内置 GITHUB_TOKEN；
+#             INNEV_CI_TOKEN → GITHUB_TOKEN。加了即生效。
+# 镜像 tag = 提交短 sha + latest（本项目是 push 即部署的持续部署模型）。
+name: docker-deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read    # git clone 源码（内置 GITHUB_TOKEN）
+  packages: write   # 推 Gitea Packages（内置 GITHUB_TOKEN）
+
+env:
+  INNEV_REGISTRY: ${{ vars.INNEV_REGISTRY || 'livebook:8418' }}
+  INNEV_IMAGE_PREFIX: ${{ vars.INNEV_IMAGE_PREFIX || 'livebook:8418/projects' }}
+  # docker.io 加速镜像（逗号分隔）——buildx docker-container 驱动的 buildkitd 不继承 runner 宿主
+  # daemon.json 的 registry-mirrors，必须经 buildkitd.toml 注入
+  INNEV_DOCKERHUB_MIRRORS: ${{ vars.INNEV_DOCKERHUB_MIRRORS || 'docker.fnnas.com,registry.docker-cn.com,registry.hub.docker.com,docker.1panel.live,docker.1panel.dev,docker.1ms.run' }}
+  INNEV_HOST_PORT: ${{ vars.INNEV_HOST_PORT || '5175' }}
+
+jobs:
+  # 任务 1：构建镜像并推送到本机 Gitea Packages（$INNEV_IMAGE_PREFIX/spms）
+  image:
+    runs-on: self-hosted
+    steps:
+      # 仓库变量误带 http:// scheme 时在此剥掉，避免拼出非法镜像引用（docker tag 不允许 "://"）
+      - name: 归一化镜像变量（剥离误配的 URL scheme）
+        run: |
+          PREFIX="${INNEV_IMAGE_PREFIX#*://}"; PREFIX="${PREFIX%/}"
+          echo "INNEV_REGISTRY=${INNEV_REGISTRY#*://}" >> "$GITHUB_ENV"
+          echo "INNEV_IMAGE_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+          # 日志开头明示推送目标，变量配错时第一时间可见
+          echo "构建目标镜像：$PREFIX/spms:${GITHUB_SHA:0:8}"
+
+      - name: 取出源码（免 actions/checkout，纯 git）
+        env:
+          GIT_TOKEN: ${{ secrets.INNEV_CI_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          git clone --depth 1 --branch "$GITHUB_REF_NAME" \
+            "http://x-access-token:${GIT_TOKEN}@${INNEV_REGISTRY#*://}/${{ gitea.repository }}.git" src 2>&1 | grep -v "$GIT_TOKEN" || true
+          [ -f src/package.json ] || { echo "源码克隆失败"; exit 1; }
+          cd src && git checkout "$GITHUB_SHA"
+
+      - name: 登录 Gitea Packages
+        env:
+          LOGIN_USER: ${{ secrets.INNEV_REGISTRY_USER || gitea.actor }}
+          LOGIN_TOKEN: ${{ secrets.INNEV_REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
+        run: echo "$LOGIN_TOKEN" | docker login "$INNEV_REGISTRY" -u "$LOGIN_USER" --password-stdin
+
+      # buildkitd.toml 里对 $INNEV_REGISTRY 声明 http=true（强制明文 HTTP）：buildkitd 不继承宿主
+      # daemon.json 的 insecure-registries，纯 HTTP registry 不声明会在 push 阶段失败。
+      # 每次重建构建器以确保 buildkitd.toml 变更生效；层缓存已外置到 registry buildcache，重建不丢缓存。
+      - name: 创建 buildx 构建器（注入 docker.io 加速镜像 + 推送目标 HTTP 声明）
+        run: |
+          docker buildx rm -f spmsbuilder 2>/dev/null || true
+          {
+            echo '[registry."docker.io"]'
+            printf '%s' "$INNEV_DOCKERHUB_MIRRORS" | sed 's/[^,]*/"&"/g; s/,/, /g' | sed 's/^/  mirrors = [/; s/$/]/'
+            echo ''
+            echo "[registry.\"$INNEV_REGISTRY\"]"
+            echo '  http = true'
+          } > buildkitd.toml
+          cat buildkitd.toml
+          docker buildx create --use --name spmsbuilder --config buildkitd.toml
+
+      # 构建上下文 = 仓库根（根级 Dockerfile：Next.js standalone 多阶段构建）。
+      # 层缓存外置 registry（mode=max 含中间阶段；image-manifest/oci-mediatypes 提兼容性），
+      # 首次无 buildcache 时 buildkit 自动忽略继续。单架构原生构建——部署目标即本机，无需 QEMU 多架构。
+      - name: 构建并推送 spms 镜像
+        run: |
+          CACHE_REF="$INNEV_IMAGE_PREFIX/spms-buildcache"
+          docker buildx build --push \
+            --cache-from "type=registry,ref=$CACHE_REF" \
+            --cache-to "type=registry,ref=$CACHE_REF,mode=max,image-manifest=true,oci-mediatypes=true" \
+            --label org.opencontainers.image.source="http://$INNEV_REGISTRY/${{ gitea.repository }}" \
+            -t "$INNEV_IMAGE_PREFIX/spms:${GITHUB_SHA:0:8}" \
+            -t "$INNEV_IMAGE_PREFIX/spms:latest" \
+            src
+
+  # 任务 2：把刚推送的镜像拉到本机 docker，重建并启动容器
+  deploy:
+    needs: image
+    runs-on: self-hosted
+    steps:
+      - name: 归一化镜像变量（剥离误配的 URL scheme）
+        run: |
+          PREFIX="${INNEV_IMAGE_PREFIX#*://}"; PREFIX="${PREFIX%/}"
+          echo "INNEV_REGISTRY=${INNEV_REGISTRY#*://}" >> "$GITHUB_ENV"
+          echo "INNEV_IMAGE_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+
+      # docker pull/login 走宿主 daemon：LAN 明文 registry 需在宿主 daemon.json 登记
+      # insecure-registries（见文件尾部注释），或把 INNEV_IMAGE_PREFIX 配成 TLS 地址。
+      - name: 登录并拉取镜像
+        env:
+          LOGIN_USER: ${{ secrets.INNEV_REGISTRY_USER || gitea.actor }}
+          LOGIN_TOKEN: ${{ secrets.INNEV_REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          IMAGE="$INNEV_IMAGE_PREFIX/spms:${GITHUB_SHA:0:8}"
+          echo "$LOGIN_TOKEN" | docker login "$INNEV_REGISTRY" -u "$LOGIN_USER" --password-stdin
+          docker pull "$IMAGE"
+
+      - name: 重建 spms 容器
+        env:
+          DATABASE_URL: ${{ secrets.INNEV_DATABASE_URL || vars.INNEV_DATABASE_URL || 'postgres://postgres:postgres@host.docker.internal:5433/spms' }}
+          SESSION_SECRET: ${{ secrets.INNEV_SESSION_SECRET }}
+          MCP_API_KEY: ${{ secrets.INNEV_MCP_API_KEY }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.INNEV_BLOB_READ_WRITE_TOKEN }}
+        run: |
+          [ -n "$SESSION_SECRET" ] || { echo "::error::缺少密钥 INNEV_SESSION_SECRET（openssl rand -hex 32 生成）"; exit 1; }
+          IMAGE="$INNEV_IMAGE_PREFIX/spms:${GITHUB_SHA:0:8}"
+          docker rm -f spms 2>/dev/null || true
+          docker run -d --name spms --restart unless-stopped \
+            -p "${INNEV_HOST_PORT}:5175" \
+            -e HOSTNAME=0.0.0.0 \
+            -e PORT=5175 \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e SESSION_SECRET="$SESSION_SECRET" \
+            -e MCP_API_KEY="$MCP_API_KEY" \
+            -e BLOB_READ_WRITE_TOKEN="$BLOB_READ_WRITE_TOKEN" \
+            --add-host host.docker.internal:host-gateway \
+            "$IMAGE"
+
+      - name: 健康检查
+        run: |
+          for i in $(seq 1 15); do
+            if curl -fsS "http://127.0.0.1:${INNEV_HOST_PORT}/api/health"; then
+              echo ""
+              echo "部署完成：http://127.0.0.1:${INNEV_HOST_PORT}（镜像 $INNEV_IMAGE_PREFIX/spms:${GITHUB_SHA:0:8}）"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::健康检查失败，容器最近日志：" >&2
+          docker logs --tail 50 spms >&2 || true
+          exit 1
+
+# =============================================================================
+# 一次性人工准备：
+#   1. runner 用实例级（标签 self-hosted），与 Docker 同机、可直接执行宿主 docker 命令
+#      （job 里的 docker run/pull 操作的就是部署目标机的 daemon）。
+#   2. deploy job 的 docker pull/login 走宿主 daemon：LAN 明文 registry（如 livebook:8418）需在宿主
+#      /etc/docker/daemon.json 的 insecure-registries 中登记并重启 docker——推送侧已由 buildkitd.toml
+#      http=true 覆盖，不受此限；或将 INNEV_IMAGE_PREFIX 配成 TLS 地址（如 code.innev.cn/...）。
+#   3. 仓库 → 设置 → 仓库 → 功能（Units）中启用 Actions。
+#   4. 首次运行后到 Packages 确认镜像包 spms（及 spms-buildcache）已生成。
+#   5. 数据库迁移与种子数据为手动步骤（镜像不含 drizzle-kit/迁移文件）：在本地 checkout 里把
+#      DATABASE_URL 指向同一库，执行 `npm run db:migrate && npm run db:seed`。
+#
+# 仓库 → 设置 → Actions 配置清单
+# 变量（Variables）：
+#   INNEV_IMAGE_PREFIX      镜像前缀（推送/拉取地址），默认 livebook:8418/projects——
+#                           镜像全名 $INNEV_IMAGE_PREFIX/spms:<短sha|latest>
+#   INNEV_REGISTRY          registry / git 端点，默认 livebook:8418（与 Gitea 同机，LAN 明文 HTTP）
+#   INNEV_DOCKERHUB_MIRRORS docker.io 加速镜像（逗号分隔），默认 docker.fnnas.com,registry.docker-cn.com,
+#                           registry.hub.docker.com,docker.1panel.live,docker.1panel.dev,docker.1ms.run
+#   INNEV_HOST_PORT         容器对外发布端口，默认 5175（容器内固定 5175）
+#   INNEV_DATABASE_URL      可选（变量为明文，建议放密钥）
+# 密钥（Secrets）：
+#   INNEV_SESSION_SECRET    必填：session cookie 签名密钥（openssl rand -hex 32）——缺失时部署步骤直接失败
+#   INNEV_DATABASE_URL      PostgreSQL 连接串；默认
+#                           postgres://postgres:postgres@host.docker.internal:5433/spms
+#                           （5433 = 本机 docker postgres 容器的发布端口；注意宿主系统 pg 的 5432
+#                           从容器经 host-gateway 访问不通，切勿写 5432——vscode 项目 2026-09 实测踩坑）
+#   INNEV_MCP_API_KEY       可选：/mcp 端点平台级兜底 key（推荐改用 DB key，/agent-access 签发）
+#   INNEV_BLOB_READ_WRITE_TOKEN 可选：issue 图片附件的 Vercel Blob token，不配则附件上传不可用
+#   INNEV_REGISTRY_USER     docker login 账号——跨命名空间推包时必需（同命名空间可回退 gitea.actor）
+#   INNEV_REGISTRY_TOKEN    docker login token（scope: write:package + read:package）
+#   INNEV_CI_TOKEN          git clone token（scope: read:repository）；仅内置 GITHUB_TOKEN 不足时添加

@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 5175",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --port 5175",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed": "tsx scripts/seed.ts"
+    "db:seed": "tsx scripts/seed.ts",
+    "db:export": "node scripts/export-data.js",
+    "db:import": "node scripts/import-data.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -34,6 +36,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@next/env": "16.2.10",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

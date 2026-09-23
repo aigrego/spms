@@ -5,7 +5,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## 接入
 
-- **URL**：`http://localhost:3000/mcp`
+- **URL**：`http://localhost:5175/mcp`
 - **鉴权**：请求头 `Authorization: Bearer <key>`，按以下顺序判定：
   1. **DB key**（推荐）：sha256(key) 命中 `mcp_api_keys.keyHash` 且未吊销、未过期。任何登录用户都可在侧边栏 **Agent 接入**（`/agent-access`）自助签发自己的 key（或 `POST /api/v1/platform/mcp-keys`）：普通成员只能签所属公司范围的公司级 key（省略 companyId = 当前公司），平台级 key 仍仅平台管理员可签。**明文仅签发时返回一次**，库里只存哈希与前 8 位 prefix。
 
@@ -31,7 +31,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
   "mcpServers": {
     "spms": {
       "type": "http",
-      "url": "http://localhost:3000/mcp",
+      "url": "http://localhost:5175/mcp",
       "headers": { "Authorization": "Bearer <在 /agent-access 签发的 key>" }
     }
   }

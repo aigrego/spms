@@ -40,7 +40,7 @@ npm run db:seed
 npm run dev
 ```
 
-打开 http://localhost:3000 ，种子账号：**admin / admin123**（平台管理员 + 默认公司 company_admin）。种子数据含「默认公司」（历史演示数据）与「示例公司」（空沙箱）。
+打开 http://localhost:5175 ，种子账号：**admin / admin123**（平台管理员 + 默认公司 company_admin）。种子数据含「默认公司」（历史演示数据）与「示例公司」（空沙箱）。
 
 ### 环境变量
 
@@ -56,9 +56,26 @@ npm run dev
 | `SEED_ADMIN_PASSWORD` | 可选，覆盖种子 admin 密码（默认 admin123） |
 | `BLOB_READ_WRITE_TOKEN` | issue 图片附件的 Vercel Blob token（Vercel 控制台 → Storage → Blob 获取） |
 
+## Docker 部署
+
+根级 `Dockerfile` 为 Next.js standalone 多阶段构建（容器内固定端口 **5175**）：
+
+```bash
+docker build -t spms .
+docker run -d --name spms -p 5175:5175 \
+  -e DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5433/spms \
+  -e SESSION_SECRET=$(openssl rand -hex 32) \
+  --add-host host.docker.internal:host-gateway \
+  spms
+```
+
+数据库迁移/种子不进镜像，首次部署前在本地把 `DATABASE_URL` 指向同一库执行 `npm run db:migrate && npm run db:seed`。
+
+仓库已带 Gitea Actions 工作流 [.gitea/workflows/docker-deploy.yaml](.gitea/workflows/docker-deploy.yaml)：push 到 `main` 自动构建镜像推送 Gitea Packages 并在 runner 本机重建容器（健康检查 `/api/health`）；所需的仓库变量/密钥清单见该文件尾部注释。
+
 ## MCP 接入
 
-端点：`http://localhost:3000/mcp`（Streamable HTTP），鉴权头 `Authorization: Bearer <key>`。
+端点：`http://localhost:5175/mcp`（Streamable HTTP），鉴权头 `Authorization: Bearer <key>`。
 
 **推荐**：登录后到侧边栏 **Agent 接入**（`/agent-access`）签发 key：普通成员自助签所属公司范围的公司级 key（不选公司 = 当前公司）；平台管理员还可签平台级 key（不选公司 = 平台级）。明文仅签发时显示一次；env `MCP_API_KEY` 仅作平台级兜底。公司级 key 只读写本公司数据；平台级 key 可用工具的 `companyId` 参数指定目标公司（默认第一个公司）。
 
@@ -67,7 +84,7 @@ npm run dev
   "mcpServers": {
     "spms": {
       "type": "http",
-      "url": "http://localhost:3000/mcp",
+      "url": "http://localhost:5175/mcp",
       "headers": { "Authorization": "Bearer <在 /agent-access 签发的 key>" }
     }
   }

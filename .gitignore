@@ -40,6 +40,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# db export/import seed data (may contain real data)
+/data
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
