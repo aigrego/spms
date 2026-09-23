@@ -85,6 +85,12 @@ jobs:
             -t "$INNEV_IMAGE_PREFIX/spms:latest" \
             src
 
+      # docker-container 驱动的构建器会常驻一个 buildx_buildkit_spmsbuilder0 容器，
+      # 用完即删（无论成败）；层缓存已外置 registry buildcache，删除不影响下次构建速度。
+      - name: 清理 buildx 构建器容器
+        if: always()
+        run: docker buildx rm -f spmsbuilder 2>/dev/null || true
+
   # 任务 2：把刚推送的镜像拉到本机 docker，重建并启动容器
   deploy:
     needs: image
