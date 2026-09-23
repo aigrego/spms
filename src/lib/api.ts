@@ -452,6 +452,14 @@ export const api = {
   saveCompanyMatrix: (matrix: PermissionsMatrix['matrix']) =>
     request<unknown>('/permissions-matrix', json('PUT', { matrix })),
 
+  /* ---- 文件存储配置(设置 → 文件存储;敏感字段只回 hasXxx) ---- */
+  storageConfig: () => request<StorageConfigState>('/storage-config'),
+  saveStorageConfig: (input: SaveStorageConfigInput) =>
+    request<{ backend: string }>('/storage-config', json('PUT', input)),
+  testStorageConfig: (input: SaveStorageConfigInput) =>
+    request<{ tested: boolean }>('/storage-config', json('POST', { ...input, action: 'test' })),
+  deleteStorageConfig: () => request<{ deleted: boolean }>('/storage-config', { method: 'DELETE' }),
+
   /* ---- 节点资源指派 / 虚拟团队 (PMS-2 §5.2) ---- */
   assignments: (nodeType: AssignmentNodeType, nodeId: string) =>
     request<AssignmentRow[]>(`/assignments?nodeType=${nodeType}&nodeId=${nodeId}`),
@@ -548,6 +556,36 @@ export interface UserEmailEntry {
 
 /* 登录页实际使用的条目：已配置则展示按钮（附授权 url），否则为 null。 */
 export type OAuthEntry = { configured: true; url?: string } | null;
+
+/* 文件存储配置（设置 → 文件存储）。敏感字段永不回显,只有 hasXxx。 */
+export type StorageConfigState =
+  | { configured: false }
+  | {
+      configured: true;
+      backend: 'minio' | 'vercel_blob';
+      minio: {
+        endpoint: string | null;
+        port: number | null;
+        useSsl: boolean;
+        bucket: string | null;
+        hasAccessKey: boolean;
+        hasSecretKey: boolean;
+      } | null;
+      hasToken: boolean;
+    };
+
+export interface SaveStorageConfigInput {
+  backend: 'minio' | 'vercel_blob';
+  minio?: {
+    endpoint?: string;
+    port?: number | null;
+    useSsl?: boolean;
+    accessKey?: string; // 不传 = 保留旧值
+    secretKey?: string;
+    bucket?: string;
+  };
+  token?: string; // vercel_blob;不传 = 保留旧值
+}
 
 /* Multi-company sandbox contracts (P5). All optional on the wire while the
    backend ships in parallel: the client fails open (full access) when the

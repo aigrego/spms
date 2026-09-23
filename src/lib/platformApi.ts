@@ -139,6 +139,28 @@ export const PERM_LEVEL_LABELS: Record<PermLevel, string> = {
 
 const PREFIX = '/api/v1/platform';
 
+/* 三方登录 provider 配置（设置→三方登录）。secret 永不回显：只有 hasSecret。
+   redirectUri 只存路径部分，host 由部署的 PUBLIC_ORIGIN 拼接。 */
+export interface OAuthProviderConf {
+  provider: 'feishu' | 'lark' | 'github';
+  configured: boolean;
+  source: 'db' | 'env' | null;
+  enabled: boolean | null; // null = 无 DB 行（纯 env 或未配置）
+  appId: string | null;
+  redirectUri: string | null; // DB 覆盖路径；null = 用 derivedRedirectPath
+  derivedRedirectPath: string; // 默认回调路径（占位显示）
+  derivedRedirectUri: string; // 完整默认回调地址（登记到开放平台用）
+  hasSecret: boolean;
+}
+
+export interface SaveOAuthProviderInput {
+  provider: string;
+  appId: string;
+  appSecret?: string; // 不传 = 保留旧值
+  redirectUri?: string | null;
+  enabled?: boolean;
+}
+
 type Envelope<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -196,8 +218,14 @@ export const platformApi = {
   savePermissionsMatrix: (matrix: PermissionsMatrix['matrix']) =>
     request<unknown>('/permissions-matrix', json('PUT', { matrix })),
 
-  /* ---- mcp keys ---- */
-  mcpKeys: () => request<McpKey[]>('/mcp-keys'),
+  /* ---- oauth providers (三方登录) ---- */
+  oauthProviders: () => request<{ providers: OAuthProviderConf[] }>('/oauth-providers'),
+  saveOAuthProvider: (input: SaveOAuthProviderInput) =>
+    request<{ provider: string; enabled: boolean; hasSecret: boolean }>('/oauth-providers', json('PUT', input)),
+  deleteOAuthProvider: (provider: string) =>
+    request<{ provider: string }>(`/oauth-providers?provider=${provider}`, { method: 'DELETE' }),
+
+  /* ---- mcp keys ---- */  mcpKeys: () => request<McpKey[]>('/mcp-keys'),
   createMcpKey: (input: CreateMcpKeyInput) =>
     request<{ id: string; key: string; prefix: string }>('/mcp-keys', json('POST', input)),
   updateMcpKey: (id: string, input: { ownerId?: string; projectIds?: string[] | null }) =>

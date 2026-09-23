@@ -65,10 +65,15 @@ spms/
 │   │   ├── catalog.ts resources.ts assignments.ts testcases.ts
 │   │   ├── reports.ts            # 日报（每人每天一份,按产品拆 entries,产品/人员/负责人三维度汇总）
 │   │   ├── summary.ts            # 团队总结（周期吞吐/周期时长/验收积压/流动健康/按成员分列,读 issue_status_transitions）
-│   │   ├── attachments.ts        # issue 图片附件（Vercel Blob；assertBlobMeta 校验注册 URL/pathname）
+│   │   ├── attachments.ts        # issue 图片附件（本公司存储后端；storage.assertMeta 校验注册 url/objectKey）
 │   │   ├── notionSync.ts         # Notion → Issues 同步（lastSyncedAt 水位增量 / ?full=1 全量，幂等靠 notion_issue_links）
 │   │   ├── platform.ts           # 平台管理（公司/成员/矩阵/MCP key）
 │   │   └── meta.ts             # bootstrap 聚合
+│   ├── server/crypto.ts          # AES-256-GCM 配置密钥加解密（CONFIG_CRYPTO_KEY；OAuth secret / 存储凭据密文落库）
+│   ├── server/storage/           # 公司级文件存储抽象（设置→文件存储；无配置=禁止上传，零平台兜底）
+│   │   ├── index.ts              # storageForCompany(companyId)：配置行 60s 缓存 + 解密构造后端
+│   │   ├── minio.ts              # MinIO/S3：presigned PUT 直传 / presigned GET / putObject / removeObject
+│   │   └── vercel.ts             # Vercel Blob：token 来自公司配置（密文），不再是平台 env
 │   ├── mcp/                    # server.ts（McpServer + 26 个 tools 注册）+ workflow.ts（审查/关单工作流自动化）
 │   ├── app/
 │   │   ├── (auth)/login/       # 登录页（密码 + 飞书/Lark/GitHub OAuth）
@@ -122,7 +127,7 @@ spms/
    - 按稳定身份找 user（飞书 → `feishuUnionId`，Lark → `larkUnionId`——两个独立平台、同一自然人各有一个 union_id，分列存储互绑不覆盖；GitHub → `githubId`，数字 id 转字符串）；不存在则**按 IdP 邮箱逐个匹配已有账号**（个人+企业邮箱，user_emails 主/备优先，其次用户名恰为该邮箱——IdP 已证明邮箱归属），命中即把身份绑到该账号而非新建；仍无匹配才自动创建 user（同名 member 懒绑定）
    - IdP 回传的全部邮箱经 `upsertVerifiedEmail` 登记进 `user_emails`（verified，首个邮箱自动成为主邮箱），并按全部邮箱 + 手机号认领「邀请外部资源」预埋的 members 行（无邮箱账号——如豆包系飞书账号——走手机号认领，需应用开通 `contact:user.phone:readonly`；老用户每次登录都会重试认领）
    - 写 session cookie，跳 `/issues`
-3. 某个 provider 的 env（`FEISHU_APP_ID/FEISHU_APP_SECRET`、`LARK_APP_ID/LARK_APP_SECRET`、`GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET`，均可选 `*_REDIRECT_URI` 覆盖）未配置时，登录页隐藏对应入口（前端通过 `/api/auth/oauth/config` 探测）
+3. 某个 provider 的 env（`FEISHU_APP_ID/FEISHU_APP_SECRET`、`LARK_APP_ID/LARK_APP_SECRET`、`GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET`，均可选 `*_REDIRECT_URI` 覆盖——只填路径部分，host 由 `PUBLIC_ORIGIN`/请求 origin 拼接）未配置时，登录页隐藏对应入口（前端通过 `/api/auth/oauth/config` 探测）
 4. 绑定模式：已登录用户经 `/api/auth/<provider>/bind`（nonce cookie 防 CSRF）把身份挂到当前账号；解绑 `POST /api/auth/oauth/unbind { provider }`，无密码账号解绑最后一个身份时拒绝（防锁死）
 
 ### 权限模型（RBAC，二期）
@@ -200,4 +205,19 @@ issue 指派给 agent 时：挂 `AI 生成` 标签 + 把预编剧本步骤**同�
 - **连接**：`/integrations/notion/authorize`（nonce cookie CSRF，同 Lark 绑定流）→ Notion 授权 → `/callback` 用 Basic auth 换 token，按公司 upsert `notion_connections`（**每公司一条**；accessToken 仅服务端保存，任何 API 都不序列化它）。token 不过期，无 refresh。断开 = 删连接行，`notion_issue_links` 随 cascade 清除。
 - **同步**（`src/server/services/notionSync.ts`，以点击用户的 Actor 调现有 `createIssue`/`updateIssue`/`registerAttachment`，RBAC 与活动日志复用）：数据库按 `last_edited_time` 倒序翻页、越过 `lastSyncedAt` 水位即停；逐条处理，单条失败记 `errors` 继续，结束后推进水位。幂等靠 `notion_issue_links`（(connectionId, notionPageId) ↔ issueId + 页面编辑时间）。
 - **字段映射**（v1 按客户「CRM Requests」库结构硬编码属性名）：展示 key←`Id`（unique_id，如 `CRM-518`；缺失才按类型自动分配）；标题←`Name`；描述←每次更新重生成的头行（`Notion: CRM-N · 状态 · url`）+ `Request Description` 纯文本 + 页面正文 blocks 纯文本（顶层，不递归子块）；状态←`Status`（Not started→todo / In progress、More info needed→in_progress / Ready for testing→testing / Done、Closed→done / No progress→canceled；归档优先→canceled；未知名创建按 todo、更新不动）；类型←`Tags`（BUGS→bug，Feature/Updated/Change→ticket，默认 bug）；指派人←`Assigned To` 第一人 email 先经 `user_emails`（主/备，大小写不敏感）匹配平台用户的本公司 member 投影，回退 `members.email`（外部邀请/存量行；无 email 能力时更新不动）。老数据追平（页面未变更也执行）：key 追平为 unique_id（被占用则保留原 key 并记入 errors）；映射状态与现值不一致时照常走完整更新。
-- **附件**（仅新建时同步，v1 不做 diff）：`Files & media` 里的图片（按扩展名判断）+ 页面 image blocks → 下载（预签名 URL，>10MB 跳过）→ 服务端 `put` 到 Vercel Blob → `registerAttachment`。
+- **附件**（仅新建时同步，v1 不做 diff）：`Files & media` 里的图片（按扩展名判断）+ 页面 image blocks → 下载（预签名 URL，>10MB 跳过）→ 服务端 `put` 到**本公司配置的存储后端**（`storageForCompany`）→ `registerAttachment`。
+
+## 文件存储（设置 → 文件存储，公司级）
+
+附件存储后端**按公司配置**（`company_storage_configs` 表，公司管理员在 设置→文件存储 维护），支持 MinIO（S3 兼容，自托管）与 Vercel Blob 两种后端：
+
+- **零平台兜底**：无配置行的公司禁止上传（`STORAGE_NOT_CONFIGURED`）；运行时不再读 env `BLOB_READ_WRITE_TOKEN`。
+- **公司隔离**：对象 key 一律 `issues/{companyId}/…`（服务端生成，客户端不能自选）；上传签发、注册校验（`storage.assertMeta`）、删除、读取都钉死本公司前缀；A 公司的对象 B 公司拿不到（应用层强制）。
+- **私有 bucket + 代理读取**：对象不公网可读；所有读取走 `GET /api/v1/pms/attachments/object`（`?id=` 附件行级鉴权 / `?key=` key 内嵌 companyId 比对），鉴权后 302 到 MinIO 短时效 presigned GET（或 Vercel 公网 url），`Cache-Control: private, no-cache`。`<img>`、markdown 嵌入图、MCP 读图全部经由它（MCP 走 `storage.get` 直读）。`issue_attachments.url` 存的是后端规范地址（身份标识），`object_key` 存 key；`object_key` 为 NULL 的存量行 = 平台级 Vercel Blob 旧数据，代理直接 302 到其存量公网 url。
+- **浏览器直传**：`POST /attachments/upload`（`action:'create-intent'`）签发上传意图——MinIO 给 presigned PUT（bucket 需配 CORS 允许本站来源的 PUT）；Vercel 给 objectKey，客户端再走 `@vercel/blob/client` 握手（token 来自公司配置，`addRandomSuffix: false`，前缀校验带 companyId）。
+- **密钥安全**：accessKey/secretKey/token 经 `src/server/crypto.ts`（AES-256-GCM，密钥 = env `CONFIG_CRYPTO_KEY`）密文落库，API 只回 `hasXxx`，PUT 不传 = 保留旧值。
+- **对账**：`scripts/reconcile-attachments.ts` 遍历有配置的公司逐家对账（MinIO listObjectsV2 / Vercel list），无配置公司跳过；存量旧行需显式提供 `BLOB_READ_WRITE_TOKEN` 才对账。
+
+## 三方登录（设置 → 三方登录，平台级）
+
+飞书/Lark/GitHub 凭据存 `oauth_provider_configs` 表（`appSecretEnc` 密文），平台管理员在设置页维护；读取 DB 优先、env 兜底（60s 进程缓存，写后失效）。登录页按钮显隐仍由 `GET /api/auth/oauth/config` 决定。

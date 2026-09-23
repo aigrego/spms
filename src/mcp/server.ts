@@ -1,9 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { put } from '@vercel/blob';
 import { z } from 'zod';
 import { and, asc, eq, inArray, or } from 'drizzle-orm';
 import { db } from '@/db';
-import { companies, companyMemberships, labels, members, productLines, products, projects, releases, sprints, sprintProjects, teams, users } from '@/db/schema';
+import { companies, companyMemberships, issueAttachments, labels, members, productLines, products, projects, releases, sprints, sprintProjects, teams, users } from '@/db/schema';
 import { ApiException, type ErrorCode } from '@/lib/envelope';
 import { ensureAgents, ensureCurrentMember } from '@/lib/identity';
 import { computeRollups } from '@/lib/rollup';
@@ -21,6 +20,7 @@ import * as sprintSvc from '@/server/services/sprints';
 import * as testCaseSvc from '@/server/services/testcases';
 import * as testRunSvc from '@/server/services/testruns';
 import type { Actor } from '@/server/services/types';
+import { newObjectKey, storageForCompany } from '@/server/storage';
 import { reviewWithWorkflow, updateIssueWithWorkflow } from './workflow';
 
 /* MCP server (Phase D) — a thin adapter over src/server/services/*. Tools share
@@ -407,9 +407,23 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         const failed: string[] = [];
         for (const a of images) {
           try {
-            const res = await fetch(a.url);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const buf = Buffer.from(await res.arrayBuffer());
+            let buf: Buffer;
+            if (a.objectKey) {
+              // 经本公司存储后端直读(代理路由的 ?key= 需要浏览器会话,不适用 MCP)。
+              const storage = await storageForCompany(actor.companyId);
+              buf = await storage.get(a.objectKey);
+            } else {
+              // 平台级 Vercel Blob 时代的旧行:序列化 url 已是代理地址,回查 DB 原始公网 url。
+              const [row] = await db
+                .select({ url: issueAttachments.url })
+                .from(issueAttachments)
+                .where(eq(issueAttachments.id, a.id))
+                .limit(1);
+              if (!row) throw new Error('attachment row gone');
+              const res = await fetch(row.url);
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              buf = Buffer.from(await res.arrayBuffer());
+            }
             content.push({ type: 'text', text: `图片附件：${a.filename}` });
             content.push({ type: 'image', data: buf.toString('base64'), mimeType: a.contentType });
           } catch {
@@ -824,15 +838,14 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
           throw new ApiException('VALIDATION_FAILED', '无法从文件名推断图片类型，请显式传 contentType');
         }
         const safeName = args.filename.split(/[\\/]/).pop() || 'image';
-        // Server-side upload (agents can't do the browser client-direct flow).
-        const blob = await put(`issues/${actor.companyId}/${crypto.randomUUID()}-${safeName}`, buf, {
-          access: 'public',
-          contentType,
-          addRandomSuffix: true,
-        });
+        // Server-side upload (agents can't do the browser client-direct flow)
+        // → the company's configured storage backend.
+        const storage = await storageForCompany(actor.companyId);
+        const objectKey = newObjectKey(actor.companyId, safeName);
+        await storage.put(objectKey, buf, contentType);
         return attachmentSvc.registerAttachment(actor, args.key, {
-          url: blob.url,
-          pathname: blob.pathname,
+          url: storage.canonicalUrl(objectKey),
+          pathname: objectKey,
           filename: safeName,
           contentType,
           size: buf.length,

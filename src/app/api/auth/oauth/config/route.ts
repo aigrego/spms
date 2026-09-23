@@ -8,9 +8,9 @@ import { providerConfigured, type OAuthProvider } from '@/server/lark';
    state nonce cookie 再 302 去 provider)——不能直接给 provider 授权 URL,
    否则 callback 的 state 校验因无 cookie 必失败。 */
 export const GET = route(async () => {
-  const entry = (p: OAuthProvider) => ({
-    configured: providerConfigured(p),
-    url: providerConfigured(p) ? `/api/auth/${p}/login` : undefined,
+  const entry = async (p: OAuthProvider) => ({
+    configured: await providerConfigured(p),
+    url: (await providerConfigured(p)) ? `/api/auth/${p}/login` : undefined,
   });
-  return ok({ feishu: entry('feishu'), lark: entry('lark'), github: entry('github') });
+  return ok({ feishu: await entry('feishu'), lark: await entry('lark'), github: await entry('github') });
 });

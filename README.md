@@ -50,10 +50,10 @@ npm run dev
 | `SESSION_SECRET` | session cookie 签名密钥（随机长串） |
 | `MCP_API_KEY` | MCP 鉴权 key 的**平台级兜底**（逗号分隔多个，均视为平台级）；seed 时已迁移为 DB 平台级 key。**推荐使用 DB key**（见下） |
 | `PUBLIC_ORIGIN` | 部署的公网地址（不带尾斜杠，如 `https://spms.innev.cn`）。**反代部署时必填**：OAuth 回调地址（飞书/Lark/GitHub/Notion）与登录后落地跳转都基于它生成；不填则回退为请求来源地址（standalone 下是容器内监听地址，反代后会错） |
-| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_REDIRECT_URI` | 可选，飞书扫码登录；未配置时登录页不显示飞书入口 |
-| `LARK_APP_ID` / `LARK_APP_SECRET` / `LARK_REDIRECT_URI` | 可选，Lark（国际版）扫码登录；未配置时登录页不显示 Lark 入口 |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `GITHUB_REDIRECT_URI` | 可选，GitHub OAuth 登录；未配置时登录页不显示 GitHub 入口 |
-| `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` / `NOTION_REDIRECT_URI` | 可选，Notion 集成（公共 OAuth）；未配置时 `/integrations` 页连接按钮禁用 |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_REDIRECT_URI` | 可选，飞书扫码登录；未配置时登录页不显示飞书入口。`*_REDIRECT_URI` 只填路径部分（如 `/api/auth/feishu/callback`），host 由 `PUBLIC_ORIGIN` 拼接以适配不同部署环境 |
+| `LARK_APP_ID` / `LARK_APP_SECRET` / `LARK_REDIRECT_URI` | 可选，Lark（国际版）扫码登录；未配置时登录页不显示 Lark 入口。`*_REDIRECT_URI` 同样只填路径 |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `GITHUB_REDIRECT_URI` | 可选，GitHub OAuth 登录；未配置时登录页不显示 GitHub 入口。`*_REDIRECT_URI` 同样只填路径 |
+| `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` / `NOTION_REDIRECT_URI` | 可选，Notion 集成（公共 OAuth）；未配置时 `/integrations` 页连接按钮禁用。`*_REDIRECT_URI` 同样只填路径 |
 | `SEED_ADMIN_PASSWORD` | 可选，覆盖种子 admin 密码（默认 admin123） |
 | `BLOB_READ_WRITE_TOKEN` | issue 图片附件的 Vercel Blob token（Vercel 控制台 → Storage → Blob 获取） |
 

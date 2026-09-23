@@ -19,12 +19,16 @@ export const env = {
   get mcpApiKey() {
     return required('MCP_API_KEY');
   },
+  /* CONFIG_CRYPTO_KEY（AES-256-GCM,64 hex）由 src/server/crypto.ts 直接读
+     process.env(保持零依赖,scripts 可复用)——敏感 DB 配置的加解密入口。 */
   // Public origin of the deployment, without trailing slash (e.g.
   // https://spms.innev.cn). Set it when running behind a reverse proxy that
   // rewrites the Host header: OAuth redirect URIs and post-login redirects are
   // built from this instead of the internal request origin.
   publicOrigin: process.env.PUBLIC_ORIGIN?.replace(/\/+$/, ''),
   // Feishu (飞书, CN) OAuth login — optional; the 飞书 button is hidden when unset.
+  // *RedirectUri 只填路径部分（如 /api/auth/feishu/callback），host 由
+  // publicOrigin 拼接，从而随部署环境切换；完整 URL 形式也兼容（原样使用）。
   feishuAppId: process.env.FEISHU_APP_ID,
   feishuAppSecret: process.env.FEISHU_APP_SECRET,
   feishuRedirectUri: process.env.FEISHU_REDIRECT_URI || undefined,

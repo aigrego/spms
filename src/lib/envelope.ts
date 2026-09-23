@@ -46,6 +46,9 @@ export const ERROR_CODES = [
   'PLAN_NOT_FOUND',
   // issue attachments
   'ATTACHMENT_NOT_FOUND',
+  // per-company file storage (设置 → 文件存储)
+  'STORAGE_NOT_CONFIGURED',
+  'STORAGE_TEST_FAILED',
   // daily reports (日报)
   'REPORT_NOT_FOUND',
 ] as const;
@@ -82,6 +85,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   TESTS_NOT_PASSED: '关联测试用例未全部通过',
   PLAN_NOT_FOUND: '开发计划不存在',
   ATTACHMENT_NOT_FOUND: '附件不存在',
+  STORAGE_NOT_CONFIGURED: '尚未配置文件存储',
+  STORAGE_TEST_FAILED: '存储连接测试失败',
   REPORT_NOT_FOUND: '日报不存在',
 };
 

@@ -1,10 +1,13 @@
 import { env } from '@/lib/env';
+import { joinOriginPath } from '@/lib/url';
 
 /* Notion public-integration OAuth + REST API helpers (阶段 1: 连接 + 预览).
    Enabled only when NOTION_CLIENT_ID / NOTION_CLIENT_SECRET are set; the
-   redirect URI defaults to <origin>/api/v1/pms/integrations/notion/callback
-   unless NOTION_REDIRECT_URI overrides it. Every API call carries the pinned
-   Notion-Version header; the access token never expires (v1: no refresh). */
+   redirect URI defaults to <origin>/api/v1/pms/integrations/notion/callback.
+   A NOTION_REDIRECT_URI override stores only the path part — the host is
+   joined from PUBLIC_ORIGIN (or the request origin) at use time. Every API
+   call carries the pinned Notion-Version header; the access token never
+   expires (v1: no refresh). */
 
 const API_BASE = 'https://api.notion.com/v1';
 const NOTION_VERSION = '2022-06-28';
@@ -14,7 +17,9 @@ export function notionConfigured(): boolean {
 }
 
 export function notionRedirectUri(origin: string): string {
-  return env.notionRedirectUri ?? `${origin}/api/v1/pms/integrations/notion/callback`;
+  return env.notionRedirectUri
+    ? joinOriginPath(origin, env.notionRedirectUri)
+    : `${origin}/api/v1/pms/integrations/notion/callback`;
 }
 
 /* The authorization URL the browser is sent to (302). `state` is the CSRF

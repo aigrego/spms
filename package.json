@@ -28,6 +28,7 @@
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.3",
     "lucide-react": "^1.25.0",
+    "minio": "^8.0.7",
     "next": "16.2.10",
     "postgres": "^3.4.9",
     "react": "19.2.4",

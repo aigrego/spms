@@ -71,7 +71,7 @@ export async function GET(
 ) {
   const raw = (await ctx.params).provider;
   const p = parseProvider(raw);
-  if (!p || !providerConfigured(p)) return loginFail(req, raw);
+  if (!p || !(await providerConfigured(p))) return loginFail(req, raw);
   const code = req.nextUrl.searchParams.get('code');
   if (!code) return loginFail(req, p, 'code');
 
@@ -85,7 +85,7 @@ export async function GET(
     const session = await getSession();
     if (!cookieNonce || cookieNonce !== bindNonce || !session) return bindResult(req, 'failed');
     try {
-      const profile = await fetchOAuthProfile(p, code);
+      const profile = await fetchOAuthProfile(p, code, publicOrigin(req));
       const idKey = identityKey(p);
       const [taken] = await db
         .select({ id: users.id })
@@ -119,7 +119,7 @@ export async function GET(
   if (!loginNonce || !loginCookie || loginCookie !== loginNonce) return loginFail(req, p, 'state');
 
   try {
-    const profile = await fetchOAuthProfile(p, code);
+    const profile = await fetchOAuthProfile(p, code, publicOrigin(req));
     const idKey = identityKey(p);
 
     let [u] = await db.select().from(users).where(eq(users[idKey], profile.unionId)).limit(1);

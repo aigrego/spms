@@ -197,6 +197,13 @@
       "when": 1788752545955,
       "tag": "0027_happy_vargas",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790176749300,
+      "tag": "0028_tranquil_masked_marvel",
+      "breakpoints": true
     }
   ]
 }

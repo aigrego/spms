@@ -1,52 +1,103 @@
+import { db } from '@/db';
+import { oauthProviderConfigs } from '@/db/schema';
 import { env } from '@/lib/env';
+import { decryptSecret } from '@/server/crypto';
 import { normalizePhone } from '@/lib/identity';
+import { joinOriginPath } from '@/lib/url';
 
 /* OAuth provider helpers. Feishu (飞书, CN) / Lark (international) run on
    separate open platforms (open.feishu.cn vs open.larksuite.com); GitHub is an
-   OAuth App (https://github.com/settings/developers). Each provider is enabled
-   only when its env vars are set. The redirect URI defaults to
-   <origin>/api/auth/<provider>/callback unless the env override is set. */
+   OAuth App (https://github.com/settings/developers). Credentials are
+   configured per-provider in 设置 → 三方登录 (oauth_provider_configs table,
+   secrets AES-256-GCM encrypted); when no DB row exists the env vars act as
+   the fallback so existing deployments keep working. The redirect URI
+   defaults to <origin>/api/auth/<provider>/callback; a DB/env override stores
+   only the path part — the host is joined from PUBLIC_ORIGIN (or the request
+   origin) at use time. */
 
 export type OAuthProvider = 'feishu' | 'lark' | 'github';
 
-interface ProviderConf {
+export interface ProviderConf {
   apiBase: string;
-  appId?: string;
-  appSecret?: string;
+  appId: string;
+  appSecret: string;
   redirectUri?: string;
+  source: 'db' | 'env';
 }
 
-const PROVIDERS: Record<OAuthProvider, ProviderConf> = {
-  feishu: {
-    apiBase: 'https://open.feishu.cn',
-    appId: env.feishuAppId,
-    appSecret: env.feishuAppSecret,
-    redirectUri: env.feishuRedirectUri,
-  },
-  lark: {
-    apiBase: 'https://open.larksuite.com',
-    appId: env.larkAppId,
-    appSecret: env.larkAppSecret,
-    redirectUri: env.larkRedirectUri,
-  },
-  github: {
-    apiBase: 'https://github.com',
-    appId: env.githubClientId,
-    appSecret: env.githubClientSecret,
-    redirectUri: env.githubRedirectUri,
-  },
+const API_BASE: Record<OAuthProvider, string> = {
+  feishu: 'https://open.feishu.cn',
+  lark: 'https://open.larksuite.com',
+  github: 'https://github.com',
 };
+
+function envConf(p: OAuthProvider): ProviderConf | null {
+  const c =
+    p === 'feishu'
+      ? { appId: env.feishuAppId, appSecret: env.feishuAppSecret, redirectUri: env.feishuRedirectUri }
+      : p === 'lark'
+        ? { appId: env.larkAppId, appSecret: env.larkAppSecret, redirectUri: env.larkRedirectUri }
+        : { appId: env.githubClientId, appSecret: env.githubClientSecret, redirectUri: env.githubRedirectUri };
+  if (!c.appId || !c.appSecret) return null;
+  return { apiBase: API_BASE[p], appId: c.appId, appSecret: c.appSecret, redirectUri: c.redirectUri, source: 'env' };
+}
+
+/* 60s process-local cache (same pattern as the permissions matrix) — OAuth
+   config changes are rare; invalidateOAuthConfigCache() forces a reload. */
+let cache: { at: number; map: Partial<Record<OAuthProvider, ProviderConf | null>> } | null = null;
+
+export function invalidateOAuthConfigCache() {
+  cache = null;
+}
+
+/* DB row first (enabled rows only), env fallback. Null = not configured. */
+export async function getProviderConf(p: OAuthProvider): Promise<ProviderConf | null> {
+  if (!cache || Date.now() - cache.at > 60_000) {
+    const rows = await db.select().from(oauthProviderConfigs);
+    const map: Partial<Record<OAuthProvider, ProviderConf | null>> = {};
+    for (const r of rows) {
+      const prov = parseProvider(r.provider);
+      if (!prov) continue;
+      if (!r.enabled) {
+        map[prov] = null;
+        continue;
+      }
+      try {
+        map[prov] = {
+          apiBase: API_BASE[prov],
+          appId: r.appId,
+          appSecret: decryptSecret(r.appSecretEnc),
+          redirectUri: r.redirectUri ?? undefined,
+          source: 'db',
+        };
+      } catch (e) {
+        console.error(`[oauth] ${prov} 密钥解密失败（CONFIG_CRYPTO_KEY 变更？），忽略该行:`, e);
+        map[prov] = null;
+      }
+    }
+    cache = { at: Date.now(), map };
+  }
+  return cache.map[p] ?? envConf(p);
+}
 
 export function parseProvider(raw: string): OAuthProvider | null {
   return raw === 'feishu' || raw === 'lark' || raw === 'github' ? raw : null;
 }
 
-export function providerConfigured(p: OAuthProvider): boolean {
-  return !!(PROVIDERS[p].appId && PROVIDERS[p].appSecret);
+export async function providerConfigured(p: OAuthProvider): Promise<boolean> {
+  return (await getProviderConf(p)) !== null;
 }
 
-export function providerRedirectUri(p: OAuthProvider, origin: string): string {
-  return PROVIDERS[p].redirectUri ?? `${origin}/api/auth/${p}/callback`;
+/* Absolute redirect_uri for a provider: the DB/env override is a path joined
+   onto the origin; absolute http(s) overrides pass through (legacy configs). */
+function absoluteRedirectUri(p: OAuthProvider, conf: ProviderConf | null, origin: string): string {
+  return conf?.redirectUri
+    ? joinOriginPath(origin, conf.redirectUri)
+    : `${origin}/api/auth/${p}/callback`;
+}
+
+export async function providerRedirectUri(p: OAuthProvider, origin: string): Promise<string> {
+  return absoluteRedirectUri(p, await getProviderConf(p), origin);
 }
 
 /* The authorization URL the browser is sent to (302). Both flows carry a
@@ -54,14 +105,16 @@ export function providerRedirectUri(p: OAuthProvider, origin: string): string {
    cookie (login-CSRF guard): login flows pass `login.<nonce>`
    (LOGIN_STATE_COOKIE, set by /login), bind flows pass `bind.<nonce>`
    (BIND_STATE_COOKIE, set by /bind). */
-export function providerAuthorizeUrl(p: OAuthProvider, origin: string, state?: string): string {
-  const redirect = encodeURIComponent(providerRedirectUri(p, origin));
+export async function providerAuthorizeUrl(p: OAuthProvider, origin: string, state?: string): Promise<string> {
+  const conf = await getProviderConf(p);
+  if (!conf) throw new Error(`provider ${p} not configured`);
+  const redirect = encodeURIComponent(absoluteRedirectUri(p, conf, origin));
   if (p === 'github') {
     // scope 只要 read:user + user:email（公开资料 + 邮箱）。
     const scope = encodeURIComponent('read:user user:email');
-    return `${PROVIDERS.github.apiBase}/login/oauth/authorize?client_id=${PROVIDERS.github.appId}&redirect_uri=${redirect}&scope=${scope}&state=${state ?? crypto.randomUUID()}`;
+    return `${conf.apiBase}/login/oauth/authorize?client_id=${conf.appId}&redirect_uri=${redirect}&scope=${scope}&state=${state ?? crypto.randomUUID()}`;
   }
-  return `${PROVIDERS[p].apiBase}/open-apis/authen/v1/authorize?app_id=${PROVIDERS[p].appId}&redirect_uri=${redirect}&state=${state ?? crypto.randomUUID()}`;
+  return `${conf.apiBase}/open-apis/authen/v1/authorize?app_id=${conf.appId}&redirect_uri=${redirect}&state=${state ?? crypto.randomUUID()}`;
 }
 
 /* HttpOnly cookie carrying the login-flow nonce between /api/auth/<p>/login
@@ -94,10 +147,12 @@ export interface OAuthProfile {
 /* authorization code → app_access_token → user_access_token → user_info
    (GitHub: code → access_token → /user + /user/emails). The returned unionId
    is the stable cross-app identity (GitHub: numeric id stringified).
-   Throws on any failure. */
-export async function fetchOAuthProfile(p: OAuthProvider, code: string): Promise<OAuthProfile> {
-  if (p === 'github') return fetchGithubProfile(code);
-  const conf = PROVIDERS[p];
+   `origin` recomposes the absolute redirect_uri for the token exchange — it
+   must match the value sent in the authorize URL. Throws on any failure. */
+export async function fetchOAuthProfile(p: OAuthProvider, code: string, origin: string): Promise<OAuthProfile> {
+  if (p === 'github') return fetchGithubProfile(code, origin);
+  const conf = await getProviderConf(p);
+  if (!conf) throw new Error(`provider ${p} not configured`);
 
   // 1) app_access_token — the app-level credential.
   const appTokRes = await fetch(`${conf.apiBase}/open-apis/auth/v3/app_access_token/internal`, {
@@ -167,8 +222,9 @@ export async function fetchOAuthProfile(p: OAuthProvider, code: string): Promise
 /* GitHub: authorization code → access_token → GET /user → GET /user/emails.
    /user 的 email 字段在用户隐藏邮箱时为 null，所以邮箱固定走 /user/emails
    （primary && verified 优先，退化第一个 verified，再退化 undefined）。 */
-async function fetchGithubProfile(code: string): Promise<OAuthProfile> {
-  const conf = PROVIDERS.github;
+async function fetchGithubProfile(code: string, origin: string): Promise<OAuthProfile> {
+  const conf = await getProviderConf('github');
+  if (!conf) throw new Error('provider github not configured');
 
   // 1) code → access_token。必须带 Accept: application/json，否则返回 form 编码；
   //    失败时 GitHub 仍返回 200，错误在 body 的 error 字段。
@@ -179,7 +235,7 @@ async function fetchGithubProfile(code: string): Promise<OAuthProfile> {
       client_id: conf.appId,
       client_secret: conf.appSecret,
       code,
-      redirect_uri: conf.redirectUri,
+      redirect_uri: absoluteRedirectUri('github', conf, origin),
     }),
     signal: AbortSignal.timeout(10_000),
   });

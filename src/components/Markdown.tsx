@@ -10,7 +10,7 @@ import * as React from 'react';
    source is inert by construction. */
 
 const INLINE_RE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(~~[^~\n]+~~)|!\[([^\]\n]*)\]\((https?:\/\/[^\s)]+)\)|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
+  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(~~[^~\n]+~~)|!\[([^\]\n]*)\]\(((?:https?:\/\/|\/(?!\/))[^\s)]+)\)|\[([^\]\n]+)\]\(((?:https?:\/\/|\/(?!\/))[^\s)]+)\)/g;
 
 function renderInline(text: string, depth = 0): React.ReactNode[] {
   if (depth > 3) return [text];

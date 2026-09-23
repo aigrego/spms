@@ -1,62 +1,32 @@
-import { del } from '@vercel/blob';
 import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { issueAttachments, issues } from '@/db/schema';
 import { serializeAttachment } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
-import { ATTACHMENT_PATH_PREFIX, isAllowedType } from '@/lib/attachments';
+import { isAllowedType } from '@/lib/attachments';
 import { requirePerm } from '@/lib/permissions';
+import { storageForCompany } from '@/server/storage';
 import type { Actor } from './types';
 
-/* Issue attachments (Vercel Blob, client-direct upload). The browser
-   uploads the file straight to Blob via the /attachments/upload token route,
-   then calls registerAttachment to persist the row. Deleting removes the row
-   first, then the blob (best-effort — a failed blob delete leaves an orphan
-   for scripts/reconcile-attachments.ts). Images and common document formats
-   (see src/lib/attachments.ts). Module gate: `issues` write. */
+/* Issue attachments (per-company storage backend, client-direct upload). The
+   browser uploads straight to the company's backend via the
+   /attachments/upload intent route, then registerAttachment persists the row
+   (server-side meta validation via storage.assertMeta). Reads go through the
+   /attachments/object proxy (company isolation). Deleting removes the row
+   first, then the object (best-effort — a failed delete leaves an orphan for
+   scripts/reconcile-attachments.ts). Module gate: `issues` write. */
 
 export const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
 
-/* 期望的 blob host:与 @vercel/blob SDK 同款,从 BLOB_READ_WRITE_TOKEN
-   (vercel_blob_rw_<storeId>_<secret>)解析 storeId,拼出 public 域名。
-   注意 token 内嵌的 storeId 是大小写混合的,而 blob 公共域名一律小写
-   (URL 解析也会把 host 规范化成小写),必须转小写再比较 —— 否则所有
-   附件注册都会被误判为「不属于本 blob 存储」。
-   解析不到(未配置)时返回 null,调用方退化为只校验 Vercel Blob 公共域名后缀。 */
-function expectedBlobHost(): string | null {
-  const storeId = process.env.BLOB_READ_WRITE_TOKEN?.split('_')[3];
-  return storeId ? `${storeId.toLowerCase()}.public.blob.vercel-storage.com` : null;
-}
-
-/* 不信任客户端上报的 url/pathname:url 必须是指向本 blob 存储的 https 地址,
-   pathname 必须以 token 签发时的前缀(ATTACHMENT_PATH_PREFIX)开头 —
-   防止把任意外部 URL 注册为「附件」,绕过 upload token 路由的限制。 */
-function assertBlobMeta(url: string, pathname: string) {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new ApiException('VALIDATION_FAILED', '附件 url 不是合法 URL');
-  }
-  const expected = expectedBlobHost();
-  const hostOk = expected ? parsed.host === expected : parsed.host.endsWith('.public.blob.vercel-storage.com');
-  if (parsed.protocol !== 'https:' || !hostOk) {
-    throw new ApiException('VALIDATION_FAILED', '附件 url 不属于本 blob 存储');
-  }
-  if (!pathname.startsWith(ATTACHMENT_PATH_PREFIX)) {
-    throw new ApiException('VALIDATION_FAILED', '附件 pathname 与签发前缀不一致');
-  }
-}
-
 export interface RegisterAttachmentInput {
   url: string;
-  pathname: string;
+  pathname: string; // = 对象 key（issues/{companyId}/…）
   filename: string;
   contentType: string;
   size: number;
 }
 
-/* ---- register an already-uploaded blob as an issue attachment ---- */
+/* ---- register an already-uploaded object as an issue attachment ---- */
 export async function registerAttachment(actor: Actor, issueKey: string, meta: RegisterAttachmentInput) {
   await requirePerm(actor, 'issues', 'write');
   const companyId = actor.companyId;
@@ -70,7 +40,9 @@ export async function registerAttachment(actor: Actor, issueKey: string, meta: R
   if (!meta.url?.trim() || !meta.pathname?.trim()) {
     throw new ApiException('VALIDATION_FAILED', '附件 url/pathname 不能为空');
   }
-  assertBlobMeta(meta.url, meta.pathname);
+  // 不信任客户端上报的 url/pathname：必须属于本公司存储后端与本公司的 key 前缀。
+  const storage = await storageForCompany(companyId);
+  storage.assertMeta(meta.url, meta.pathname);
   if (!meta.contentType || !isAllowedType(meta.contentType)) {
     throw new ApiException('VALIDATION_FAILED', '不支持的附件格式');
   }
@@ -85,6 +57,7 @@ export async function registerAttachment(actor: Actor, issueKey: string, meta: R
     issueId: issue.id,
     url: meta.url,
     pathname: meta.pathname,
+    objectKey: meta.pathname,
     filename: meta.filename?.trim() || 'file',
     contentType: meta.contentType,
     size: meta.size,
@@ -111,8 +84,8 @@ export async function listAttachments(actor: Actor, issueKey: string) {
   return rows.map(serializeAttachment);
 }
 
-/* ---- delete: 先删 DB 行再删 blob;blob 删除失败只记告警不抛错 —— 孤儿
-   blob 由 scripts/reconcile-attachments.ts 对账清理,不影响行已删的事实 ---- */
+/* ---- delete: 先删 DB 行再删对象;对象删除失败只记告警不抛错 —— 孤儿
+   由 scripts/reconcile-attachments.ts 对账清理,不影响行已删的事实 ---- */
 export async function deleteAttachment(actor: Actor, attachmentId: string) {
   await requirePerm(actor, 'issues', 'write');
   const [row] = await db
@@ -122,10 +95,15 @@ export async function deleteAttachment(actor: Actor, attachmentId: string) {
     .limit(1);
   if (!row) throw new ApiException('ATTACHMENT_NOT_FOUND');
   await db.delete(issueAttachments).where(eq(issueAttachments.id, row.id));
-  try {
-    await del(row.url);
-  } catch (e) {
-    console.warn(`[attachments] blob 删除失败,留待对账清理: ${row.pathname}`, e);
+  // objectKey 为 null 的是平台级 Vercel Blob 时代的旧行:运行时已不再持有那个
+  // token,删除留给 reconcile 脚本(--apply)按存量 token 处理。
+  if (row.objectKey) {
+    try {
+      const storage = await storageForCompany(actor.companyId);
+      await storage.del(row.objectKey);
+    } catch (e) {
+      console.warn(`[attachments] 对象删除失败,留待对账清理: ${row.objectKey}`, e);
+    }
   }
   return { id: row.id };
 }

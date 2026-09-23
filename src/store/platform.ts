@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { platformApi } from '@/lib/platformApi';
 import { api } from '@/lib/api';
-import type { AddMemberInput, CompanyRole, CreateCompanyInput, CreateMcpKeyInput, PermLevel } from '@/lib/platformApi';
+import type { AddMemberInput, CompanyRole, CreateCompanyInput, CreateMcpKeyInput, PermLevel, SaveOAuthProviderInput } from '@/lib/platformApi';
+import type { SaveStorageConfigInput } from '@/lib/api';
 
 /* Platform admin React Query hooks. All platform data lives under the
    ['platform', ...] key tree; mutations invalidate their subtree only —
@@ -14,6 +15,7 @@ export const platformKeys = {
   members: (companyId: string) => [...platformKeys.all, 'members', companyId] as const,
   users: () => [...platformKeys.all, 'users'] as const,
   matrix: () => [...platformKeys.all, 'permissions-matrix'] as const,
+  oauthProviders: () => [...platformKeys.all, 'oauth-providers'] as const,
   mcpKeys: () => [...platformKeys.all, 'mcp-keys'] as const,
 };
 
@@ -139,6 +141,48 @@ export function useSaveCompanyMatrix() {
       qc.invalidateQueries({ queryKey: ['company-matrix'] });
       qc.invalidateQueries({ queryKey: ['session'] }); // permissions 可能变化
     },
+  });
+}
+
+/* ---- oauth providers (三方登录) ---- */
+export function useOAuthProviders() {
+  return useQuery({ queryKey: platformKeys.oauthProviders(), queryFn: () => platformApi.oauthProviders() });
+}
+
+export function useSaveOAuthProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SaveOAuthProviderInput) => platformApi.saveOAuthProvider(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: platformKeys.oauthProviders() }),
+  });
+}
+
+export function useDeleteOAuthProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (provider: string) => platformApi.deleteOAuthProvider(provider),
+    onSuccess: () => qc.invalidateQueries({ queryKey: platformKeys.oauthProviders() }),
+  });
+}
+
+/* ---- 本公司文件存储配置(设置 → 文件存储) ---- */
+export function useStorageConfig(enabled = true) {
+  return useQuery({ queryKey: ['storage-config'], queryFn: () => api.storageConfig(), enabled });
+}
+
+export function useSaveStorageConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SaveStorageConfigInput) => api.saveStorageConfig(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['storage-config'] }),
+  });
+}
+
+export function useDeleteStorageConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.deleteStorageConfig(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['storage-config'] }),
   });
 }
 

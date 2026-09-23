@@ -10,9 +10,9 @@ import { LOGIN_STATE_COOKIE, parseProvider, providerAuthorizeUrl, providerConfig
 export const GET = route(async (req, ctx: { params: Promise<{ provider: string }> }) => {
   const p = parseProvider((await ctx.params).provider);
   if (!p) return fail('NOT_FOUND', '未知的登录提供方', 404);
-  if (!providerConfigured(p)) return fail('NOT_FOUND', '第三方登录未配置', 404);
+  if (!(await providerConfigured(p))) return fail('NOT_FOUND', '第三方登录未配置', 404);
   const nonce = crypto.randomUUID();
-  const res = NextResponse.redirect(providerAuthorizeUrl(p, publicOrigin(req), `login.${nonce}`), 302);
+  const res = NextResponse.redirect(await providerAuthorizeUrl(p, publicOrigin(req), `login.${nonce}`), 302);
   res.cookies.set(LOGIN_STATE_COOKIE, nonce, {
     httpOnly: true,
     sameSite: 'lax',

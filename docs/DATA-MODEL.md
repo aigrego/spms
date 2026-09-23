@@ -105,8 +105,14 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 ### sub_issues（issue 内 checklist）
 `id` PK · `issueId` NN → issues cascade · `title` NN · `status` NN 默认 todo · `position` NN 默认 0
 
-### issue_attachments（issue 图片附件，存 Vercel Blob）
-`id` PK · `issueId` NN → issues cascade · `url` NN（blob 公网地址）· `pathname` NN（blob 路径，删除 blob 用）· `filename` NN · `contentType` NN · `size` int NN · `uploadedById` → members set null · `createdAt` NN —— 注册时服务端校验 url/pathname 确属本 blob 存储（`assertBlobMeta`），不信任客户端上报。
+### issue_attachments（issue 图片附件，存本公司配置的存储后端）
+`id` PK · `issueId` NN → issues cascade · `url` NN（后端的规范地址，仅作身份标识，非公网可读）· `pathname` NN（= 对象 key）· `objectKey`（`issues/{companyId}/…`；NULL = 平台级 Vercel Blob 时代的存量行）· `filename` NN · `contentType` NN · `size` int NN · `uploadedById` → members set null · `createdAt` NN —— 注册时按本公司存储配置校验 url/objectKey（`storage.assertMeta`），不信任客户端上报；读取一律走 `/api/v1/pms/attachments/object` 代理（鉴权 + 公司隔离），序列化不输出后端真实地址。
+
+### oauth_provider_configs（三方登录凭据，平台级，设置→三方登录）
+`provider` PK（feishu/lark/github）· `appId` NN · `appSecretEnc` NN（AES-256-GCM 密文，`src/server/crypto.ts`，密钥来自 env `CONFIG_CRYPTO_KEY`；永不序列化输出）· `redirectUri`（**只存路径部分**，如 `/api/auth/<provider>/callback`，host 运行时由 `PUBLIC_ORIGIN`/请求 origin 拼接；NULL = 按默认路径推导）· `enabled` NN 默认 true · `createdAt` / `updatedAt` NN —— 无行时回退 env 配置（`src/server/lark.ts`，60s 进程缓存）。
+
+### company_storage_configs（公司级文件存储配置，设置→文件存储）
+`companyId` PK → companies cascade · `backend` NN（minio / vercel_blob）· MinIO 字段：`endpoint` / `port` / `useSsl` NN 默认 true / `accessKeyEnc` / `secretKeyEnc` / `bucket` · Vercel 字段：`tokenEnc` · `createdAt` / `updatedAt` NN —— 密钥全部 AES-256-GCM 密文；**无行 = 该公司禁止上传附件**（无平台兜底）；资源按公司隔离（对象 key 前缀 `issues/{companyId}/` + 代理读取校验）。
 
 ### activities（issue 动态/评论流）
 `id` PK · `issueId` NN → issues cascade · `whoId` → members · `kind` NN 默认 comment · `body` NN · `createdAt` NN

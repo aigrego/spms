@@ -627,8 +627,10 @@ export const subIssues = pgTable(
   (t) => [index('sub_issues_issue_idx').on(t.issueId)],
 );
 
-/* Image attachments on an issue (Vercel Blob, client-direct upload).
-   `pathname` is the blob pathname — needed to delete the blob later. */
+/* Image attachments on an issue. The storage backend is configured per
+   company (company_storage_configs): browser client-direct upload, then
+   registerAttachment persists the row. Objects are private — reads go
+   through the /attachments/object proxy (company-isolated). */
 export const issueAttachments = pgTable(
   'issue_attachments',
   {
@@ -641,6 +643,10 @@ export const issueAttachments = pgTable(
       .notNull(),
     url: text('url').notNull(),
     pathname: text('pathname').notNull(),
+    // Object key inside the company's storage backend (issues/{companyId}/…).
+    // Null on legacy rows uploaded to the platform-level Vercel Blob store —
+    // the read-proxy falls back to their public `url` for those.
+    objectKey: text('object_key'),
     filename: text('filename').notNull(),
     contentType: text('content_type').notNull(),
     size: integer('size').notNull(),
@@ -929,6 +935,47 @@ export const notionIssueLinks = pgTable(
     uniqueIndex('notion_issue_links_issue_uidx').on(t.issueId),
   ],
 );
+
+/* ------------------------------------------------------------------ */
+/* Platform OAuth login providers (设置 → 三方登录, platform admin).     */
+/* appSecretEnc is AES-256-GCM ciphertext (server/crypto.ts) — never    */
+/* serialize it out through any API response. A missing row falls back  */
+/* to the env vars (see src/server/lark.ts).                            */
+/* ------------------------------------------------------------------ */
+export const oauthProviderConfigs = pgTable('oauth_provider_configs', {
+  provider: text('provider').primaryKey(), // 'feishu' | 'lark' | 'github'
+  appId: text('app_id').notNull(),
+  appSecretEnc: text('app_secret_enc').notNull(),
+  // NULL = derive <origin>/api/auth/<provider>/callback at request time.
+  redirectUri: text('redirect_uri'),
+  enabled: boolean('enabled').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/* ------------------------------------------------------------------ */
+/* Per-company file storage config (设置 → 文件存储, company admin).     */
+/* One row per company; NO row = uploads are forbidden for that         */
+/* company (no platform-level fallback). Credentials are AES-256-GCM    */
+/* ciphertext — never serialize them out.                               */
+/* ------------------------------------------------------------------ */
+export const companyStorageConfigs = pgTable('company_storage_configs', {
+  companyId: text('company_id')
+    .primaryKey()
+    .references(() => companies.id, { onDelete: 'cascade' }),
+  backend: text('backend').notNull(), // 'minio' | 'vercel_blob'
+  // MinIO (S3-compatible) fields — required when backend = 'minio'.
+  endpoint: text('endpoint'),
+  port: integer('port'),
+  useSsl: boolean('use_ssl').notNull().default(true),
+  accessKeyEnc: text('access_key_enc'),
+  secretKeyEnc: text('secret_key_enc'),
+  bucket: text('bucket'),
+  // Vercel Blob token (vercel_blob_rw_…) when backend = 'vercel_blob'.
+  tokenEnc: text('token_enc'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 /* ------------------------------------------------------------------ */
 /* Daily reports (日报)                                                 */

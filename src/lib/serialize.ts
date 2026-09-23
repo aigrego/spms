@@ -228,6 +228,7 @@ export function serializePlan(row: {
 export function serializeAttachment(row: {  id: string;
   url: string;
   pathname: string;
+  objectKey?: string | null;
   filename: string;
   contentType: string;
   size: number;
@@ -236,8 +237,11 @@ export function serializeAttachment(row: {  id: string;
 }) {
   return {
     id: row.id,
-    url: row.url,
+    // 读取一律走应用内代理(鉴权 + 公司隔离);存储里的真实地址不出库。
+    url: `/api/v1/pms/attachments/object?id=${row.id}`,
     pathname: row.pathname,
+    // 对象 key(MCP 等服务端读取用);null = 平台级 Vercel Blob 时代的旧行。
+    objectKey: row.objectKey ?? null,
     filename: row.filename,
     contentType: row.contentType,
     size: row.size,

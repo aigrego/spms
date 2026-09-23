@@ -23,7 +23,7 @@ import { useIssue, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue, 
 import { useIssueCandidates } from '@/store/resources';
 import { useRequirements } from '@/store/requirements';
 import { useTestCases } from '@/store/testcases';
-import { uploadAttachment } from '@/lib/upload';
+import { uploadAttachment, objectReadUrl } from '@/lib/upload';
 import { ATTACHMENT_ACCEPT, isImageType } from '@/lib/attachments';
 import type { Activity, IssueStatus, Member } from '@/lib/types';
 
@@ -186,10 +186,18 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
     for (const it of items) {
       uploadAttachment(it.file)
         .then((meta) => {
-          const md = `${isImageType(meta.contentType) ? '!' : ''}[${meta.filename}](${meta.url})`;
+          // 嵌入代理地址(?key= 按公司隔离),而不是后端的原始 url(私有不可直读)。
+          const md = `${isImageType(meta.contentType) ? '!' : ''}[${meta.filename}](${objectReadUrl(meta.pathname)})`;
           setValue((v) => v.replace(it.placeholder, md));
         })
-        .catch(() => setValue((v) => v.replace(it.placeholder, `（${it.file.name} ${t('detail.uploadFailed')}）`)));
+        .catch((e) =>
+          setValue((v) =>
+            v.replace(
+              it.placeholder,
+              `（${it.file.name} ${e instanceof Error && e.message ? e.message : t('detail.uploadFailed')}）`,
+            ),
+          ),
+        );
     }
   };
 
@@ -310,6 +318,12 @@ export function IssueDetail({
   const deleteAttachment = useDeleteAttachment();
   // In-flight uploads (blob uploaded, registration pending) — shown as dimmed tiles.
   const [uploading, setUploading] = React.useState<{ key: string; preview: string; image: boolean }[]>([]);
+  // 上传失败原因(如 STORAGE_NOT_CONFIGURED)的短暂横幅提示。
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
+  const flashUploadError = (msg: string) => {
+    setUploadError(msg);
+    setTimeout(() => setUploadError(null), 6000);
+  };
   const attachInputRef = React.useRef<HTMLInputElement>(null);
   const { data: projectReqs = [] } = useRequirements(issue?.projectId ? { project: issue.projectId } : undefined);
   const { data: linkedTcs = [] } = useTestCases({ issue: id });
@@ -400,7 +414,10 @@ export function IssueDetail({
             { onSettled: () => setUploading((u) => u.filter((x) => x.key !== key)) },
           ),
         )
-        .catch(() => setUploading((u) => u.filter((x) => x.key !== key)));
+        .catch((e) => {
+          flashUploadError(e instanceof Error ? e.message : t('issue.uploadFailed'));
+          setUploading((u) => u.filter((x) => x.key !== key));
+        });
     }
   };
 
@@ -621,6 +638,11 @@ export function IssueDetail({
                   <Plus size={13} className="text-fg-3" /> {t('issue.attachImage')}
                 </button>
               </div>
+              {uploadError && (
+                <div className="mb-2 rounded-lg border border-danger/40 bg-danger/5 px-3 py-1.5 text-[12.5px] text-danger">
+                  {uploadError}
+                </div>
+              )}
               {(issue.attachments.length > 0 || uploading.length > 0) && (
                 <div className="flex flex-wrap gap-2">
                   {issue.attachments.map((a) => {

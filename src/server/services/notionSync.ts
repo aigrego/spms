@@ -1,4 +1,3 @@
-import { put } from '@vercel/blob';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { issues, members, notionConnections, notionIssueLinks } from '@/db/schema';
@@ -13,6 +12,7 @@ import {
   type NotionBlockObject,
   type NotionPageObject,
 } from '@/server/notion';
+import { newObjectKey, storageForCompany } from '@/server/storage';
 import { registerAttachment } from './attachments';
 import { createIssue, updateIssue, type IssueStatus, type IssueType } from './issues';
 import type { Actor } from './types';
@@ -288,14 +288,13 @@ async function syncAttachments(
         (dl.contentType?.startsWith('image/') ? dl.contentType.split(';')[0] : null);
       if (!contentType) continue; // 无法确认是图片 → 跳过
       const safeName = c.name.split(/[\\/]/).pop() || 'image';
-      const blob = await put(`issues/${actor.companyId}/${crypto.randomUUID()}-${safeName}`, dl.buffer, {
-        access: 'public',
-        contentType,
-        addRandomSuffix: true,
-      });
+      // 服务端旁路上传 → 本公司配置的存储后端(无配置时整页报错,符合零兜底约定)。
+      const storage = await storageForCompany(actor.companyId);
+      const objectKey = newObjectKey(actor.companyId, safeName);
+      await storage.put(objectKey, dl.buffer, contentType);
       await registerAttachment(actor, issueKey, {
-        url: blob.url,
-        pathname: blob.pathname,
+        url: storage.canonicalUrl(objectKey),
+        pathname: objectKey,
         filename: safeName,
         contentType,
         size: dl.buffer.length,
