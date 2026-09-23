@@ -7,9 +7,14 @@
  * 配置: 读取项目根目录 .env.local > .env 中的 DATABASE_URL
  *       （也可用环境变量 DATABASE_URL 覆盖，优先级最高）
  *
- * 用法: node scripts/import-data.js <seed-name>
+ * 用法: node scripts/import-data.js <seed-name> [--clean]
  * 示例: node scripts/import-data.js my-seed
  *       node scripts/import-data.js my-seed.seed
+ *       node scripts/import-data.js my-seed --clean   # 导入前清空相关表（完整覆盖式恢复）
+ *
+ * 说明: 导出的 INSERT 带 ON CONFLICT DO NOTHING，向非空库导入时，若已有数据与 seed
+ *       在业务唯一键上冲突但 id 不同，父表行会被静默跳过，进而导致子表外键失败。
+ *       需要以 seed 快照完整覆盖目标库时请使用 --clean。
  */
 
 const fs = require('fs');
@@ -68,19 +73,47 @@ function parseSeedFile(seedFilePath) {
 }
 
 /**
+ * 从 seed 清单推导目标表名（取文件名去掉 .sql）
+ */
+function seedTableNames(sqlFiles) {
+    return sqlFiles.map((file) => path.basename(file, '.sql'));
+}
+
+/**
+ * 过滤出 public schema 下真实存在的表
+ */
+async function filterExistingTables(sql, tableNames) {
+    if (tableNames.length === 0) return [];
+    const rows = await sql`
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+          AND table_name = ANY(${tableNames})
+    `;
+    return rows.map((r) => r.table_name);
+}
+
+/**
  * 主函数
  */
 async function main() {
     const args = process.argv.slice(2);
+    const flags = new Set(args.filter((arg) => arg.startsWith('--')));
+    const positional = args.filter((arg) => !arg.startsWith('--'));
 
-    if (args.length === 0) {
+    if (positional.length === 0) {
         console.log('❌ 错误: 请提供 seed 文件名');
         console.log('');
-        console.log('用法: node scripts/import-data.js <seed-name>');
+        console.log('用法: node scripts/import-data.js <seed-name> [--clean]');
+        console.log('');
+        console.log('选项:');
+        console.log('  --clean    导入前清空 seed 涉及的所有表（TRUNCATE ... CASCADE），');
+        console.log('             用于以 seed 快照完整覆盖目标库');
         console.log('');
         console.log('示例:');
         console.log('  node scripts/import-data.js my-seed');
         console.log('  node scripts/import-data.js my-seed.seed');
+        console.log('  node scripts/import-data.js my-seed --clean');
         console.log('');
         console.log('可用的 seed 文件:');
 
@@ -95,7 +128,7 @@ async function main() {
         process.exit(1);
     }
 
-    let seedName = args[0];
+    let seedName = positional[0];
     if (!seedName.endsWith('.seed')) {
         seedName += '.seed';
     }
@@ -141,6 +174,31 @@ async function main() {
         console.error(`❌ 数据库连接失败: ${error.message}`);
         await sql.end();
         process.exit(1);
+    }
+
+    const targetTables = await filterExistingTables(sql, seedTableNames(sqlFiles));
+
+    if (flags.has('--clean')) {
+        if (targetTables.length > 0) {
+            console.log(`🧹 清空 ${targetTables.length} 个目标表 (TRUNCATE ... RESTART IDENTITY CASCADE)...`);
+            await sql.unsafe(
+                `TRUNCATE ${targetTables.map((t) => `"${t}"`).join(', ')} RESTART IDENTITY CASCADE`
+            );
+            console.log('✅ 清空完成');
+            console.log('');
+        }
+    } else if (targetTables.length > 0) {
+        const countSelects = targetTables
+            .map((t) => `(SELECT count(*) FROM "${t}") AS "${t}"`)
+            .join(', ');
+        const counts = (await sql.unsafe(`SELECT ${countSelects}`))[0];
+        const nonEmpty = Object.entries(counts).filter(([, n]) => Number(n) > 0);
+        if (nonEmpty.length > 0) {
+            console.log(`⚠️  目标库已有数据（${nonEmpty.length} 个相关表非空）。`);
+            console.log('   ON CONFLICT DO NOTHING 会静默跳过冲突行，若冲突行的 id 与 seed 不同，');
+            console.log('   后续子表导入会因外键约束失败。需要完整覆盖时请加 --clean。');
+            console.log('');
+        }
     }
 
     console.log('🚀 开始导入数据...');
