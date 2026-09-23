@@ -105,26 +105,39 @@ jobs:
           echo "$LOGIN_TOKEN" | docker login "$INNEV_REGISTRY" -u "$LOGIN_USER" --password-stdin
           docker pull "$IMAGE"
 
+      # 运行期环境变量首选 INNEV_ENV_FILE（内容为本地 .env 全文，多行密钥直接粘贴），
+      # 与本地开发共用同一份配置；未配置时回退到下方单独的 INNEV_* 密钥。
       - name: 重建 spms 容器
         env:
+          ENV_FILE: ${{ secrets.INNEV_ENV_FILE }}
           DATABASE_URL: ${{ secrets.INNEV_DATABASE_URL || vars.INNEV_DATABASE_URL || 'postgres://postgres:postgres@host.docker.internal:5433/spms' }}
           SESSION_SECRET: ${{ secrets.INNEV_SESSION_SECRET }}
           MCP_API_KEY: ${{ secrets.INNEV_MCP_API_KEY }}
           BLOB_READ_WRITE_TOKEN: ${{ secrets.INNEV_BLOB_READ_WRITE_TOKEN }}
         run: |
-          [ -n "$SESSION_SECRET" ] || { echo "::error::缺少密钥 INNEV_SESSION_SECRET（openssl rand -hex 32 生成）"; exit 1; }
           IMAGE="$INNEV_IMAGE_PREFIX/spms:${GITHUB_SHA:0:8}"
+          args=()
+          if [ -n "$ENV_FILE" ]; then
+            printf '%s\n' "$ENV_FILE" > runtime.env
+            grep -q '^SESSION_SECRET=.' runtime.env || { echo "::error::INNEV_ENV_FILE 内容缺少 SESSION_SECRET"; rm -f runtime.env; exit 1; }
+            args+=(--env-file runtime.env)
+          else
+            [ -n "$SESSION_SECRET" ] || { echo "::error::缺少密钥 INNEV_SESSION_SECRET（或改用 INNEV_ENV_FILE 传入整份 .env）"; exit 1; }
+            args+=(-e "DATABASE_URL=$DATABASE_URL" -e "SESSION_SECRET=$SESSION_SECRET")
+            args+=(-e "MCP_API_KEY=$MCP_API_KEY" -e "BLOB_READ_WRITE_TOKEN=$BLOB_READ_WRITE_TOKEN")
+          fi
           docker rm -f spms 2>/dev/null || true
+          # 靠后的 -e 覆盖 --env-file 同名变量（容器端口固定 5175，不受 .env 影响）；
+          # --add-host livebook: 让 .env 里的 livebook 主机名（如 postgres@livebook:5433）在容器内可解析。
           docker run -d --name spms --restart unless-stopped \
             -p "${INNEV_HOST_PORT}:5175" \
+            "${args[@]}" \
             -e HOSTNAME=0.0.0.0 \
             -e PORT=5175 \
-            -e DATABASE_URL="$DATABASE_URL" \
-            -e SESSION_SECRET="$SESSION_SECRET" \
-            -e MCP_API_KEY="$MCP_API_KEY" \
-            -e BLOB_READ_WRITE_TOKEN="$BLOB_READ_WRITE_TOKEN" \
             --add-host host.docker.internal:host-gateway \
+            --add-host livebook:host-gateway \
             "$IMAGE"
+          rm -f runtime.env
 
       - name: 健康检查
         run: |
@@ -160,15 +173,19 @@ jobs:
 #   INNEV_DOCKERHUB_MIRRORS docker.io 加速镜像（逗号分隔），默认 docker.fnnas.com,registry.docker-cn.com,
 #                           registry.hub.docker.com,docker.1panel.live,docker.1panel.dev,docker.1ms.run
 #   INNEV_HOST_PORT         容器对外发布端口，默认 5175（容器内固定 5175）
-#   INNEV_DATABASE_URL      可选（变量为明文，建议放密钥）
+#   INNEV_DATABASE_URL      可选（变量为明文，建议放密钥）；INNEV_ENV_FILE 已配置时无需此项
 # 密钥（Secrets）：
-#   INNEV_SESSION_SECRET    必填：session cookie 签名密钥（openssl rand -hex 32）——缺失时部署步骤直接失败
-#   INNEV_DATABASE_URL      PostgreSQL 连接串；默认
+#   INNEV_ENV_FILE          推荐：本地 .env 全文（多行直接粘贴）——运行期容器经 --env-file 整份注入，
+#                           与本地开发共用同一份配置；文件内须含 SESSION_SECRET。其中 DATABASE_URL 的
+#                           livebook 主机名在容器内由 --add-host livebook:host-gateway 解析。
+#   INNEV_SESSION_SECRET    回退项（未配 INNEV_ENV_FILE 时必填）：session cookie 签名密钥
+#                           （openssl rand -hex 32）——缺失时部署步骤直接失败
+#   INNEV_DATABASE_URL      回退项：PostgreSQL 连接串；默认
 #                           postgres://postgres:postgres@host.docker.internal:5433/spms
 #                           （5433 = 本机 docker postgres 容器的发布端口；注意宿主系统 pg 的 5432
 #                           从容器经 host-gateway 访问不通，切勿写 5432——vscode 项目 2026-09 实测踩坑）
-#   INNEV_MCP_API_KEY       可选：/mcp 端点平台级兜底 key（推荐改用 DB key，/agent-access 签发）
-#   INNEV_BLOB_READ_WRITE_TOKEN 可选：issue 图片附件的 Vercel Blob token，不配则附件上传不可用
+#   INNEV_MCP_API_KEY       回退项（可选）：/mcp 端点平台级兜底 key（推荐改用 DB key，/agent-access 签发）
+#   INNEV_BLOB_READ_WRITE_TOKEN 回退项（可选）：issue 图片附件的 Vercel Blob token，不配则附件上传不可用
 #   INNEV_REGISTRY_USER     docker login 账号——跨命名空间推包时必需（同命名空间可回退 gitea.actor）
 #   INNEV_REGISTRY_TOKEN    docker login token（scope: write:package + read:package）
 #   INNEV_CI_TOKEN          git clone token（scope: read:repository）；仅内置 GITHUB_TOKEN 不足时添加

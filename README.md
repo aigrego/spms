@@ -62,16 +62,18 @@ npm run dev
 
 ```bash
 docker build -t spms .
+# 运行期环境变量直接用本地 .env（--env-file）；PORT/HOSTNAME 由后面的 -e 固定
 docker run -d --name spms -p 5175:5175 \
-  -e DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5433/spms \
-  -e SESSION_SECRET=$(openssl rand -hex 32) \
+  --env-file .env \
+  -e HOSTNAME=0.0.0.0 -e PORT=5175 \
   --add-host host.docker.internal:host-gateway \
+  --add-host livebook:host-gateway \
   spms
 ```
 
 数据库迁移/种子不进镜像，首次部署前在本地把 `DATABASE_URL` 指向同一库执行 `npm run db:migrate && npm run db:seed`。
 
-仓库已带 Gitea Actions 工作流 [.gitea/workflows/docker-deploy.yaml](.gitea/workflows/docker-deploy.yaml)：push 到 `main` 自动构建镜像推送 Gitea Packages 并在 runner 本机重建容器（健康检查 `/api/health`）；所需的仓库变量/密钥清单见该文件尾部注释。
+仓库已带 Gitea Actions 工作流 [.gitea/workflows/docker-deploy.yaml](.gitea/workflows/docker-deploy.yaml)：push 到 `main` 自动构建镜像推送 Gitea Packages 并在 runner 本机重建容器（健康检查 `/api/health`）。运行期环境变量同样走 `.env`——把本地 `.env` 全文粘贴为仓库密钥 `INNEV_ENV_FILE` 即可（备选是逐个配置 `INNEV_*` 密钥，完整清单见该文件尾部注释）。
 
 ## MCP 接入
 
