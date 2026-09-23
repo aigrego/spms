@@ -47,6 +47,7 @@ export function minioConfigFromRow(row: StorageConfigRow): MinioConfig | null {
     accessKey: decryptSecret(row.accessKeyEnc),
     secretKey: decryptSecret(row.secretKeyEnc),
     bucket: row.bucket,
+    publicBaseUrl: row.publicBaseUrl,
   };
 }
 

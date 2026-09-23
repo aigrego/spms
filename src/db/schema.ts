@@ -971,6 +971,10 @@ export const companyStorageConfigs = pgTable('company_storage_configs', {
   accessKeyEnc: text('access_key_enc'),
   secretKeyEnc: text('secret_key_enc'),
   bucket: text('bucket'),
+  /* 浏览器可达的公网基址（如 https://s3.innev.cn，规范化存储：默认端口省略、
+     无路径无尾斜杠）。预签名 URL 用它签发（签名覆盖 host 头，浏览器必须按
+     公网 host 请求）；null = 用上面的 endpoint 直签（纯内网部署）。 */
+  publicBaseUrl: text('public_base_url'),
   // Vercel Blob token (vercel_blob_rw_…) when backend = 'vercel_blob'.
   tokenEnc: text('token_enc'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

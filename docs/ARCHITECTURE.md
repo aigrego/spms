@@ -215,6 +215,7 @@ issue 指派给 agent 时：挂 `AI 生成` 标签 + 把预编剧本步骤**同�
 - **公司隔离**：对象 key 一律 `issues/{companyId}/…`（服务端生成，客户端不能自选）；上传签发、注册校验（`storage.assertMeta`）、删除、读取都钉死本公司前缀；A 公司的对象 B 公司拿不到（应用层强制）。
 - **私有 bucket + 代理读取**：对象不公网可读；所有读取走 `GET /api/v1/pms/attachments/object`（`?id=` 附件行级鉴权 / `?key=` key 内嵌 companyId 比对），鉴权后 302 到 MinIO 短时效 presigned GET（或 Vercel 公网 url），`Cache-Control: private, no-cache`。`<img>`、markdown 嵌入图、MCP 读图全部经由它（MCP 走 `storage.get` 直读）。`issue_attachments.url` 存的是后端规范地址（身份标识），`object_key` 存 key；`object_key` 为 NULL 的存量行 = 平台级 Vercel Blob 旧数据，代理直接 302 到其存量公网 url。
 - **浏览器直传**：`POST /attachments/upload`（`action:'create-intent'`）签发上传意图——MinIO 给 presigned PUT（bucket 需配 CORS 允许本站来源的 PUT）；Vercel 给 objectKey，客户端再走 `@vercel/blob/client` 握手（token 来自公司配置，`addRandomSuffix: false`，前缀校验带 companyId）。
+- **内外网分离（publicBaseUrl）**：V4 预签名覆盖 host 头，浏览器必须按签发的 host 请求。站点经域名/反代访问时，在配置里填 `publicBaseUrl`（如 `https://s3.innev.cn`）：presigned PUT/GET 与规范 url 都按公网基址签发（专用客户端，region 写死 us-east-1 避免向公网地址发探活请求），服务端 put/get/del 与「测试连接」仍走内网 endpoint；留空 = 纯内网部署，按 endpoint 直签。规范化存储（默认端口省略、无路径无尾斜杠），与 minio-js 渲染规则一致，保证注册时 `assertMeta` 的 url 逐字节匹配。
 - **密钥安全**：accessKey/secretKey/token 经 `src/server/crypto.ts`（AES-256-GCM，密钥 = env `CONFIG_CRYPTO_KEY`）密文落库，API 只回 `hasXxx`，PUT 不传 = 保留旧值。
 - **对账**：`scripts/reconcile-attachments.ts` 遍历有配置的公司逐家对账（MinIO listObjectsV2 / Vercel list），无配置公司跳过；存量旧行需显式提供 `BLOB_READ_WRITE_TOKEN` 才对账。
 

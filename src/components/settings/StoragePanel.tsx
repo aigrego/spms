@@ -20,6 +20,7 @@ interface MinioDraft {
   accessKey: string;
   secretKey: string;
   bucket: string;
+  publicBaseUrl: string;
 }
 
 interface Draft {
@@ -28,7 +29,15 @@ interface Draft {
   token: string;
 }
 
-const emptyMinio: MinioDraft = { endpoint: '', port: '', useSsl: true, accessKey: '', secretKey: '', bucket: '' };
+const emptyMinio: MinioDraft = {
+  endpoint: '',
+  port: '',
+  useSsl: true,
+  accessKey: '',
+  secretKey: '',
+  bucket: '',
+  publicBaseUrl: '',
+};
 
 function draftOf(data: StorageConfigState | undefined): Draft {
   if (!data?.configured) return { backend: 'minio', minio: emptyMinio, token: '' };
@@ -43,6 +52,7 @@ function draftOf(data: StorageConfigState | undefined): Draft {
             accessKey: '',
             secretKey: '',
             bucket: data.minio.bucket ?? '',
+            publicBaseUrl: data.minio.publicBaseUrl ?? '',
           }
         : emptyMinio,
     token: '',
@@ -105,6 +115,7 @@ export function StoragePanel() {
           accessKey: m.accessKey.trim() || undefined,
           secretKey: m.secretKey.trim() || undefined,
           bucket: m.bucket.trim(),
+          publicBaseUrl: m.publicBaseUrl.trim() || null,
         },
       };
     }
@@ -248,6 +259,17 @@ export function StoragePanel() {
                     autoComplete="off"
                   />
                   <p className="mb-0 mt-1 text-[11.5px] text-fg-3">{t('storage.bucketHint')}</p>
+                </div>
+                <div>
+                  <label className={fieldLabel}>{t('storage.publicBaseUrl')}</label>
+                  <input
+                    className={inputCls}
+                    value={draft.minio.publicBaseUrl}
+                    onChange={(e) => setDraft((d) => d && { ...d, minio: { ...d.minio, publicBaseUrl: e.target.value } })}
+                    placeholder="https://s3.innev.cn"
+                    autoComplete="off"
+                  />
+                  <p className="mb-0 mt-1 text-[11.5px] text-fg-3">{t('storage.publicBaseUrlHint')}</p>
                 </div>
               </div>
             ) : (

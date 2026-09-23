@@ -112,7 +112,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 `provider` PK（feishu/lark/github）· `appId` NN · `appSecretEnc` NN（AES-256-GCM 密文，`src/server/crypto.ts`，密钥来自 env `CONFIG_CRYPTO_KEY`；永不序列化输出）· `redirectUri`（**只存路径部分**，如 `/api/auth/<provider>/callback`，host 运行时由 `PUBLIC_ORIGIN`/请求 origin 拼接；NULL = 按默认路径推导）· `enabled` NN 默认 true · `createdAt` / `updatedAt` NN —— 无行时回退 env 配置（`src/server/lark.ts`，60s 进程缓存）。
 
 ### company_storage_configs（公司级文件存储配置，设置→文件存储）
-`companyId` PK → companies cascade · `backend` NN（minio / vercel_blob）· MinIO 字段：`endpoint` / `port` / `useSsl` NN 默认 true / `accessKeyEnc` / `secretKeyEnc` / `bucket` · Vercel 字段：`tokenEnc` · `createdAt` / `updatedAt` NN —— 密钥全部 AES-256-GCM 密文；**无行 = 该公司禁止上传附件**（无平台兜底）；资源按公司隔离（对象 key 前缀 `issues/{companyId}/` + 代理读取校验）。
+`companyId` PK → companies cascade · `backend` NN（minio / vercel_blob）· MinIO 字段：`endpoint` / `port` / `useSsl` NN 默认 true / `accessKeyEnc` / `secretKeyEnc` / `bucket` / `publicBaseUrl`（浏览器可达公网基址，预签名 URL 按它签发；NULL = 按内网 endpoint 直签）· Vercel 字段：`tokenEnc` · `createdAt` / `updatedAt` NN —— 密钥全部 AES-256-GCM 密文；**无行 = 该公司禁止上传附件**（无平台兜底）；资源按公司隔离（对象 key 前缀 `issues/{companyId}/` + 代理读取校验）。
 
 ### activities（issue 动态/评论流）
 `id` PK · `issueId` NN → issues cascade · `whoId` → members · `kind` NN 默认 comment · `body` NN · `createdAt` NN

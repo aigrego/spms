@@ -568,6 +568,7 @@ export type StorageConfigState =
         port: number | null;
         useSsl: boolean;
         bucket: string | null;
+        publicBaseUrl: string | null;
         hasAccessKey: boolean;
         hasSecretKey: boolean;
       } | null;
@@ -583,6 +584,7 @@ export interface SaveStorageConfigInput {
     accessKey?: string; // 不传 = 保留旧值
     secretKey?: string;
     bucket?: string;
+    publicBaseUrl?: string | null; // 不传 = 保留旧值;'' / null = 清除
   };
   token?: string; // vercel_blob;不传 = 保留旧值
 }

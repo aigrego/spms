@@ -1,0 +1,1 @@
+ALTER TABLE "company_storage_configs" ADD COLUMN "public_base_url" text;

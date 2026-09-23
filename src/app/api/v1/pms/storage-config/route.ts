@@ -5,7 +5,7 @@ import { ApiException, ok } from '@/lib/envelope';
 import { decryptSecret, encryptSecret } from '@/server/crypto';
 import { jsonBody, requireActor, route } from '@/server/http';
 import { invalidateStorageConfigCache, minioConfigFromRow } from '@/server/storage';
-import { testMinioConnection, type MinioConfig } from '@/server/storage/minio';
+import { parsePublicBaseUrl, testMinioConnection, type MinioConfig } from '@/server/storage/minio';
 import { testVercelConnection } from '@/server/storage/vercel';
 
 /* /api/v1/pms/storage-config — 公司管理员在 设置→文件存储 管理本公司的附件
@@ -27,6 +27,8 @@ interface MinioInput {
   accessKey?: string;
   secretKey?: string;
   bucket?: string;
+  /* 公网基址：不传 = 保留旧值；'' / null = 清除（回落内网 endpoint 直签）。 */
+  publicBaseUrl?: string | null;
 }
 
 /* 已存行的 MinIO 明文凭据;解密失败(CONFIG_CRYPTO_KEY 变更)按无存量的处理,
@@ -65,6 +67,7 @@ export const GET = route(async () => {
             port: row.port,
             useSsl: row.useSsl,
             bucket: row.bucket,
+            publicBaseUrl: row.publicBaseUrl,
             hasAccessKey: !!row.accessKeyEnc,
             hasSecretKey: !!row.secretKeyEnc,
           }
@@ -80,6 +83,13 @@ function validatedMinio(input: MinioInput, existing: MinioConfig | null): MinioC
   const secretKey = input.secretKey?.trim() || existing?.secretKey;
   const useSsl = input.useSsl ?? existing?.useSsl ?? true;
   const port = input.port ?? existing?.port ?? (useSsl ? 443 : 9000);
+  /* 公网基址：undefined 保留旧值；'' / null 清除；其余校验并规范化落库。 */
+  const publicBaseUrl =
+    input.publicBaseUrl === undefined
+      ? (existing?.publicBaseUrl ?? null)
+      : input.publicBaseUrl?.trim()
+        ? parsePublicBaseUrl(input.publicBaseUrl).base
+        : null;
   if (!endpoint) throw new ApiException('VALIDATION_FAILED', 'Endpoint 不能为空');
   if (!Number.isInteger(port) || port! < 1 || port! > 65535) {
     throw new ApiException('VALIDATION_FAILED', '端口非法');
@@ -88,7 +98,7 @@ function validatedMinio(input: MinioInput, existing: MinioConfig | null): MinioC
   if (!accessKey || !secretKey) {
     throw new ApiException('VALIDATION_FAILED', '首次保存必须填写 Access Key 与 Secret Key');
   }
-  return { endpoint: endpoint!, port: port!, useSsl, accessKey, secretKey, bucket: bucket! };
+  return { endpoint: endpoint!, port: port!, useSsl, accessKey, secretKey, bucket: bucket!, publicBaseUrl };
 }
 
 export const PUT = route(async (req) => {
@@ -117,6 +127,7 @@ export const PUT = route(async (req) => {
     values.port = conf.port;
     values.useSsl = conf.useSsl;
     values.bucket = conf.bucket;
+    values.publicBaseUrl = conf.publicBaseUrl;
     values.accessKeyEnc = encryptSecret(conf.accessKey);
     values.secretKeyEnc = encryptSecret(conf.secretKey);
     values.tokenEnc = null;
@@ -132,7 +143,7 @@ export const PUT = route(async (req) => {
     const token = body.token?.trim() || existingToken;
     if (!token) throw new ApiException('VALIDATION_FAILED', '首次保存必须填写 Blob Token');
     values.tokenEnc = encryptSecret(token);
-    values.endpoint = values.port = values.accessKeyEnc = values.secretKeyEnc = values.bucket = null;
+    values.endpoint = values.port = values.accessKeyEnc = values.secretKeyEnc = values.bucket = values.publicBaseUrl = null;
   }
 
   if (existing) {
