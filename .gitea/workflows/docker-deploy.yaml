@@ -1,5 +1,7 @@
 # Docker 化部署流水线（风格对齐 vscode .gitea/workflows/docker-deploy.yaml）：
-#   push main（或手动触发）→ ① buildx 构建镜像并推送 Gitea Packages → ② 本机 docker 拉取镜像、重建并启动容器。
+#   push main → ① buildx 构建镜像并推送 Gitea Packages → ② 本机 docker 拉取镜像、重建并启动容器
+#             → ③ 清理旧镜像/退出容器，只保留当前部署的成品镜像。
+# 手动触发（Actions → Run workflow）可用 job 选项单跑某个任务：all（全链路）/ image / deploy / cleanup。
 # 零第三方 action：run 步骤直连 git/docker，runner 无需访问 github.com。
 # 命名约定：自定义变量/密钥一律 INNEV_ 前缀（仓库 → 设置 → Actions 配置，清单见本文件尾部注释）。
 # 凭证回退链：INNEV_REGISTRY_USER / INNEV_REGISTRY_TOKEN → gitea.actor / 内置 GITHUB_TOKEN；
@@ -11,6 +13,13 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      job:
+        description: 要运行的任务（all = 构建+部署+清理）
+        type: choice
+        options: [all, image, deploy, cleanup]
+        default: all
+        required: true
 
 permissions:
   contents: read    # git clone 源码（内置 GITHUB_TOKEN）
@@ -28,7 +37,9 @@ env:
 
 jobs:
   # 任务 1：构建镜像并推送到本机 Gitea Packages（$INNEV_IMAGE_PREFIX/spms）
+  # push 或手动选择 all/image 时运行
   image:
+    if: github.event_name == 'push' || github.event.inputs.job == 'all' || github.event.inputs.job == 'image'
     runs-on: self-hosted
     steps:
       # 仓库变量误带 http:// scheme 时在此剥掉，避免拼出非法镜像引用（docker tag 不允许 "://"）
@@ -92,8 +103,11 @@ jobs:
         run: docker buildx rm -f spmsbuilder 2>/dev/null || true
 
   # 任务 2：把刚推送的镜像拉到本机 docker，重建并启动容器
+  # push 或手动选择 all/deploy 时运行；自定义 if 取代默认 success() 门控——
+  # 手动单跑 deploy 时 image 被跳过（needs 结果为 skipped），此处显式放行
   deploy:
     needs: image
+    if: ${{ !failure() && !cancelled() && (github.event_name == 'push' || github.event.inputs.job == 'all' || github.event.inputs.job == 'deploy') }}
     runs-on: self-hosted
     steps:
       - name: 归一化镜像变量（剥离误配的 URL scheme）
@@ -147,6 +161,37 @@ jobs:
           echo "::error::健康检查失败，容器最近日志：" >&2
           docker logs --tail 50 spms >&2 || true
           exit 1
+
+  # 任务 3：清理构建过程产物，只保留当前部署的成品镜像（当前 sha + latest，二者同 ID）。
+  # push 全链路在部署成功后自动跑；也可手动单跑（job=cleanup，保留分支 head 的 sha 镜像）。
+  # 只动 $INNEV_IMAGE_PREFIX/spms 名下的 tag 与名为 spms 的退出容器——本机还跑着
+  # vscode/TickShield 等项目的镜像与容器，不做全局 prune。
+  cleanup:
+    needs: deploy
+    if: ${{ !failure() && !cancelled() && (github.event.inputs.job == 'cleanup' || needs.deploy.result == 'success') }}
+    runs-on: self-hosted
+    steps:
+      - name: 归一化镜像变量（剥离误配的 URL scheme）
+        run: |
+          PREFIX="${INNEV_IMAGE_PREFIX#*://}"; PREFIX="${PREFIX%/}"
+          echo "INNEV_IMAGE_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+
+      - name: 清理旧镜像与退出容器
+        run: |
+          KEEP="$INNEV_IMAGE_PREFIX/spms:${GITHUB_SHA:0:8}"
+          # 旧 sha tag：容器按镜像 ID 引用，删 tag 不影响正在运行的容器；
+          # 若某 tag 仍被容器独占引用，docker rmi 会拒绝，|| true 跳过
+          docker images "$INNEV_IMAGE_PREFIX/spms" --format '{{.Repository}}:{{.Tag}}' | while read -r ref; do
+            case "$ref" in
+              "$KEEP" | "$INNEV_IMAGE_PREFIX/spms:latest") echo "保留 $ref" ;;
+              *) echo "删除 $ref"; docker rmi "$ref" || true ;;
+            esac
+          done
+          # 退出/未启动的 spms 容器（正常不会有——deploy 已 docker rm -f；name 过滤加锚点，
+          # 避免误伤 buildx_buildkit_spmsbuilder0 这类名字包含 spms 的容器）
+          docker ps -aq --filter 'name=^spms$' --filter status=exited --filter status=created | xargs -r docker rm
+          echo "当前保留的 spms 镜像："
+          docker images "$INNEV_IMAGE_PREFIX/spms"
 
 # =============================================================================
 # 一次性人工准备：
