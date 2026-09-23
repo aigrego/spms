@@ -3,11 +3,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { notionConnections } from '@/db/schema';
 import { requirePerm } from '@/lib/permissions';
-import { requireActor } from '@/server/http';
+import { publicOrigin, requireActor } from '@/server/http';
 import { NOTION_STATE_COOKIE, exchangeCode, notionConfigured } from '@/server/notion';
 
 function notionResult(req: NextRequest, result: 'connected' | 'failed') {
-  const url = new URL('/integrations', req.url);
+  const url = new URL('/integrations', publicOrigin(req));
   url.searchParams.set('notion', result);
   const res = NextResponse.redirect(url, 302);
   res.cookies.delete(NOTION_STATE_COOKIE);
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
   try {
     const actor = await requireActor(); // session + current-company resolution
     await requirePerm(actor, 'notion', 'write');
-    const tok = await exchangeCode(code, req.nextUrl.origin);
+    const tok = await exchangeCode(code, publicOrigin(req));
 
     const [existing] = await db
       .select({ id: notionConnections.id })

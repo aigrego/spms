@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fail } from '@/lib/envelope';
 import { requirePerm } from '@/lib/permissions';
-import { requireActor, route } from '@/server/http';
+import { publicOrigin, requireActor, route } from '@/server/http';
 import { NOTION_STATE_COOKIE, notionAuthorizeUrl, notionConfigured } from '@/server/notion';
 
 /* GET /api/v1/pms/integrations/notion/authorize — start the Notion OAuth flow:
@@ -13,7 +13,7 @@ export const GET = route(async (req) => {
   const actor = await requireActor();
   await requirePerm(actor, 'notion', 'write');
   const nonce = crypto.randomUUID();
-  const res = NextResponse.redirect(notionAuthorizeUrl(req.nextUrl.origin, nonce), 302);
+  const res = NextResponse.redirect(notionAuthorizeUrl(publicOrigin(req), nonce), 302);
   res.cookies.set(NOTION_STATE_COOKIE, nonce, {
     httpOnly: true,
     sameSite: 'lax',

@@ -2,6 +2,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { companies, companyMemberships, users } from '@/db/schema';
+import { env } from '@/lib/env';
 import { ApiException, fail, ok } from '@/lib/envelope';
 import { ensureCurrentMember } from '@/lib/identity';
 import { createSessionCookie, requireUser } from '@/lib/session';
@@ -28,6 +29,14 @@ export function route<Ctx>(
       return fail('INTERNAL', '服务内部错误', 500);
     }
   };
+}
+
+/* Origin for absolute URLs handed to the browser or an external IdP (OAuth
+   redirect_uri, post-login redirects). Behind a reverse proxy that rewrites the
+   Host header, req.nextUrl.origin is the internal upstream address — use
+   PUBLIC_ORIGIN instead. Falls back to the request origin for direct access. */
+export function publicOrigin(req: NextRequest): string {
+  return env.publicOrigin ?? req.nextUrl.origin;
 }
 
 export interface CompanyRef {

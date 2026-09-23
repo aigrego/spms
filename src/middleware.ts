@@ -22,16 +22,19 @@ const APP_PREFIXES = [
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const hasSession = req.cookies.has('spms_session');
+  // Behind a reverse proxy that rewrites the Host header, req.url carries the
+  // internal origin; PUBLIC_ORIGIN pins the redirect base when set.
+  const base = process.env.PUBLIC_ORIGIN ?? req.url;
 
   if (pathname === '/login') {
-    if (hasSession) return NextResponse.redirect(new URL('/issues', req.url));
+    if (hasSession) return NextResponse.redirect(new URL('/issues', base));
     return NextResponse.next();
   }
 
   const isAppRoute =
     pathname === '/' || APP_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   if (isAppRoute && !hasSession) {
-    return NextResponse.redirect(new URL('/login', req.url));
+    return NextResponse.redirect(new URL('/login', base));
   }
   return NextResponse.next();
 }

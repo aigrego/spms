@@ -5,7 +5,7 @@ import { users } from '@/db/schema';
 import { findUserByEmail, upsertVerifiedEmail } from '@/lib/emails';
 import { claimExternalInvites, ensureCurrentMember, syncMemberProjection } from '@/lib/identity';
 import { createSessionCookie, getSession } from '@/lib/session';
-import { defaultCompanyForUser } from '@/server/http';
+import { defaultCompanyForUser, publicOrigin } from '@/server/http';
 import { BIND_STATE_COOKIE, LOGIN_STATE_COOKIE, fetchOAuthProfile, parseProvider, providerConfigured, type OAuthProvider } from '@/server/lark';
 
 /* 各 provider 的稳定身份存哪个字段：飞书与 Lark 分列入库（两个独立平台，
@@ -19,7 +19,7 @@ function providerLabel(p: OAuthProvider): string {
 }
 
 function loginFail(req: NextRequest, provider: string, reason?: string) {
-  const url = new URL(`/login?error=${provider}`, req.url);
+  const url = new URL(`/login?error=${provider}`, publicOrigin(req));
   // 失败环节带上 reason(state/code/exchange),生产排障只看 URL 就能区分
   // state 校验失败 / 缺少 code / 换取 token 或落库失败。
   if (reason) url.searchParams.set('reason', reason);
@@ -29,7 +29,7 @@ function loginFail(req: NextRequest, provider: string, reason?: string) {
 }
 
 function bindResult(req: NextRequest, result: 'bound' | 'taken' | 'failed') {
-  const url = new URL('/profile/security', req.url);
+  const url = new URL('/profile/security', publicOrigin(req));
   url.searchParams.set('oauth', result);
   const res = NextResponse.redirect(url, 302);
   res.cookies.delete(BIND_STATE_COOKIE);
@@ -198,7 +198,7 @@ export async function GET(
     const company = await defaultCompanyForUser(u);
     if (company) await ensureCurrentMember(u, company.id);
     const c = await createSessionCookie(u, company?.id);
-    const res = NextResponse.redirect(new URL('/issues', req.url), 302);
+    const res = NextResponse.redirect(new URL('/issues', publicOrigin(req)), 302);
     res.cookies.delete(LOGIN_STATE_COOKIE); // nonce 一次性使用
     res.cookies.set(c.name, c.value, c.options);
     return res;
