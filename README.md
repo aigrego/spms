@@ -73,7 +73,7 @@ docker run -d --name spms -p 5175:5175 \
 
 数据库迁移/种子不进镜像，首次部署前在本地把 `DATABASE_URL` 指向同一库执行 `npm run db:migrate && npm run db:seed`。
 
-仓库已带 Gitea Actions 工作流 [.gitea/workflows/docker-deploy.yaml](.gitea/workflows/docker-deploy.yaml)：push 到 `main` 自动构建镜像推送 Gitea Packages 并在 runner 本机重建容器（健康检查 `/api/health`）。运行期环境变量同样走 `.env`——把本地 `.env` 全文粘贴为仓库密钥 `INNEV_ENV_FILE` 即可（备选是逐个配置 `INNEV_*` 密钥，完整清单见该文件尾部注释）。
+仓库已带 Gitea Actions 工作流 [.gitea/workflows/docker-deploy.yaml](.gitea/workflows/docker-deploy.yaml)：push 到 `main` 自动构建镜像推送 Gitea Packages 并在 runner 本机重建容器（健康检查 `/api/health`）。运行期环境变量由**服务器上单独维护的 `.env`** 提供（key 与 `.env.example` 一致，至少含 `DATABASE_URL` / `SESSION_SECRET`），部署时经 `docker run --env-file` 注入；文件路径用仓库变量 `INNEV_ENV_FILE` 指定（默认 `/etc/spms/.env`），完整配置清单见该文件尾部注释。
 
 ## MCP 接入
 
