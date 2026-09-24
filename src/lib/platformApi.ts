@@ -1,5 +1,4 @@
 import { ApiError } from './api';
-import type { SaveStorageConfigInput, StorageConfigState } from './api';
 
 /* Platform admin API (/api/v1/platform/**) — multi-company sandbox + RBAC.
    Kept in its own module (not api.ts) because the pms client is owned by
@@ -15,6 +14,9 @@ export interface PlatformCompany {
   color: string;
   description: string | null;
   memberCount: number;
+  /* 存储开通状态：'auto' = 平台开通的隔离账号；'manual' = 历史手动配置行；
+     null = 未开通（无公司存储行）。 */
+  storageMode: 'auto' | 'manual' | null;
   createdAt: string;
 }
 
@@ -169,6 +171,40 @@ export interface SaveOAuthProviderInput {
   enabled?: boolean;
 }
 
+/* 平台默认存储(GET /platform/storage-config)。仅 minio 后端;敏感字段
+   只回 hasXxx。enabled 是平台级总开关(false 时全平台存储读写全禁)。 */
+export type PlatformStorageConfigState =
+  | { configured: false }
+  | {
+      configured: true;
+      backend: 'minio';
+      enabled: boolean;
+      minio: {
+        endpoint: string | null;
+        port: number | null;
+        useSsl: boolean;
+        bucket: string | null;
+        publicBaseUrl: string | null;
+        hasAccessKey: boolean;
+        hasSecretKey: boolean;
+      };
+    };
+
+/* PUT /platform/storage-config — minio 字段「不传 = 保留旧值」;
+   enabled 可单独部分更新(只 PUT { enabled } 即总开关切换)。 */
+export interface SavePlatformStorageInput {
+  minio?: {
+    endpoint?: string;
+    port?: number | null;
+    useSsl?: boolean;
+    accessKey?: string; // 不传 = 保留旧值
+    secretKey?: string;
+    bucket?: string;
+    publicBaseUrl?: string | null; // 不传 = 保留旧值;'' / null = 清除
+  };
+  enabled?: boolean;
+}
+
 type Envelope<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -201,6 +237,13 @@ export const platformApi = {
   updateCompany: (id: string, input: { name?: string; color?: string; description?: string }) =>
     request<PlatformCompany>(`/companies/${id}`, json('PATCH', input)),
   enterCompany: (id: string) => request<unknown>(`/companies/${id}/enter`, { method: 'POST' }),
+  /* 为该公司开通存储(物化按前缀隔离的 IAM 账号);默认幂等,force=true
+     重跑并覆盖(密钥轮换)。 */
+  provisionCompanyStorage: (id: string, force?: boolean) =>
+    request<{ companyId: string; provisioned: true; account: string | null; bucket: string | null; prefix: string }>(
+      `/companies/${id}/storage`,
+      json('POST', force ? { force } : {}),
+    ),
 
   /* ---- members ---- */
   // 平台成员目录：全部系统用户 + 公司席位；新建系统账号
@@ -242,11 +285,11 @@ export const platformApi = {
   // 硬删除（不留审计行），区别于上面的吊销。
   deleteMcpKey: (id: string) => request<{ id: string }>(`/mcp-keys/${id}?permanent=1`, { method: 'DELETE' }),
 
-  /* ---- 平台默认文件存储(设置 → 平台存储;MinIO 凭据需管理员权限) ---- */
-  storageConfig: () => request<StorageConfigState>('/storage-config'),
-  saveStorageConfig: (input: SaveStorageConfigInput) =>
-    request<{ backend: string }>('/storage-config', json('PUT', input)),
-  testStorageConfig: (input: SaveStorageConfigInput) =>
+  /* ---- 平台默认文件存储(设置 → 平台存储,仅 minio;凭据需管理员权限) ---- */
+  storageConfig: () => request<PlatformStorageConfigState>('/storage-config'),
+  saveStorageConfig: (input: SavePlatformStorageInput) =>
+    request<{ backend: string; enabled: boolean }>('/storage-config', json('PUT', input)),
+  testStorageConfig: (input: SavePlatformStorageInput) =>
     request<{ tested: boolean }>('/storage-config', json('POST', { ...input, action: 'test' })),
   deleteStorageConfig: () => request<{ deleted: boolean }>('/storage-config', { method: 'DELETE' }),
 };

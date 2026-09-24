@@ -1,17 +1,16 @@
 /* Storage backend contract (per-company file storage). Objects live under the
    key prefix `issues/{companyId}/` inside the company's own backend — the
    prefix is the company-isolation boundary: upload signing, registration and
-   the read proxy all verify it. */
+   the read proxy all verify it. Company storage provisioning is triggered
+   manually by the platform admin (设置 → 公司管理 → 开通存储), never
+   implicitly on first upload. */
 
 export type UploadIntent =
-  // Vercel Blob client-direct: the browser then calls @vercel/blob/client's
-  // upload() with this pathname; the token route signs it (prefix-checked).
-  | { mode: 'vercel-token'; objectKey: string }
   // MinIO/S3 presigned PUT: the browser PUTs the file straight to uploadUrl.
-  | { mode: 'presigned-put'; uploadUrl: string; objectKey: string };
+  { mode: 'presigned-put'; uploadUrl: string; objectKey: string };
 
 export interface StorageBackend {
-  readonly kind: 'minio' | 'vercel_blob';
+  readonly kind: 'minio';
   readonly companyId: string;
 
   /* Browser upload: server-minted intent (object key is always
@@ -23,8 +22,7 @@ export interface StorageBackend {
 
   del(objectKey: string): Promise<void>;
 
-  /* Short-lived absolute URL the read proxy 302s to (MinIO presigned GET;
-     Vercel public URL derived from the token's storeId). */
+  /* Short-lived absolute URL the read proxy 302s to (MinIO presigned GET). */
   getReadUrl(objectKey: string): Promise<string>;
 
   /* Server-side read (MCP inlines images) — company isolation already
@@ -40,9 +38,6 @@ export interface StorageBackend {
      canonical one for (this backend, objectKey) and the key must be ours.
      Throws ApiException(VALIDATION_FAILED) on mismatch. */
   assertMeta(url: string, objectKey: string): void;
-
-  /* Vercel only: decrypted token for the handleUpload token handshake. */
-  readonly vercelToken?: string;
 }
 
 export const objectKeyPrefix = (companyId: string) => `issues/${companyId}/`;

@@ -111,11 +111,11 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 ### oauth_provider_configs（三方登录凭据，平台级，设置→三方登录）
 `provider` PK（feishu/lark/github）· `appId` NN · `appSecretEnc` NN（AES-256-GCM 密文，`src/server/crypto.ts`，密钥来自 env `CONFIG_CRYPTO_KEY`；永不序列化输出）· `redirectUri`（**只存路径部分**，如 `/api/auth/<provider>/callback`，host 运行时由 `PUBLIC_ORIGIN`/请求 origin 拼接；NULL = 按默认路径推导）· `enabled` NN 默认 true · `createdAt` / `updatedAt` NN —— 无行时回退 env 配置（`src/server/lark.ts`，60s 进程缓存）。
 
-### company_storage_configs（公司级文件存储配置，设置→文件存储）
-`companyId` PK → companies cascade · `backend` NN（minio / vercel_blob）· MinIO 字段：`endpoint` / `port` / `useSsl` NN 默认 true / `accessKeyEnc` / `secretKeyEnc` / `bucket` / `publicBaseUrl`（浏览器可达公网基址，预签名 URL 按它签发；NULL = 按内网 endpoint 直签）· Vercel 字段：`tokenEnc` · `provisioned`（'auto' = 平台默认 MinIO 自动开通的前缀隔离账号；NULL = 手动配置）· `createdAt` / `updatedAt` NN —— 密钥全部 AES-256-GCM 密文；**无行 = 回落平台默认存储**（`platform_storage_configs`；两级都没有才禁止上传）；资源按公司隔离（对象 key 前缀 `issues/{companyId}/` + 代理读取校验 + MinIO 侧前缀策略）。
+### company_storage_configs（公司级文件存储配置，设置→文件存储 只读展示）
+`companyId` PK → companies cascade · `backend` NN（仅 minio；vercel_blob 已随 TKT-213 移除）· MinIO 字段：`endpoint` / `port` / `useSsl` NN 默认 true / `accessKeyEnc` / `secretKeyEnc` / `bucket` / `publicBaseUrl`（浏览器可达公网基址，预签名 URL 按它签发；NULL = 按内网 endpoint 直签）· `tokenEnc` 遗留列（运行时不再读取）· `provisioned`（'auto' = 平台管理员手动「开通存储」物化的前缀隔离账号；NULL = 历史手动配置行，继续生效）· `createdAt` / `updatedAt` NN —— 密钥全部 AES-256-GCM 密文；公司不再自助配置（无写 API），**无行 = 未开通**（`STORAGE_NOT_PROVISIONED`，需平台管理员开通；两级都没有 = `STORAGE_NOT_CONFIGURED`）；资源按公司隔离（对象 key 前缀 `issues/{companyId}/` + 代理读取校验 + MinIO 侧前缀策略）。
 
-### platform_storage_configs（平台默认文件存储配置，设置→平台存储，单行）
-`id` PK（常量 `'default'`）· 字段与公司级逐项对齐（`backend` / `endpoint` / `port` / `useSsl` / `accessKeyEnc` / `secretKeyEnc` / `bucket` / `publicBaseUrl` / `tokenEnc` / `createdAt` / `updatedAt`）—— 公司无配置行时回落：vercel_blob 直接用共享 token（仅应用层前缀隔离）；**minio 为每个公司自动开通按前缀授权的独立 IAM 用户**（canned policy 只允许 `issues/{companyId}/*`，MinIO 服务端强制隔离）并把生成的凭据物化进 `company_storage_configs`（`provisioned='auto'`）——因此这里的 MinIO 凭据必须有管理员权限（root 或 consoleAdmin 用户），开通动作经 `mc` CLI 完成（`src/server/storage/mc.ts` / `provision.ts`）。
+### platform_storage_configs（平台文件存储配置，设置→平台存储，单行）
+`id` PK（常量 `'default'`）· 平台级 MinIO 唯一后端：`backend` NN（仅 minio）· `endpoint` / `port` / `useSsl` NN 默认 true / `accessKeyEnc` / `secretKeyEnc` / `bucket` / `publicBaseUrl` · `enabled` NN 默认 true（**平台总开关：false 时全平台存储读写全禁**，`STORAGE_DISABLED`）· `tokenEnc` 遗留列（vercel_blob 已移除，不再读取）· `createdAt` / `updatedAt` NN —— 公司无配置行时**不再自动回落**：由平台管理员手动为该公司开通（`POST /api/v1/platform/companies/:id/storage` → `provision.ts`：**为每个公司开通按前缀授权的独立 IAM 用户**，canned policy 只允许 `issues/{companyId}/*`，MinIO 服务端强制隔离，并把生成的凭据物化进 `company_storage_configs`，`provisioned='auto'`）——因此这里的 MinIO 凭据必须有管理员权限（root 或 consoleAdmin 用户），开通动作经 `mc` CLI 完成（`src/server/storage/mc.ts` / `provision.ts`）。
 
 ### activities（issue 动态/评论流）
 `id` PK · `issueId` NN → issues cascade · `whoId` → members · `kind` NN 默认 comment · `body` NN · `createdAt` NN

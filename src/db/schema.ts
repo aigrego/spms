@@ -955,17 +955,18 @@ export const oauthProviderConfigs = pgTable('oauth_provider_configs', {
 
 /* ------------------------------------------------------------------ */
 /* Platform default file storage config (设置 → 平台存储, platform      */
-/* admin). Single row (id = 'default'). Fallback when a company has no */
-/* row in company_storage_configs: vercel_blob falls back to the       */
-/* shared token directly; minio auto-provisions a per-company IAM      */
-/* user + prefix-scoped policy and materializes the generated          */
-/* credentials into company_storage_configs — so the MinIO credentials */
-/* here MUST have admin privileges (root or a consoleAdmin-ish user).  */
-/* AES-256-GCM ciphertext — never serialize them out.                  */
+/* admin). Single row (id = 'default'). MinIO is the only backend; the */
+/* credentials here MUST have admin privileges (root or a              */
+/* consoleAdmin-ish user) because per-company IAM users are            */
+/* provisioned from them. Company accounts are provisioned manually by */
+/* a platform admin from 公司管理 (开通存储) — never lazily on first    */
+/* upload. enabled = false disables storage reads AND writes           */
+/* platform-wide (STORAGE_DISABLED). AES-256-GCM ciphertext — never    */
+/* serialize them out.                                                 */
 /* ------------------------------------------------------------------ */
 export const platformStorageConfigs = pgTable('platform_storage_configs', {
   id: text('id').primaryKey(), // constant 'default'
-  backend: text('backend').notNull(), // 'minio' | 'vercel_blob'
+  backend: text('backend').notNull(), // 'minio'
   endpoint: text('endpoint'),
   port: integer('port'),
   useSsl: boolean('use_ssl').notNull().default(true),
@@ -974,21 +975,24 @@ export const platformStorageConfigs = pgTable('platform_storage_configs', {
   bucket: text('bucket'),
   publicBaseUrl: text('public_base_url'),
   tokenEnc: text('token_enc'),
+  enabled: boolean('enabled').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 /* ------------------------------------------------------------------ */
-/* Per-company file storage config (设置 → 文件存储, company admin).     */
-/* One row per company; NO row = fall back to the platform default     */
-/* (platform_storage_configs) — company-level always wins when set.    */
-/* Credentials are AES-256-GCM ciphertext — never serialize them out.  */
+/* Per-company file storage config. One row per company. There is no   */
+/* company-level self-service configuration anymore: rows are          */
+/* materialized by the platform admin's 开通存储 action (公司管理页);   */
+/* legacy manually-configured rows (provisioned IS NULL) keep working  */
+/* at runtime until overwritten by a provisioning run. Credentials are */
+/* AES-256-GCM ciphertext — never serialize them out.                  */
 /* ------------------------------------------------------------------ */
 export const companyStorageConfigs = pgTable('company_storage_configs', {
   companyId: text('company_id')
     .primaryKey()
     .references(() => companies.id, { onDelete: 'cascade' }),
-  backend: text('backend').notNull(), // 'minio' | 'vercel_blob'
+  backend: text('backend').notNull(), // 'minio'（vercel_blob 已随 TKT-213 移除）
   // MinIO (S3-compatible) fields — required when backend = 'minio'.
   endpoint: text('endpoint'),
   port: integer('port'),
@@ -1000,7 +1004,7 @@ export const companyStorageConfigs = pgTable('company_storage_configs', {
      无路径无尾斜杠）。预签名 URL 用它签发（签名覆盖 host 头，浏览器必须按
      公网 host 请求）；null = 用上面的 endpoint 直签（纯内网部署）。 */
   publicBaseUrl: text('public_base_url'),
-  // Vercel Blob token (vercel_blob_rw_…) when backend = 'vercel_blob'.
+  // 遗留列：vercel_blob 后端已移除（TKT-213），运行时不再读取，仅存量行可能仍有值。
   tokenEnc: text('token_enc'),
   /* 'auto' = 由平台默认存储自动开通（MinIO 按前缀隔离的独立 IAM 用户，
      凭据由 provisioning 生成）；NULL = 管理员手动配置。 */

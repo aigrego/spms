@@ -2,8 +2,8 @@
  * One-off cleanup (2026-07): 物理删除 Notion 中当前状态为 "More info needed" /
  * "Approval needed" 的已同步 issue。Notion 库为真源:按状态过滤查出页面,
  * 经 notion_issue_links 定位 issue 后 DELETE(关联表均 FK cascade);附件的
- * issue_attachments 行随之级联,对应 Vercel Blob 文件一并显式删除(失败只
- * 告警,孤儿可由 scripts/reconcile-attachments.ts 对账回收)。
+ * issue_attachments 行随之级联删除。存储对象不在此显式清理(TKT-213 后
+ * @vercel/blob 已移除;MinIO 孤儿对象由 scripts/reconcile-attachments.ts 对账回收)。
  *
  * 用法:
  *   DATABASE_URL=<目标库> npx tsx scripts/delete-notion-issues-by-status.ts           # 预演,只列出
@@ -14,7 +14,6 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { del } from '@vercel/blob';
 import postgres from 'postgres';
 
 for (const file of ['.env.local', '.env']) {
@@ -128,27 +127,17 @@ async function main() {
     for (const r of rows) console.log(`  ${r.key}  ${r.title}`);
 
     if (rows.length > 0) {
-      // 附件:行随 issue 删除 FK 级联,blob 需显式清理(先查出 url,dry-run
-      // 也能看到将清理的数量)。
+      // 附件行随 issue 删除 FK 级联;存储对象不在此清理(孤儿由
+      // reconcile-attachments 对账回收)。先查出数量,dry-run 也能看到。
       const ids = rows.map((r) => r.issue_id);
-      const atts = await sql<{ id: string; url: string }[]>`
-        SELECT id, url FROM issue_attachments WHERE issue_id = ANY(${ids})
+      const atts = await sql<{ id: string }[]>`
+        SELECT id FROM issue_attachments WHERE issue_id = ANY(${ids})
       `;
-      if (atts.length) console.log(`  关联附件 ${atts.length} 个(blob 将一并清理)`);
+      if (atts.length) console.log(`  关联附件 ${atts.length} 个(行随级联删除,对象留作对账孤儿)`);
       if (apply) {
         const deleted = await sql`DELETE FROM issues WHERE id = ANY(${ids})`;
         console.log(`  deleted ${deleted.count}`);
         totalDeleted += Number(deleted.count);
-        let blobsDeleted = 0;
-        for (const a of atts) {
-          try {
-            await del(a.url);
-            blobsDeleted += 1;
-          } catch (e) {
-            console.warn(`  附件 blob 删除失败(孤儿由 reconcile-attachments 对账回收): ${a.url}`, e);
-          }
-        }
-        if (atts.length) console.log(`  附件 blob 清理 ${blobsDeleted}/${atts.length}`);
       }
     }
   }

@@ -3,71 +3,30 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { SegBtn } from '@/components/ui/segmented';
+import { Toggle } from '@/components/ui/toggle';
 import { CompaniesPanel } from '@/components/platform/CompaniesPanel';
 import { MembersPanel } from '@/components/platform/MembersPanel';
 import { MatrixPanel } from '@/components/platform/MatrixPanel';
 import { OAuthProvidersPanel } from '@/components/platform/OAuthProvidersPanel';
 import { StoragePanel } from '@/components/settings/StoragePanel';
+import { StorageInfoCard } from '@/components/settings/StorageInfoCard';
+import { Card, Row } from '@/components/settings/common';
 import { useAppData } from '@/store/AppData';
 import { useT, useLocale, useSetLocale, type Locale } from '@/lib/i18n';
 import { usePersistentState } from '@/lib/prefs';
 import { applyTheme, readThemePref, type ThemePref } from '@/lib/theme';
-import { cn } from '@/lib/utils';
 
-type TabKey = 'preferences' | 'companies' | 'members' | 'matrix' | 'oauth' | 'company-matrix' | 'storage' | 'platform-storage';
+type TabKey = 'preferences' | 'companies' | 'members' | 'matrix' | 'oauth' | 'company-matrix' | 'platform-storage';
 
 const selectCls =
   'h-8 rounded-md border border-border-strong bg-surface px-2 text-[13px] text-fg-1 outline-none focus:border-brand-blue disabled:opacity-60';
-
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-[14px] border border-border bg-surface px-6 py-5 shadow-1">
-      <h2 className="mb-2 text-[15px] font-semibold text-fg-1">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function Row({ label, desc, control }: { label: string; desc?: string; control: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-4 border-b border-border py-3 last:border-b-0">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13.5px] font-medium text-fg-1">{label}</div>
-        {desc && <div className="mt-0.5 text-[12px] text-fg-3">{desc}</div>}
-      </div>
-      {control}
-    </div>
-  );
-}
-
-/* 偏好开关:传了 onToggle 即可点击;否则为占位的禁用态("即将上线"
-   tooltip 由外层 span 提供 —— disabled 按钮不触发事件)。 */
-function Toggle({ on, disabledTitle, onToggle }: { on: boolean; disabledTitle?: string; onToggle?: () => void }) {
-  return (
-    <span title={disabledTitle} className="inline-flex">
-      <button
-        type="button"
-        disabled={!!disabledTitle}
-        onClick={onToggle}
-        className={cn(
-          'relative h-[22px] w-[40px] flex-none rounded-full transition-colors disabled:cursor-not-allowed',
-          on ? 'bg-brand-blue' : 'bg-surface-sunken',
-        )}
-        style={{ border: '1px solid var(--border-strong)' }}
-      >
-        <span
-          className="absolute top-[2px] h-[16px] w-[16px] rounded-full bg-white transition-all"
-          style={{ left: on ? 19 : 2, boxShadow: 'var(--shadow-1)' }}
-        />
-      </button>
-    </span>
-  );
-}
 
 function PreferencesPanel() {
   const t = useT();
   const locale = useLocale();
   const setLocale = useSetLocale();
+  // 存储状态卡与 GET /pms/storage-config 的 gate 一致:平台管理员或公司管理员可见。
+  const { isPlatformAdmin, companyRole } = useAppData();
   // 顶栏语言切换器的显隐属于浏览器记忆(TKT-27),随「重置浏览器记忆」一起清。
   const [showLangSwitcher, setShowLangSwitcher] = usePersistentState('showLangSwitcher', true);
   // Lazy init mirrors the header toggle: this panel only renders after the
@@ -161,6 +120,8 @@ function PreferencesPanel() {
           }
         />
       </Card>
+
+      {(isPlatformAdmin || companyRole === 'company_admin') && <StorageInfoCard />}
     </div>
   );
 }
@@ -181,7 +142,6 @@ export default function SettingsClient({ tab: tabProp }: { tab?: string }) {
     { key: 'oauth', label: t('settingsPage.tab.oauth'), adminOnly: true },
     { key: 'platform-storage', label: t('settingsPage.tab.platformStorage'), adminOnly: true },
     { key: 'company-matrix', label: t('settingsPage.tab.companyMatrix'), companyAdminOnly: true },
-    { key: 'storage', label: t('settingsPage.tab.storage'), companyAdminOnly: true },
   ];
   const visible = tabs.filter(
     (tab) =>
@@ -226,8 +186,7 @@ export default function SettingsClient({ tab: tabProp }: { tab?: string }) {
             {tab === 'matrix' && <MatrixPanel scope="global" />}
             {tab === 'oauth' && <OAuthProvidersPanel />}
             {tab === 'company-matrix' && <MatrixPanel scope="company" />}
-            {tab === 'storage' && <StoragePanel />}
-            {tab === 'platform-storage' && <StoragePanel scope="platform" />}
+            {tab === 'platform-storage' && <StoragePanel />}
           </div>
         </div>
       )}

@@ -452,13 +452,9 @@ export const api = {
   saveCompanyMatrix: (matrix: PermissionsMatrix['matrix']) =>
     request<unknown>('/permissions-matrix', json('PUT', { matrix })),
 
-  /* ---- 文件存储配置(设置 → 文件存储;敏感字段只回 hasXxx) ---- */
-  storageConfig: () => request<StorageConfigState>('/storage-config'),
-  saveStorageConfig: (input: SaveStorageConfigInput) =>
-    request<{ backend: string }>('/storage-config', json('PUT', input)),
-  testStorageConfig: (input: SaveStorageConfigInput) =>
-    request<{ tested: boolean }>('/storage-config', json('POST', { ...input, action: 'test' })),
-  deleteStorageConfig: () => request<{ deleted: boolean }>('/storage-config', { method: 'DELETE' }),
+  /* ---- 本公司存储状态(设置 → 文件存储,只读视图;开通由平台管理员在
+     公司管理操作,公司不再自助配置/测试/删除) ---- */
+  storageConfig: () => request<CompanyStorageInfo>('/storage-config'),
 
   /* ---- 节点资源指派 / 虚拟团队 (PMS-2 §5.2) ---- */
   assignments: (nodeType: AssignmentNodeType, nodeId: string) =>
@@ -557,41 +553,25 @@ export interface UserEmailEntry {
 /* 登录页实际使用的条目：已配置则展示按钮（附授权 url），否则为 null。 */
 export type OAuthEntry = { configured: true; url?: string } | null;
 
-/* 文件存储配置（设置 → 文件存储 / 平台存储）。敏感字段永不回显,只有 hasXxx。
-   公司级 GET 额外返回：fallback（无公司行但平台已配置 → 当前回落平台存储）、
-   provisioned（'auto' = 平台自动开通的隔离账号）。平台级 GET 不含这两个字段。 */
-export type StorageConfigState =
-  | { configured: false; fallback?: { active: true; backend: 'minio' | 'vercel_blob' } | null }
+/* 本公司存储状态（设置 → 文件存储，只读）。两个分支：
+   未开通（无公司存储行）时带平台侧状态，供前端区分「平台未配置」与
+   「平台已配置但本公司未开通/平台总开关关闭」；已开通时 account 为
+   标识性用户名（auto 行即 IAM 用户 spms-xxx），secret 永不回显。 */
+export type CompanyStorageInfo =
+  | { provisioned: false; platformConfigured: boolean; platformEnabled: boolean }
   | {
-      configured: true;
-      fallback?: null;
-      provisioned?: 'auto' | null;
-      backend: 'minio' | 'vercel_blob';
-      minio: {
-        endpoint: string | null;
-        port: number | null;
-        useSsl: boolean;
-        bucket: string | null;
-        publicBaseUrl: string | null;
-        hasAccessKey: boolean;
-        hasSecretKey: boolean;
-      } | null;
-      hasToken: boolean;
+      provisioned: true;
+      backend: 'minio';
+      endpoint: string | null;
+      port: number | null;
+      useSsl: boolean;
+      bucket: string | null;
+      publicBaseUrl: string | null;
+      prefix: string;
+      account: string | null;
+      mode: 'auto' | 'manual';
+      updatedAt: string;
     };
-
-export interface SaveStorageConfigInput {
-  backend: 'minio' | 'vercel_blob';
-  minio?: {
-    endpoint?: string;
-    port?: number | null;
-    useSsl?: boolean;
-    accessKey?: string; // 不传 = 保留旧值
-    secretKey?: string;
-    bucket?: string;
-    publicBaseUrl?: string | null; // 不传 = 保留旧值;'' / null = 清除
-  };
-  token?: string; // vercel_blob;不传 = 保留旧值
-}
 
 /* Multi-company sandbox contracts (P5). All optional on the wire while the
    backend ships in parallel: the client fails open (full access) when the

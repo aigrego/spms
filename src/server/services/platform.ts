@@ -2,7 +2,16 @@ import { createHash, randomBytes } from 'node:crypto';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db';
-import { companies, companyMemberships, members, mcpApiKeys, projects, rolePermissions, users } from '@/db/schema';
+import {
+  companies,
+  companyMemberships,
+  companyStorageConfigs,
+  members,
+  mcpApiKeys,
+  projects,
+  rolePermissions,
+  users,
+} from '@/db/schema';
 import { addEmail, findUserByEmail, normalizeEmail, primaryEmailsFor } from '@/lib/emails';
 import { unassignMemberEverywhere } from '@/lib/assignments';
 import { ApiException } from '@/lib/envelope';
@@ -50,16 +59,32 @@ async function companyExists(id: string): Promise<boolean> {
 
 /* =============================== Companies =============================== */
 
-/* ---- all companies + their membership counts (oldest first) ---- */
+/* ---- all companies + their membership counts + storage mode (oldest first).
+   storageMode: 有公司存储行且 provisioned='auto' → 'auto'（平台开通的隔离
+   账号）；有行但 provisioned IS NULL → 'manual'（历史手动配置）；无行 →
+   null（未开通）。 ---- */
 export async function listCompanies(actor: Actor) {
   requirePlatformAdmin(actor);
   const rows = await db
-    .select({ company: companies, memberCount: count(companyMemberships.id) })
+    .select({
+      company: companies,
+      memberCount: count(companyMemberships.id),
+      storageCompanyId: companyStorageConfigs.companyId,
+      storageProvisioned: companyStorageConfigs.provisioned,
+    })
     .from(companies)
     .leftJoin(companyMemberships, eq(companyMemberships.companyId, companies.id))
-    .groupBy(companies.id)
+    .leftJoin(companyStorageConfigs, eq(companyStorageConfigs.companyId, companies.id))
+    .groupBy(companies.id, companyStorageConfigs.companyId)
     .orderBy(asc(companies.createdAt));
-  return rows.map((r) => ({ ...r.company, memberCount: r.memberCount }));
+  return rows.map((r) => {
+    const storageMode: 'auto' | 'manual' | null = !r.storageCompanyId
+      ? null
+      : r.storageProvisioned === 'auto'
+        ? 'auto'
+        : 'manual';
+    return { ...r.company, memberCount: r.memberCount, storageMode };
+  });
 }
 
 export interface CreateCompanyInput {

@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { platformStorageConfigs } from '@/db/schema';
 import { ApiException, ok } from '@/lib/envelope';
-import { decryptSecret, encryptSecret } from '@/server/crypto';
+import { encryptSecret } from '@/server/crypto';
 import { jsonBody, requireActor, requireAdmin, route } from '@/server/http';
 import {
   invalidatePlatformStorageConfigCache,
@@ -11,13 +11,13 @@ import {
 } from '@/server/storage';
 import { parsePublicBaseUrl, type MinioConfig } from '@/server/storage/minio';
 import { verifyPlatformMinioAccess } from '@/server/storage/provision';
-import { testVercelConnection } from '@/server/storage/vercel';
 
 /* /api/v1/platform/storage-config — 平台管理员在 设置→平台存储 管理全局默认
-   附件存储后端(MinIO / Vercel Blob)。公司未配置本公司存储时回落到这里：
-   vercel_blob 直接用共享 token(仅应用层前缀隔离)；minio 为每个公司自动开通
-   按前缀隔离的独立 IAM 用户并物化凭据——因此这里的 MinIO 凭据必须有管理员
-   权限(root 或 consoleAdmin 用户)。门槛:仅平台管理员。
+   附件存储后端（仅 MinIO）。enabled 是平台级总开关：false 时全平台存储读写
+   全禁（STORAGE_DISABLED），可单独 PUT { enabled } 部分更新。公司存储行不由
+   这里回落共用，而是由平台管理员在 公司管理 手动「开通存储」物化（按前缀隔离
+   的独立 IAM 用户）——因此这里的 MinIO 凭据必须有管理员权限(root 或
+   consoleAdmin 用户)。门槛:仅平台管理员。
    敏感字段 AES-256-GCM 加密落库,GET 只回 hasXxx 标志;PUT 不传 = 保留旧值。 */
 
 interface MinioInput {
@@ -43,9 +43,10 @@ function existingMinioOf(row: typeof platformStorageConfigs.$inferSelect | undef
 }
 
 interface PutBody {
-  backend?: string;
+  backend?: string; // 缺省视为 'minio'
   minio?: MinioInput;
-  token?: string;
+  /* 平台总开关：不传 = 保留旧值（无存量的新行落默认 true）。 */
+  enabled?: boolean;
 }
 
 async function existingRow() {
@@ -65,6 +66,7 @@ export const GET = route(async () => {
   return ok({
     configured: true as const,
     backend: row.backend,
+    enabled: row.enabled,
     minio:
       row.backend === 'minio'
         ? {
@@ -77,7 +79,6 @@ export const GET = route(async () => {
             hasSecretKey: !!row.secretKeyEnc,
           }
         : null,
-    hasToken: !!row.tokenEnc,
   });
 });
 
@@ -110,42 +111,30 @@ export const PUT = route(async (req) => {
   const actor = await requireActor();
   requireAdmin(actor);
   const body = await jsonBody<PutBody>(req);
-  const backend = body.backend;
-  if (backend !== 'minio' && backend !== 'vercel_blob') {
-    throw new ApiException('VALIDATION_FAILED', 'backend 必须是 minio 或 vercel_blob');
+  const backend = body.backend ?? 'minio';
+  if (backend !== 'minio') {
+    throw new ApiException('VALIDATION_FAILED', 'backend 只支持 minio');
   }
 
   const existing = await existingRow();
   const existingMinio = existingMinioOf(existing);
 
+  /* minio 字段「不传 = 保留旧值」；只 PUT { enabled }（总开关切换）时其余
+     字段原样回落,等价于一次无副作用的部分更新。 */
+  const conf = validatedMinio(body.minio ?? {}, existingMinio);
   const values: Partial<typeof platformStorageConfigs.$inferInsert> = {
     backend,
+    enabled: body.enabled ?? existing?.enabled ?? true,
+    endpoint: conf.endpoint,
+    port: conf.port,
+    useSsl: conf.useSsl,
+    bucket: conf.bucket,
+    publicBaseUrl: conf.publicBaseUrl,
+    accessKeyEnc: encryptSecret(conf.accessKey),
+    secretKeyEnc: encryptSecret(conf.secretKey),
+    tokenEnc: null,
     updatedAt: new Date(),
   };
-  if (backend === 'minio') {
-    const conf = validatedMinio(body.minio ?? {}, existingMinio);
-    values.endpoint = conf.endpoint;
-    values.port = conf.port;
-    values.useSsl = conf.useSsl;
-    values.bucket = conf.bucket;
-    values.publicBaseUrl = conf.publicBaseUrl;
-    values.accessKeyEnc = encryptSecret(conf.accessKey);
-    values.secretKeyEnc = encryptSecret(conf.secretKey);
-    values.tokenEnc = null;
-  } else {
-    let existingToken = '';
-    if (existing?.tokenEnc) {
-      try {
-        existingToken = decryptSecret(existing.tokenEnc);
-      } catch {
-        existingToken = ''; // 解密失败 → 要求重填
-      }
-    }
-    const token = body.token?.trim() || existingToken;
-    if (!token) throw new ApiException('VALIDATION_FAILED', '首次保存必须填写 Blob Token');
-    values.tokenEnc = encryptSecret(token);
-    values.endpoint = values.port = values.accessKeyEnc = values.secretKeyEnc = values.bucket = values.publicBaseUrl = null;
-  }
 
   if (existing) {
     await db.update(platformStorageConfigs).set(values).where(eq(platformStorageConfigs.id, PLATFORM_STORAGE_ROW_ID));
@@ -155,12 +144,12 @@ export const PUT = route(async (req) => {
       .values({ id: PLATFORM_STORAGE_ROW_ID, ...values } as typeof platformStorageConfigs.$inferInsert);
   }
   invalidatePlatformStorageConfigCache();
-  return ok({ backend });
+  return ok({ backend, enabled: values.enabled! });
 });
 
-/* POST { action:'test', minio?, token? } — 用请求里的配置(缺省字段回落已存
-   配置)做真实连通性测试。MinIO 额外校验管理员能力(bucket 不存在则创建 +
-   根目录写删探测 + mc admin user list),因为自动开通依赖 admin 权限。 */
+/* POST { action:'test', minio? } — 用请求里的配置(缺省字段回落已存配置)做
+   真实连通性测试。除 bucket 存在/创建 + 写删探测外,额外校验管理员能力
+   (mc admin user list),因为手动「开通存储」依赖 admin 权限。 */
 export const POST = route(async (req) => {
   const actor = await requireActor();
   requireAdmin(actor);
@@ -169,22 +158,8 @@ export const POST = route(async (req) => {
   const existing = await existingRow();
 
   try {
-    if (body.backend === 'vercel_blob' || (!body.backend && existing?.backend === 'vercel_blob')) {
-      let existingToken = '';
-      if (existing?.tokenEnc) {
-        try {
-          existingToken = decryptSecret(existing.tokenEnc);
-        } catch {
-          existingToken = '';
-        }
-      }
-      const token = body.token?.trim() || existingToken;
-      if (!token) throw new ApiException('VALIDATION_FAILED', '请填写 Blob Token');
-      await testVercelConnection(token);
-    } else {
-      const conf = validatedMinio(body.minio ?? {}, existingMinioOf(existing));
-      await verifyPlatformMinioAccess(conf);
-    }
+    const conf = validatedMinio(body.minio ?? {}, existingMinioOf(existing));
+    await verifyPlatformMinioAccess(conf);
   } catch (e) {
     if (e instanceof ApiException) throw e;
     const msg = e instanceof Error ? e.message : String(e);

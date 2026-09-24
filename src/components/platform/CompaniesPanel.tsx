@@ -2,14 +2,14 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Pencil, LogIn, Users } from 'lucide-react';
+import { Plus, Pencil, LogIn, Users, Database } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton, StateBlock } from '@/components/StateBlock';
-import { useCompanies, useEnterCompany } from '@/store/platform';
+import { useCompanies, useEnterCompany, usePlatformStorageConfig, useProvisionCompanyStorage } from '@/store/platform';
 import type { PlatformCompany } from '@/lib/platformApi';
 import { CompanyModal } from '@/components/platform/CompanyModal';
 import { SeatsDrawer } from '@/components/platform/SeatsDrawer';
-import { PlatformHeader, fmtDate } from '@/components/platform/common';
+import { PlatformHeader, PopoverConfirm, fmtDate } from '@/components/platform/common';
 import { useT } from '@/lib/i18n';
 
 export function CompaniesPanel() {
@@ -17,6 +17,9 @@ export function CompaniesPanel() {
   const t = useT();
   const { data: companies, isLoading, isError } = useCompanies();
   const enter = useEnterCompany();
+  /* 开通存储依赖平台存储已配置(设置→平台存储);未配置时按钮禁用并提示。 */
+  const platformStorage = usePlatformStorageConfig();
+  const provision = useProvisionCompanyStorage();
   const [modalOpen, setModalOpen] = React.useState(false);
   const [editCompany, setEditCompany] = React.useState<PlatformCompany | null>(null);
   const [seatsCompany, setSeatsCompany] = React.useState<PlatformCompany | null>(null);
@@ -32,6 +35,66 @@ export function CompaniesPanel() {
 
   const enterSandbox = (c: PlatformCompany) => {
     enter.mutate(c.id, { onSuccess: () => router.push('/issues') });
+  };
+
+  /* 存储状态小字:storageMode 'auto' = 平台开通 / 'manual' = 历史手动配置 / null = 未开通。 */
+  const storageStatus = (c: PlatformCompany) => {
+    const [label, color] =
+      c.storageMode === 'auto'
+        ? [t('companies.storage.status.provisioned'), 'var(--success-500)']
+        : c.storageMode === 'manual'
+          ? [t('companies.storage.status.manual'), 'var(--warning-500, #d97706)']
+          : [t('companies.storage.status.none'), 'var(--fg-3)'];
+    return (
+      <span className="inline-flex items-center gap-1">
+        <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+        {label}
+      </span>
+    );
+  };
+
+  /* 开通存储按钮四态:平台未配置禁用;未开通直接开通;manual 先确认覆盖;
+     已开通(auto)文案「重新开通」,确认后 force 轮换密钥。 */
+  const provisionBtn = (c: PlatformCompany) => {
+    const label = c.storageMode === 'auto' ? t('companies.storage.reprovision') : t('companies.storage.provision');
+    const busy = provision.isPending && provision.variables?.id === c.id;
+    if (!platformStorage.data?.configured) {
+      return (
+        <span title={t('companies.storage.notConfiguredHint')} className="inline-flex">
+          <Button variant="secondary" size="sm" disabled>
+            <Database size={13} /> {label}
+          </Button>
+        </span>
+      );
+    }
+    const btn = (
+      <Button variant="secondary" size="sm" disabled={busy} onClick={c.storageMode ? undefined : () => provision.mutate({ id: c.id })}>
+        <Database size={13} /> {label}
+      </Button>
+    );
+    if (c.storageMode === 'manual') {
+      return (
+        <PopoverConfirm
+          trigger={btn}
+          title={label}
+          body={t('companies.storage.provisionConfirm')}
+          busy={busy}
+          onConfirm={() => provision.mutate({ id: c.id })}
+        />
+      );
+    }
+    if (c.storageMode === 'auto') {
+      return (
+        <PopoverConfirm
+          trigger={btn}
+          title={label}
+          body={t('companies.storage.reprovisionConfirm')}
+          busy={busy}
+          onConfirm={() => provision.mutate({ id: c.id, force: true })}
+        />
+      );
+    }
+    return btn;
   };
 
   return (
@@ -83,7 +146,9 @@ export function CompaniesPanel() {
                     {t('companies.memberCount', { n: c.memberCount })}
                   </span>
                   <span>{t('companies.createdAt', { date: fmtDate(c.createdAt) })}</span>
+                  {storageStatus(c)}
                   <div className="flex-1" />
+                  {provisionBtn(c)}
                   <Button variant="secondary" size="sm" onClick={() => setSeatsCompany(c)}>
                     {t('seats.seat')}
                   </Button>

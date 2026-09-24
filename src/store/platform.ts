@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { platformApi } from '@/lib/platformApi';
 import { api } from '@/lib/api';
-import type { AddMemberInput, CompanyRole, CreateCompanyInput, CreateMcpKeyInput, PermLevel, SaveOAuthProviderInput } from '@/lib/platformApi';
-import type { SaveStorageConfigInput } from '@/lib/api';
+import type { AddMemberInput, CompanyRole, CreateCompanyInput, CreateMcpKeyInput, PermLevel, SaveOAuthProviderInput, SavePlatformStorageInput } from '@/lib/platformApi';
 
 /* Platform admin React Query hooks. All platform data lives under the
    ['platform', ...] key tree; mutations invalidate their subtree only —
@@ -49,6 +48,20 @@ export function useEnterCompany() {
     // Entering another company's sandbox switches server-side session scope:
     // every cached query (bootstrap, issues, …) belongs to the old company.
     onSuccess: () => qc.clear(),
+  });
+}
+
+/* 公司管理 → 开通存储:成功后刷新公司列表(storageMode)与本公司存储
+   状态卡(若该公司正是当前公司)。 */
+export function useProvisionCompanyStorage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
+      platformApi.provisionCompanyStorage(id, force),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: platformKeys.companies() });
+      qc.invalidateQueries({ queryKey: ['storage-config'] });
+    },
   });
 }
 
@@ -166,25 +179,9 @@ export function useDeleteOAuthProvider() {
   });
 }
 
-/* ---- 本公司文件存储配置(设置 → 文件存储) ---- */
+/* ---- 本公司存储状态(设置 → 文件存储,只读卡片) ---- */
 export function useStorageConfig(enabled = true) {
   return useQuery({ queryKey: ['storage-config'], queryFn: () => api.storageConfig(), enabled });
-}
-
-export function useSaveStorageConfig() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: SaveStorageConfigInput) => api.saveStorageConfig(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['storage-config'] }),
-  });
-}
-
-export function useDeleteStorageConfig() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => api.deleteStorageConfig(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['storage-config'] }),
-  });
 }
 
 /* ---- 平台默认文件存储(设置 → 平台存储,平台管理员) ---- */
@@ -199,7 +196,7 @@ export function usePlatformStorageConfig(enabled = true) {
 export function useSavePlatformStorageConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: SaveStorageConfigInput) => platformApi.saveStorageConfig(input),
+    mutationFn: (input: SavePlatformStorageInput) => platformApi.saveStorageConfig(input),
     onSuccess: () => qc.invalidateQueries({ queryKey: platformKeys.storageConfig() }),
   });
 }
