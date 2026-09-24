@@ -557,11 +557,15 @@ export interface UserEmailEntry {
 /* 登录页实际使用的条目：已配置则展示按钮（附授权 url），否则为 null。 */
 export type OAuthEntry = { configured: true; url?: string } | null;
 
-/* 文件存储配置（设置 → 文件存储）。敏感字段永不回显,只有 hasXxx。 */
+/* 文件存储配置（设置 → 文件存储 / 平台存储）。敏感字段永不回显,只有 hasXxx。
+   公司级 GET 额外返回：fallback（无公司行但平台已配置 → 当前回落平台存储）、
+   provisioned（'auto' = 平台自动开通的隔离账号）。平台级 GET 不含这两个字段。 */
 export type StorageConfigState =
-  | { configured: false }
+  | { configured: false; fallback?: { active: true; backend: 'minio' | 'vercel_blob' } | null }
   | {
       configured: true;
+      fallback?: null;
+      provisioned?: 'auto' | null;
       backend: 'minio' | 'vercel_blob';
       minio: {
         endpoint: string | null;

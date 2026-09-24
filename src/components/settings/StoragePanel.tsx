@@ -5,13 +5,23 @@ import { Check, Plug, Save, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton, StateBlock } from '@/components/StateBlock';
 import { PlatformHeader, PopoverConfirm, fieldLabel, inputCls } from '@/components/platform/common';
-import { useDeleteStorageConfig, useSaveStorageConfig, useStorageConfig } from '@/store/platform';
+import {
+  useDeletePlatformStorageConfig,
+  useDeleteStorageConfig,
+  usePlatformStorageConfig,
+  useSavePlatformStorageConfig,
+  useSaveStorageConfig,
+  useStorageConfig,
+} from '@/store/platform';
 import { api, type SaveStorageConfigInput, type StorageConfigState } from '@/lib/api';
+import { platformApi } from '@/lib/platformApi';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 /* 设置 → 文件存储（公司管理员）：本公司附件的存储后端（MinIO / Vercel Blob）。
-   无配置 = 禁止上传（零平台兜底）；密钥加密落库、永不回显（留空 = 保留旧值）。 */
+   无配置 = 回落平台默认存储（首次上传时 MinIO 自动开通按前缀隔离的独立账号）；
+   设置 → 平台存储（平台管理员，scope='platform'）：全局默认后端，MinIO 凭据需
+   管理员权限。密钥加密落库、永不回显（留空 = 保留旧值）。 */
 
 interface MinioDraft {
   endpoint: string;
@@ -59,11 +69,19 @@ function draftOf(data: StorageConfigState | undefined): Draft {
   };
 }
 
-export function StoragePanel() {
+export function StoragePanel({ scope = 'company' }: { scope?: 'company' | 'platform' }) {
   const t = useT();
-  const { data, isLoading, isError } = useStorageConfig();
-  const save = useSaveStorageConfig();
-  const del = useDeleteStorageConfig();
+  const isPlatform = scope === 'platform';
+  const companyQ = useStorageConfig(!isPlatform);
+  const platformQ = usePlatformStorageConfig(isPlatform);
+  const { data, isLoading, isError } = isPlatform ? platformQ : companyQ;
+  const saveCompany = useSaveStorageConfig();
+  const savePlatform = useSavePlatformStorageConfig();
+  const delCompany = useDeleteStorageConfig();
+  const delPlatform = useDeletePlatformStorageConfig();
+  const save = isPlatform ? savePlatform : saveCompany;
+  const del = isPlatform ? delPlatform : delCompany;
+  const titleKey = isPlatform ? 'settingsPage.tab.platformStorage' : 'settingsPage.tab.storage';
   const [draft, setDraft] = React.useState<Draft | null>(null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [testing, setTesting] = React.useState(false);
@@ -75,7 +93,7 @@ export function StoragePanel() {
   if (isLoading || !draft) {
     return (
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <PlatformHeader title={t('settingsPage.tab.storage')} />
+        <PlatformHeader title={t(titleKey)} />
         <div className="p-6">
           <Skeleton rows={5} />
         </div>
@@ -85,7 +103,7 @@ export function StoragePanel() {
   if (isError || !data) {
     return (
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <PlatformHeader title={t('settingsPage.tab.storage')} />
+        <PlatformHeader title={t(titleKey)} />
         <div className="p-6">
           <StateBlock icon="alert" tone="danger" title={t('matrix.loadFailed')} body={t('platform.common.retry')} />
         </div>
@@ -141,7 +159,7 @@ export function StoragePanel() {
     const input = buildInput();
     if (typeof input === 'string') return flash(false, input);
     setTesting(true);
-    api
+    (isPlatform ? platformApi : api)
       .testStorageConfig(input)
       .then(() => flash(true, t('storage.testOk')))
       .catch((e) => flash(false, e.message))
@@ -165,7 +183,7 @@ export function StoragePanel() {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <PlatformHeader title={t('settingsPage.tab.storage')}>
+      <PlatformHeader title={t(titleKey)}>
         <span
           className={cn(
             'rounded-full px-2.5 py-px text-[12px] font-semibold',
@@ -176,12 +194,22 @@ export function StoragePanel() {
             ? `${t('storage.configuredAs')}: ${data.backend === 'minio' ? 'MinIO' : 'Vercel Blob'}`
             : t('storage.notConfigured')}
         </span>
+        {configured && data.provisioned === 'auto' && (
+          <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12px] font-semibold text-fg-2">
+            {t('storage.autoProvisioned')}
+          </span>
+        )}
       </PlatformHeader>
       <div className="flex-1 overflow-y-auto p-6">
         <div className="flex max-w-[860px] flex-col gap-4">
           <p className="m-0 rounded-lg bg-surface-2 px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">
-            {t('storage.desc')}
+            {isPlatform ? t('storage.platformDesc') : t('storage.desc')}
           </p>
+          {!isPlatform && !configured && data.fallback?.active && (
+            <p className="m-0 rounded-lg border border-brand-blue/30 bg-brand-blue/5 px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">
+              {t('storage.fallbackHint')}
+            </p>
+          )}
 
           <section className="rounded-[14px] border border-border bg-surface px-5 py-4 shadow-1">
             <label className={fieldLabel}>{t('storage.backend')}</label>
@@ -301,7 +329,7 @@ export function StoragePanel() {
                     </Button>
                   }
                   title={t('storage.clear')}
-                  body={t('storage.clearBody')}
+                  body={t(isPlatform ? 'storage.clearBodyPlatform' : 'storage.clearBody')}
                   busy={del.isPending}
                   onConfirm={() => del.mutate()}
                 />

@@ -70,10 +70,12 @@ spms/
 │   │   ├── platform.ts           # 平台管理（公司/成员/矩阵/MCP key）
 │   │   └── meta.ts             # bootstrap 聚合
 │   ├── server/crypto.ts          # AES-256-GCM 配置密钥加解密（CONFIG_CRYPTO_KEY；OAuth secret / 存储凭据密文落库）
-│   ├── server/storage/           # 公司级文件存储抽象（设置→文件存储；无配置=禁止上传，零平台兜底）
-│   │   ├── index.ts              # storageForCompany(companyId)：配置行 60s 缓存 + 解密构造后端
-│   │   ├── minio.ts              # MinIO/S3：presigned PUT 直传 / presigned GET / putObject / removeObject
-│   │   └── vercel.ts             # Vercel Blob：token 来自公司配置（密文），不再是平台 env
+│   ├── server/storage/           # 两级文件存储抽象（公司级优先，平台级兜底 + MinIO 自动开通隔离账号）
+│   │   ├── index.ts              # storageForCompany(companyId)：公司行 → 平台行（minio 物化公司行）60s 缓存 + 解密构造后端
+│   │   ├── minio.ts              # MinIO/S3：presigned PUT 直传 / presigned GET / putObject / removeObject / 前缀探测
+│   │   ├── vercel.ts             # Vercel Blob：token 来自公司/平台配置（密文），不再是平台 env
+│   │   ├── mc.ts                 # mc CLI 封装（临时 --config-dir、--json、超时、错误脱敏）
+│   │   └── provision.ts          # 公司隔离自动开通：canned policy（前缀授权）+ IAM 用户 + 物化公司行（provisioned='auto'）
 │   ├── mcp/                    # server.ts（McpServer + 26 个 tools 注册）+ workflow.ts（审查/关单工作流自动化）
 │   ├── app/
 │   │   ├── (auth)/login/       # 登录页（密码 + 飞书/Lark/GitHub OAuth）
@@ -207,17 +209,43 @@ issue 指派给 agent 时：挂 `AI 生成` 标签 + 把预编剧本步骤**同�
 - **字段映射**（v1 按客户「CRM Requests」库结构硬编码属性名）：展示 key←`Id`（unique_id，如 `CRM-518`；缺失才按类型自动分配）；标题←`Name`；描述←每次更新重生成的头行（`Notion: CRM-N · 状态 · url`）+ `Request Description` 纯文本 + 页面正文 blocks 纯文本（顶层，不递归子块）；状态←`Status`（Not started→todo / In progress、More info needed→in_progress / Ready for testing→testing / Done、Closed→done / No progress→canceled；归档优先→canceled；未知名创建按 todo、更新不动）；类型←`Tags`（BUGS→bug，Feature/Updated/Change→ticket，默认 bug）；指派人←`Assigned To` 第一人 email 先经 `user_emails`（主/备，大小写不敏感）匹配平台用户的本公司 member 投影，回退 `members.email`（外部邀请/存量行；无 email 能力时更新不动）。老数据追平（页面未变更也执行）：key 追平为 unique_id（被占用则保留原 key 并记入 errors）；映射状态与现值不一致时照常走完整更新。
 - **附件**（仅新建时同步，v1 不做 diff）：`Files & media` 里的图片（按扩展名判断）+ 页面 image blocks → 下载（预签名 URL，>10MB 跳过）→ 服务端 `put` 到**本公司配置的存储后端**（`storageForCompany`）→ `registerAttachment`。
 
-## 文件存储（设置 → 文件存储，公司级）
+## 文件存储（公司级 + 平台级两级配置）
 
-附件存储后端**按公司配置**（`company_storage_configs` 表，公司管理员在 设置→文件存储 维护），支持 MinIO（S3 兼容，自托管）与 Vercel Blob 两种后端：
+附件存储后端支持 MinIO（S3 兼容，自托管）与 Vercel Blob 两种，**两级配置、公司级优先**：
 
-- **零平台兜底**：无配置行的公司禁止上传（`STORAGE_NOT_CONFIGURED`）；运行时不再读 env `BLOB_READ_WRITE_TOKEN`。
-- **公司隔离**：对象 key 一律 `issues/{companyId}/…`（服务端生成，客户端不能自选）；上传签发、注册校验（`storage.assertMeta`）、删除、读取都钉死本公司前缀；A 公司的对象 B 公司拿不到（应用层强制）。
+- **公司级**：`company_storage_configs` 表，公司管理员在 设置→文件存储 维护。
+- **平台级**：`platform_storage_configs` 表（单行），平台管理员在 设置→平台存储 维护，作为公司未配置时的默认。公司级行存在即生效，与平台级无关。
+- **回落规则**：公司无配置行时回落平台级——`vercel_blob` 直接用平台共享 token（仅应用层前缀隔离）；`minio` 走自动开通（见下）。两级都没有才报 `STORAGE_NOT_CONFIGURED`；运行时不再读 env `BLOB_READ_WRITE_TOKEN`。
+
+### MinIO 租户隔离（共享 bucket + 按前缀授权的 IAM 用户，自动开通）
+
+平台默认 MinIO 时，公司为粒度做**凭据级物理隔离 + MinIO 服务端权限强制**，而不是只靠应用层自觉：
+
+- **模型**：所有公司共用一个私有 bucket（平台配置指定）；每个公司一对独立 IAM 用户（`spms-<cid8>`）+ 一条 canned policy（`spms-co-<cid8>`），策略只允许 `s3:GetObject/PutObject/DeleteObject` 等作用于 `arn:aws:s3:::<bucket>/issues/{companyId}/*`（ListBucket 带 `s3:prefix` 条件）。拿 A 公司密钥读 B 公司对象，MinIO 直接 AccessDenied。
+- **自动开通**（`src/server/storage/provision.ts`）：`storageForCompany` 发现公司无行且平台为 MinIO 时，首次上传惰性触发——`mc mb --ignore-existing` 确保 bucket → `mc admin policy create` 写入前缀策略 → `mc admin user add` 生成随机密钥的用户 → `mc admin policy attach` 绑定 → 用受限凭据在公司前缀下 put/del 探测端到端验证 → 探测通过后把凭据（AES-256-GCM）物化进 `company_storage_configs`（`provisioned='auto'`，endpoint/bucket/publicBaseUrl 拷贝自平台行）。物化后该行独立存在，公司管理员随时可改为自有后端（公司级优先语义不变）；进程内按公司互斥，竞态由「MinIO 侧后写覆盖 + 探测不过不落行」收敛。
+- **平台凭据要求**：必须有 MinIO 管理员权限（建用户/策略是 admin 操作）——root，或专用 `spms-provisioner` 用户。最小准备命令（运维一次执行）：
+  ```bash
+  mc alias set myminio https://<endpoint> <rootAK> <rootSK>
+  mc admin user add myminio spms-provisioner <strongSecret>
+  mc admin policy attach myminio consoleAdmin --user spms-provisioner
+  ```
+  设置页的「测试连接」会完整验证：bucket 不存在则创建 + 根目录写删探测 + `mc admin user list` 管理员能力校验。
+- **mc 依赖**：admin 操作无维护中的 JS SDK（官方仅 Go madmin，且建用户/绑策略负载走 DARE 加密），实现选择 shell 调 `mc`（`src/server/storage/mc.ts`：临时 `--config-dir`、`--json`、15s 超时、错误脱敏）。社区版已不再发布预编译二进制（仅源码分发）：Docker 镜像用 Go 从源码构建 mc（Dockerfile `mcbuild` 阶段，`MC_REF` 可钉版本、`GOPROXY` 可换代理）；本地开发需 `go install github.com/minio/mc@latest`（Go ≥ 1.23）。
+- **孤儿回收**：删除公司只 cascade 删 DB 行，MinIO 侧用户/策略/对象保留，运维手动清理：
+  ```bash
+  mc admin user remove myminio spms-<cid8>
+  mc admin policy remove myminio spms-co-<cid8>
+  mc rm --recursive --force myminio/<bucket>/issues/<companyId>/
+  ```
+
+### 应用层隔离与读取链路（不变）
+
+- **公司隔离**：对象 key 一律 `issues/{companyId}/…`（服务端生成，客户端不能自选）；上传签发、注册校验（`storage.assertMeta`）、删除、读取都钉死本公司前缀——应用层校验作为 MinIO 策略之外的第二道防线。
 - **私有 bucket + 代理读取**：对象不公网可读；所有读取走 `GET /api/v1/pms/attachments/object`（`?id=` 附件行级鉴权 / `?key=` key 内嵌 companyId 比对），鉴权后 302 到 MinIO 短时效 presigned GET（或 Vercel 公网 url），`Cache-Control: private, no-cache`。`<img>`、markdown 嵌入图、MCP 读图全部经由它（MCP 走 `storage.get` 直读）。`issue_attachments.url` 存的是后端规范地址（身份标识），`object_key` 存 key；`object_key` 为 NULL 的存量行 = 平台级 Vercel Blob 旧数据，代理直接 302 到其存量公网 url。
-- **浏览器直传**：`POST /attachments/upload`（`action:'create-intent'`）签发上传意图——MinIO 给 presigned PUT（bucket 需配 CORS 允许本站来源的 PUT）；Vercel 给 objectKey，客户端再走 `@vercel/blob/client` 握手（token 来自公司配置，`addRandomSuffix: false`，前缀校验带 companyId）。
+- **浏览器直传**：`POST /attachments/upload`（`action:'create-intent'`）签发上传意图——MinIO 给 presigned PUT（bucket 需配 CORS 允许本站来源的 PUT）；Vercel 给 objectKey，客户端再走 `@vercel/blob/client` 握手（token 来自公司/平台配置，`addRandomSuffix: false`，前缀校验带 companyId）。
 - **内外网分离（publicBaseUrl）**：V4 预签名覆盖 host 头，浏览器必须按签发的 host 请求。站点经域名/反代访问时，在配置里填 `publicBaseUrl`（如 `https://s3.innev.cn`）：presigned PUT/GET 与规范 url 都按公网基址签发（专用客户端，region 写死 us-east-1 避免向公网地址发探活请求），服务端 put/get/del 与「测试连接」仍走内网 endpoint；留空 = 纯内网部署，按 endpoint 直签。规范化存储（默认端口省略、无路径无尾斜杠），与 minio-js 渲染规则一致，保证注册时 `assertMeta` 的 url 逐字节匹配。
 - **密钥安全**：accessKey/secretKey/token 经 `src/server/crypto.ts`（AES-256-GCM，密钥 = env `CONFIG_CRYPTO_KEY`）密文落库，API 只回 `hasXxx`，PUT 不传 = 保留旧值。
-- **对账**：`scripts/reconcile-attachments.ts` 遍历有配置的公司逐家对账（MinIO listObjectsV2 / Vercel list），无配置公司跳过；存量旧行需显式提供 `BLOB_READ_WRITE_TOKEN` 才对账。
+- **对账**：`scripts/reconcile-attachments.ts` 遍历有配置的公司逐家对账（MinIO listObjectsV2 / Vercel list），无配置公司跳过（自动开通的公司在首次上传后即有自己的行，纳入对账）；存量旧行需显式提供 `BLOB_READ_WRITE_TOKEN` 才对账。
 
 ## 三方登录（设置 → 三方登录，平台级）
 

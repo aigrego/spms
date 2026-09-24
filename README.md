@@ -42,6 +42,8 @@ npm run dev
 
 打开 http://localhost:5175 ，种子账号：**admin / admin123**（平台管理员 + 默认公司 company_admin）。种子数据含「默认公司」（历史演示数据）与「示例公司」（空沙箱）。
 
+> 可选依赖：若使用「平台默认 MinIO 存储」的自动开通能力（设置 → 平台存储），本地需安装 MinIO Client `mc`——社区版已不再发布预编译二进制，用 Go 从源码安装：`go install github.com/minio/mc@latest`（Go ≥ 1.23，确保 `~/go/bin` 在 PATH）；Docker 镜像已内置，无需额外处理。
+
 ### 环境变量
 
 | 变量 | 说明 |

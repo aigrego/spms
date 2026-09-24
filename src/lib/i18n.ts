@@ -139,6 +139,7 @@ const zhCN: Dict = {
   'settingsPage.tab.companyMatrix': '权限矩阵',
   'settingsPage.tab.oauth': '三方登录',
   'settingsPage.tab.storage': '文件存储',
+  'settingsPage.tab.platformStorage': '平台存储',
 
   // 三方登录（平台管理员）
   'oauth.desc': '配置第三方登录提供方（飞书 / Lark / GitHub）。数据库配置优先；无数据库配置时回退到环境变量。密钥使用 AES-256-GCM 加密存储，保存后不可回显。',
@@ -154,7 +155,10 @@ const zhCN: Dict = {
   'oauth.resetDbBody': '删除后该提供方回退到环境变量配置（如已配置）。',
 
   // 文件存储（公司管理员）
-  'storage.desc': '配置本公司的附件文件存储。资源按公司隔离：其他公司无法访问本公司上传的文件。未配置时全公司禁止上传附件。',
+  'storage.desc': '配置本公司的附件文件存储。资源按公司隔离：其他公司无法访问本公司上传的文件。未配置时回落平台默认存储；平台也未配置时禁止上传附件。',
+  'storage.platformDesc': '平台默认的附件文件存储：公司未配置本公司存储时使用。选 MinIO 时凭据必须具备管理员权限（root 或 consoleAdmin 用户）——系统会为每个公司自动开通按前缀隔离的独立账号（共享 bucket，MinIO 服务端强制隔离）；选 Vercel Blob 则所有未配置公司共用一个 token（仅应用层前缀隔离）。',
+  'storage.fallbackHint': '当前未配置本公司存储，已回落平台默认存储：MinIO 后端会在首次上传附件时自动为本公司开通按前缀隔离的独立账号；在下方保存即转为公司独立配置。',
+  'storage.autoProvisioned': '平台自动开通',
   'storage.backend': '存储后端',
   'storage.minio': 'MinIO（自托管）',
   'storage.vercelBlob': 'Vercel Blob',
@@ -174,7 +178,8 @@ const zhCN: Dict = {
   'storage.testOk': '连接成功',
   'storage.testFailed': '连接失败',
   'storage.clear': '删除配置',
-  'storage.clearBody': '删除后本公司将禁止上传附件（已上传的附件仍可读取）。',
+  'storage.clearBody': '删除后回落平台默认存储（如已配置），否则本公司禁止上传附件（已上传的附件仍可读取）。',
+  'storage.clearBodyPlatform': '删除后，未配置本公司存储的公司将禁止上传附件（已上传的附件仍可读取，公司为自动开通生成的 MinIO 账号保留待手工回收）。',
   'storage.notConfigured': '未配置',
   'storage.configuredAs': '当前生效',
   'settingsPage.general': '通用',
@@ -846,6 +851,7 @@ const en: Dict = {
   'settingsPage.tab.companyMatrix': 'Permission matrix',
   'settingsPage.tab.oauth': 'Third-party login',
   'settingsPage.tab.storage': 'File storage',
+  'settingsPage.tab.platformStorage': 'Platform storage',
 
   // Third-party login (platform admin)
   'oauth.desc': 'Configure third-party login providers (Feishu / Lark / GitHub). The database config wins; env vars are the fallback when no DB row exists. Secrets are stored AES-256-GCM encrypted and are never shown again.',
@@ -861,7 +867,10 @@ const en: Dict = {
   'oauth.resetDbBody': 'After removal this provider falls back to the env-var config (if any).',
 
   // File storage (company admin)
-  'storage.desc': 'Configure where this company’s attachments are stored. Files are isolated per company — other companies cannot access them. Uploads are disabled until a backend is configured.',
+  'storage.desc': 'Configure where this company’s attachments are stored. Files are isolated per company — other companies cannot access them. Without a company config the platform default is used; uploads are disabled only when neither is configured.',
+  'storage.platformDesc': 'The platform-wide default attachment storage, used by companies without their own config. With MinIO the credentials must have admin privileges (root or a consoleAdmin user) — the app auto-provisions an isolated per-company IAM user scoped to its key prefix (shared bucket, enforced server-side by MinIO). With Vercel Blob all unconfigured companies share one token (app-level prefix isolation only).',
+  'storage.fallbackHint': 'No company storage is configured — the platform default is in use. With a MinIO default, an isolated per-company account is provisioned automatically on the first attachment upload. Save below to switch to a company-owned backend.',
+  'storage.autoProvisioned': 'Auto-provisioned by platform',
   'storage.backend': 'Storage backend',
   'storage.minio': 'MinIO (self-hosted)',
   'storage.vercelBlob': 'Vercel Blob',
@@ -881,7 +890,8 @@ const en: Dict = {
   'storage.testOk': 'Connection OK',
   'storage.testFailed': 'Connection failed',
   'storage.clear': 'Remove config',
-  'storage.clearBody': 'After removal this company can no longer upload attachments (existing ones stay readable).',
+  'storage.clearBody': 'After removal the platform default is used (if configured); otherwise this company can no longer upload attachments (existing ones stay readable).',
+  'storage.clearBodyPlatform': 'After removal, companies without their own storage can no longer upload attachments (existing ones stay readable; auto-provisioned MinIO accounts are kept for manual cleanup).',
   'storage.notConfigured': 'Not configured',
   'storage.configuredAs': 'Active backend',
   'settingsPage.general': 'General',
@@ -1521,6 +1531,7 @@ const zhTW: Dict = {
   'settingsPage.tab.companyMatrix': '權限矩陣',
   'settingsPage.tab.oauth': '三方登入',
   'settingsPage.tab.storage': '檔案儲存',
+  'settingsPage.tab.platformStorage': '平台儲存',
 
   // 三方登入（平台管理員）
   'oauth.desc': '設定第三方登入提供方（飛書 / Lark / GitHub）。資料庫設定優先；無資料庫設定時回退到環境變數。金鑰使用 AES-256-GCM 加密儲存，儲存後不可回顯。',
@@ -1536,7 +1547,10 @@ const zhTW: Dict = {
   'oauth.resetDbBody': '刪除後該提供方回退到環境變數設定（如已設定）。',
 
   // 檔案儲存（公司管理員）
-  'storage.desc': '設定本公司的附件檔案儲存。資源按公司隔離：其他公司無法存取本公司上傳的檔案。未設定時全公司禁止上傳附件。',
+  'storage.desc': '設定本公司的附件檔案儲存。資源按公司隔離：其他公司無法存取本公司上傳的檔案。未設定時回落平台預設儲存；平台也未設定時禁止上傳附件。',
+  'storage.platformDesc': '平台預設的附件檔案儲存：公司未設定本公司儲存時使用。選 MinIO 時憑據必須具備管理員權限（root 或 consoleAdmin 使用者）——系統會為每個公司自動開通按前綴隔離的獨立帳號（共享 bucket，由 MinIO 伺服器端強制隔離）；選 Vercel Blob 則所有未設定公司共用一個 token（僅應用層前綴隔離）。',
+  'storage.fallbackHint': '目前未設定本公司儲存，已回落平台預設儲存：MinIO 後端會在首次上傳附件時自動為本公司開通按前綴隔離的獨立帳號；在下方儲存即轉為公司獨立設定。',
+  'storage.autoProvisioned': '平台自動開通',
   'storage.backend': '儲存後端',
   'storage.minio': 'MinIO（自託管）',
   'storage.vercelBlob': 'Vercel Blob',
@@ -1556,7 +1570,8 @@ const zhTW: Dict = {
   'storage.testOk': '連線成功',
   'storage.testFailed': '連線失敗',
   'storage.clear': '刪除設定',
-  'storage.clearBody': '刪除後本公司將禁止上傳附件（已上傳的附件仍可讀取）。',
+  'storage.clearBody': '刪除後回落平台預設儲存（如已設定），否則本公司禁止上傳附件（已上傳的附件仍可讀取）。',
+  'storage.clearBodyPlatform': '刪除後，未設定本公司儲存的公司將禁止上傳附件（已上傳的附件仍可讀取，為公司自動開通產生的 MinIO 帳號保留待手工回收）。',
   'storage.notConfigured': '未設定',
   'storage.configuredAs': '目前生效',
   'settingsPage.general': '通用',

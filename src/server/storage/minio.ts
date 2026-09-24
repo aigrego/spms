@@ -19,6 +19,12 @@ export interface MinioConfig {
      预签名 URL 必须按公网 host 签发（V4 签名覆盖 host 头，浏览器必须按签发
      的 host 请求才校验得过）；null/缺省 = 用内网 endpoint 直签（纯内网部署）。 */
   publicBaseUrl?: string | null;
+  /* 签名 region。已知凭据为按前缀授权（provisioned='auto' 的隔离账号）时
+     必须 pin 死：受限凭据无 GetBucketLocation 权限，presign 前 minio-js 的
+     getBucketRegion 探活会被拒——MinIO 对该拒绝路径直接重置连接，minio-js
+     又长时间重试，表现为上传意图/读 URL 卡死。缺省 = 不 pin（按需探活，
+     全权限凭据可正常探到真实 region）。 */
+  region?: string | null;
 }
 
 /* 把公网基址解析成 minio 客户端参数 + 规范化基址。规范化规则（protocol//host，
@@ -59,6 +65,7 @@ export function minioBackend(companyId: string, conf: MinioConfig): StorageBacke
     useSSL: conf.useSsl,
     accessKey: conf.accessKey,
     secretKey: conf.secretKey,
+    ...(conf.region ? { region: conf.region } : {}),
   });
 
   /* 预签名专用客户端：配了公网基址就按公网 host 签发（浏览器直传/302 读取
@@ -143,6 +150,21 @@ export async function testMinioConnection(conf: MinioConfig): Promise<void> {
     throw new ApiException('VALIDATION_FAILED', `bucket ${conf.bucket} 不存在或无权访问`);
   }
   const probe = `.spms-probe-${crypto.randomUUID()}`;
+  await client.putObject(conf.bucket, probe, Buffer.from('ok'), 2);
+  await client.removeObject(conf.bucket, probe);
+}
+
+/* 按前缀授权（provisioned='auto'）的凭据探测：bucket 根目录无权限，只在给定
+   前缀下写/删探测对象。provisioning 落库前的端到端验证也用它。 */
+export async function probePrefixAccess(conf: MinioConfig, prefix: string): Promise<void> {
+  const client = new Minio.Client({
+    endPoint: conf.endpoint,
+    port: conf.port,
+    useSSL: conf.useSsl,
+    accessKey: conf.accessKey,
+    secretKey: conf.secretKey,
+  });
+  const probe = `${prefix}.spms-probe-${crypto.randomUUID()}`;
   await client.putObject(conf.bucket, probe, Buffer.from('ok'), 2);
   await client.removeObject(conf.bucket, probe);
 }

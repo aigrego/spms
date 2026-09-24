@@ -49,6 +49,7 @@ export const ERROR_CODES = [
   // per-company file storage (设置 → 文件存储)
   'STORAGE_NOT_CONFIGURED',
   'STORAGE_TEST_FAILED',
+  'STORAGE_PROVISION_FAILED',
   // daily reports (日报)
   'REPORT_NOT_FOUND',
 ] as const;
@@ -87,6 +88,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   ATTACHMENT_NOT_FOUND: '附件不存在',
   STORAGE_NOT_CONFIGURED: '尚未配置文件存储',
   STORAGE_TEST_FAILED: '存储连接测试失败',
+  STORAGE_PROVISION_FAILED: '平台存储自动开通失败',
   REPORT_NOT_FOUND: '日报不存在',
 };
 

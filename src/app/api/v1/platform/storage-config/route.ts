@@ -1,31 +1,24 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
-import { companyStorageConfigs } from '@/db/schema';
+import { platformStorageConfigs } from '@/db/schema';
 import { ApiException, ok } from '@/lib/envelope';
 import { decryptSecret, encryptSecret } from '@/server/crypto';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { jsonBody, requireActor, requireAdmin, route } from '@/server/http';
 import {
-  getPlatformStorageConfigRow,
-  invalidateStorageConfigCache,
+  invalidatePlatformStorageConfigCache,
   minioConfigFromRow,
-  objectKeyPrefix,
+  PLATFORM_STORAGE_ROW_ID,
 } from '@/server/storage';
-import { parsePublicBaseUrl, probePrefixAccess, testMinioConnection, type MinioConfig } from '@/server/storage/minio';
+import { parsePublicBaseUrl, type MinioConfig } from '@/server/storage/minio';
+import { verifyPlatformMinioAccess } from '@/server/storage/provision';
 import { testVercelConnection } from '@/server/storage/vercel';
 
-/* /api/v1/pms/storage-config — 公司管理员在 设置→文件存储 管理本公司的附件
-   存储后端(MinIO / Vercel Blob)。无配置行 = 回落平台默认存储(平台管理员在
-   设置→平台存储 维护;MinIO 会在首次上传时自动开通按前缀隔离的独立账号并
-   物化公司行,provisioned='auto'),平台也未配置才禁止上传。
-   门槛:平台管理员或本公司 company_admin(与公司权限矩阵同一规则)。
-   敏感字段(accessKey/secretKey/token)AES-256-GCM 加密落库,GET 只回
-   hasXxx 标志;PUT 不传 = 保留旧值。 */
-
-function gate(actor: { isPlatformAdmin: boolean; companyRole: string }) {
-  if (!actor.isPlatformAdmin && actor.companyRole !== 'company_admin') {
-    throw new ApiException('FORBIDDEN', '需要公司管理员权限', 403);
-  }
-}
+/* /api/v1/platform/storage-config — 平台管理员在 设置→平台存储 管理全局默认
+   附件存储后端(MinIO / Vercel Blob)。公司未配置本公司存储时回落到这里：
+   vercel_blob 直接用共享 token(仅应用层前缀隔离)；minio 为每个公司自动开通
+   按前缀隔离的独立 IAM 用户并物化凭据——因此这里的 MinIO 凭据必须有管理员
+   权限(root 或 consoleAdmin 用户)。门槛:仅平台管理员。
+   敏感字段 AES-256-GCM 加密落库,GET 只回 hasXxx 标志;PUT 不传 = 保留旧值。 */
 
 interface MinioInput {
   endpoint?: string;
@@ -40,7 +33,7 @@ interface MinioInput {
 
 /* 已存行的 MinIO 明文凭据;解密失败(CONFIG_CRYPTO_KEY 变更)按无存量的处理,
    让用户重填覆盖,而不是 500。 */
-function existingMinioOf(row: typeof companyStorageConfigs.$inferSelect | undefined): MinioConfig | null {
+function existingMinioOf(row: typeof platformStorageConfigs.$inferSelect | undefined): MinioConfig | null {
   if (!row) return null;
   try {
     return minioConfigFromRow(row);
@@ -55,27 +48,23 @@ interface PutBody {
   token?: string;
 }
 
-export const GET = route(async () => {
-  const actor = await requireActor();
-  gate(actor);
+async function existingRow() {
   const [row] = await db
     .select()
-    .from(companyStorageConfigs)
-    .where(eq(companyStorageConfigs.companyId, actor.companyId))
+    .from(platformStorageConfigs)
+    .where(eq(platformStorageConfigs.id, PLATFORM_STORAGE_ROW_ID))
     .limit(1);
-  if (!row) {
-    /* 无公司行 → 看平台默认存储:有则前端提示「回落平台存储」。 */
-    const platform = await getPlatformStorageConfigRow();
-    return ok({
-      configured: false as const,
-      fallback: platform ? ({ active: true as const, backend: platform.backend } as const) : null,
-    });
-  }
+  return row;
+}
+
+export const GET = route(async () => {
+  const actor = await requireActor();
+  requireAdmin(actor);
+  const row = await existingRow();
+  if (!row) return ok({ configured: false as const });
   return ok({
     configured: true as const,
-    fallback: null,
     backend: row.backend,
-    provisioned: row.provisioned ?? null,
     minio:
       row.backend === 'minio'
         ? {
@@ -112,28 +101,24 @@ function validatedMinio(input: MinioInput, existing: MinioConfig | null): MinioC
   }
   if (!bucket) throw new ApiException('VALIDATION_FAILED', 'Bucket 不能为空');
   if (!accessKey || !secretKey) {
-    throw new ApiException('VALIDATION_FAILED', '首次保存必须填写 Access Key 与 Secret Key');
+    throw new ApiException('VALIDATION_FAILED', '首次保存必须填写 Access Key 与 Secret Key（需管理员权限凭据）');
   }
   return { endpoint: endpoint!, port: port!, useSsl, accessKey, secretKey, bucket: bucket!, publicBaseUrl };
 }
 
 export const PUT = route(async (req) => {
   const actor = await requireActor();
-  gate(actor);
+  requireAdmin(actor);
   const body = await jsonBody<PutBody>(req);
   const backend = body.backend;
   if (backend !== 'minio' && backend !== 'vercel_blob') {
     throw new ApiException('VALIDATION_FAILED', 'backend 必须是 minio 或 vercel_blob');
   }
 
-  const [existing] = await db
-    .select()
-    .from(companyStorageConfigs)
-    .where(eq(companyStorageConfigs.companyId, actor.companyId))
-    .limit(1);
+  const existing = await existingRow();
   const existingMinio = existingMinioOf(existing);
 
-  const values: Partial<typeof companyStorageConfigs.$inferInsert> = {
+  const values: Partial<typeof platformStorageConfigs.$inferInsert> = {
     backend,
     updatedAt: new Date(),
   };
@@ -163,26 +148,25 @@ export const PUT = route(async (req) => {
   }
 
   if (existing) {
-    await db.update(companyStorageConfigs).set(values).where(eq(companyStorageConfigs.companyId, actor.companyId));
+    await db.update(platformStorageConfigs).set(values).where(eq(platformStorageConfigs.id, PLATFORM_STORAGE_ROW_ID));
   } else {
-    await db.insert(companyStorageConfigs).values({ companyId: actor.companyId, ...values } as typeof companyStorageConfigs.$inferInsert);
+    await db
+      .insert(platformStorageConfigs)
+      .values({ id: PLATFORM_STORAGE_ROW_ID, ...values } as typeof platformStorageConfigs.$inferInsert);
   }
-  invalidateStorageConfigCache(actor.companyId);
+  invalidatePlatformStorageConfigCache();
   return ok({ backend });
 });
 
 /* POST { action:'test', minio?, token? } — 用请求里的配置(缺省字段回落已存
-   配置)做真实连通性测试:bucket 存在 + 写/删探测对象。 */
+   配置)做真实连通性测试。MinIO 额外校验管理员能力(bucket 不存在则创建 +
+   根目录写删探测 + mc admin user list),因为自动开通依赖 admin 权限。 */
 export const POST = route(async (req) => {
   const actor = await requireActor();
-  gate(actor);
+  requireAdmin(actor);
   const body = await jsonBody<PutBody & { action?: string }>(req);
   if (body.action !== 'test') throw new ApiException('VALIDATION_FAILED', '未知 action');
-  const [existing] = await db
-    .select()
-    .from(companyStorageConfigs)
-    .where(eq(companyStorageConfigs.companyId, actor.companyId))
-    .limit(1);
+  const existing = await existingRow();
 
   try {
     if (body.backend === 'vercel_blob' || (!body.backend && existing?.backend === 'vercel_blob')) {
@@ -199,11 +183,7 @@ export const POST = route(async (req) => {
       await testVercelConnection(token);
     } else {
       const conf = validatedMinio(body.minio ?? {}, existingMinioOf(existing));
-      /* auto 开通的按前缀授权账号没有 bucket 根权限：未提供新凭据时只在本
-         公司前缀下探测；提供了新凭据（准备转为手动配置）按管理员级根探测。 */
-      const autoRow = existing?.provisioned === 'auto' && !body.minio?.accessKey && !body.minio?.secretKey;
-      if (autoRow) await probePrefixAccess(conf, objectKeyPrefix(actor.companyId));
-      else await testMinioConnection(conf);
+      await verifyPlatformMinioAccess(conf);
     }
   } catch (e) {
     if (e instanceof ApiException) throw e;
@@ -215,8 +195,8 @@ export const POST = route(async (req) => {
 
 export const DELETE = route(async () => {
   const actor = await requireActor();
-  gate(actor);
-  await db.delete(companyStorageConfigs).where(eq(companyStorageConfigs.companyId, actor.companyId));
-  invalidateStorageConfigCache(actor.companyId);
+  requireAdmin(actor);
+  await db.delete(platformStorageConfigs).where(eq(platformStorageConfigs.id, PLATFORM_STORAGE_ROW_ID));
+  invalidatePlatformStorageConfigCache();
   return ok({ deleted: true });
 });

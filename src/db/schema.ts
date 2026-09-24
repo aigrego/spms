@@ -954,10 +954,35 @@ export const oauthProviderConfigs = pgTable('oauth_provider_configs', {
 });
 
 /* ------------------------------------------------------------------ */
+/* Platform default file storage config (设置 → 平台存储, platform      */
+/* admin). Single row (id = 'default'). Fallback when a company has no */
+/* row in company_storage_configs: vercel_blob falls back to the       */
+/* shared token directly; minio auto-provisions a per-company IAM      */
+/* user + prefix-scoped policy and materializes the generated          */
+/* credentials into company_storage_configs — so the MinIO credentials */
+/* here MUST have admin privileges (root or a consoleAdmin-ish user).  */
+/* AES-256-GCM ciphertext — never serialize them out.                  */
+/* ------------------------------------------------------------------ */
+export const platformStorageConfigs = pgTable('platform_storage_configs', {
+  id: text('id').primaryKey(), // constant 'default'
+  backend: text('backend').notNull(), // 'minio' | 'vercel_blob'
+  endpoint: text('endpoint'),
+  port: integer('port'),
+  useSsl: boolean('use_ssl').notNull().default(true),
+  accessKeyEnc: text('access_key_enc'),
+  secretKeyEnc: text('secret_key_enc'),
+  bucket: text('bucket'),
+  publicBaseUrl: text('public_base_url'),
+  tokenEnc: text('token_enc'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/* ------------------------------------------------------------------ */
 /* Per-company file storage config (设置 → 文件存储, company admin).     */
-/* One row per company; NO row = uploads are forbidden for that         */
-/* company (no platform-level fallback). Credentials are AES-256-GCM    */
-/* ciphertext — never serialize them out.                               */
+/* One row per company; NO row = fall back to the platform default     */
+/* (platform_storage_configs) — company-level always wins when set.    */
+/* Credentials are AES-256-GCM ciphertext — never serialize them out.  */
 /* ------------------------------------------------------------------ */
 export const companyStorageConfigs = pgTable('company_storage_configs', {
   companyId: text('company_id')
@@ -977,6 +1002,9 @@ export const companyStorageConfigs = pgTable('company_storage_configs', {
   publicBaseUrl: text('public_base_url'),
   // Vercel Blob token (vercel_blob_rw_…) when backend = 'vercel_blob'.
   tokenEnc: text('token_enc'),
+  /* 'auto' = 由平台默认存储自动开通（MinIO 按前缀隔离的独立 IAM 用户，
+     凭据由 provisioning 生成）；NULL = 管理员手动配置。 */
+  provisioned: text('provisioned'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

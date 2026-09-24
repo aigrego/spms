@@ -17,6 +17,7 @@ export const platformKeys = {
   matrix: () => [...platformKeys.all, 'permissions-matrix'] as const,
   oauthProviders: () => [...platformKeys.all, 'oauth-providers'] as const,
   mcpKeys: () => [...platformKeys.all, 'mcp-keys'] as const,
+  storageConfig: () => [...platformKeys.all, 'storage-config'] as const,
 };
 
 /* ---- companies ---- */
@@ -183,6 +184,31 @@ export function useDeleteStorageConfig() {
   return useMutation({
     mutationFn: () => api.deleteStorageConfig(),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['storage-config'] }),
+  });
+}
+
+/* ---- 平台默认文件存储(设置 → 平台存储,平台管理员) ---- */
+export function usePlatformStorageConfig(enabled = true) {
+  return useQuery({
+    queryKey: platformKeys.storageConfig(),
+    queryFn: () => platformApi.storageConfig(),
+    enabled,
+  });
+}
+
+export function useSavePlatformStorageConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SaveStorageConfigInput) => platformApi.saveStorageConfig(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: platformKeys.storageConfig() }),
+  });
+}
+
+export function useDeletePlatformStorageConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => platformApi.deleteStorageConfig(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: platformKeys.storageConfig() }),
   });
 }
 

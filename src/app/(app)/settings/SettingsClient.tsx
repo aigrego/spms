@@ -14,7 +14,7 @@ import { usePersistentState } from '@/lib/prefs';
 import { applyTheme, readThemePref, type ThemePref } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
-type TabKey = 'preferences' | 'companies' | 'members' | 'matrix' | 'oauth' | 'company-matrix' | 'storage';
+type TabKey = 'preferences' | 'companies' | 'members' | 'matrix' | 'oauth' | 'company-matrix' | 'storage' | 'platform-storage';
 
 const selectCls =
   'h-8 rounded-md border border-border-strong bg-surface px-2 text-[13px] text-fg-1 outline-none focus:border-brand-blue disabled:opacity-60';
@@ -179,6 +179,7 @@ export default function SettingsClient({ tab: tabProp }: { tab?: string }) {
     { key: 'members', label: t('settingsPage.tab.members'), adminOnly: true },
     { key: 'matrix', label: t('settingsPage.tab.matrix'), adminOnly: true },
     { key: 'oauth', label: t('settingsPage.tab.oauth'), adminOnly: true },
+    { key: 'platform-storage', label: t('settingsPage.tab.platformStorage'), adminOnly: true },
     { key: 'company-matrix', label: t('settingsPage.tab.companyMatrix'), companyAdminOnly: true },
     { key: 'storage', label: t('settingsPage.tab.storage'), companyAdminOnly: true },
   ];
@@ -226,6 +227,7 @@ export default function SettingsClient({ tab: tabProp }: { tab?: string }) {
             {tab === 'oauth' && <OAuthProvidersPanel />}
             {tab === 'company-matrix' && <MatrixPanel scope="company" />}
             {tab === 'storage' && <StoragePanel />}
+            {tab === 'platform-storage' && <StoragePanel scope="platform" />}
           </div>
         </div>
       )}

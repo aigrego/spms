@@ -20,11 +20,23 @@ FROM deps AS build
 COPY . .
 RUN pnpm build
 
+# MinIO Client（mc）：平台默认 MinIO 存储为公司自动开通 IAM 用户/策略时调用
+#（admin 操作无 JS SDK，走 mc CLI；运行时以临时 --config-dir 调用，无需写 HOME）。
+# 社区版已不再发布预编译二进制（仅源码分发），这里用 Go 从源码构建；
+# MC_REF 可钉版本（如 RELEASE.2025-07-21T05-28-08Z），GOPROXY 可指向境内代理。
+ARG MC_BUILD_IMAGE=golang:1.25-alpine
+FROM ${MC_BUILD_IMAGE} AS mcbuild
+ARG MC_REF=latest
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+RUN go install github.com/minio/mc@${MC_REF}
+
 FROM ${BASE_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=5175
+COPY --from=mcbuild /go/bin/mc /usr/local/bin/mc
 # standalone 不含 public / .next/static，需手动拷入（server.js 会自动伺服）。
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static

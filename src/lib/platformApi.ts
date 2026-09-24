@@ -1,4 +1,5 @@
 import { ApiError } from './api';
+import type { SaveStorageConfigInput, StorageConfigState } from './api';
 
 /* Platform admin API (/api/v1/platform/**) — multi-company sandbox + RBAC.
    Kept in its own module (not api.ts) because the pms client is owned by
@@ -240,6 +241,14 @@ export const platformApi = {
   revokeMcpKey: (id: string) => request<{ id: string }>(`/mcp-keys/${id}`, { method: 'DELETE' }),
   // 硬删除（不留审计行），区别于上面的吊销。
   deleteMcpKey: (id: string) => request<{ id: string }>(`/mcp-keys/${id}?permanent=1`, { method: 'DELETE' }),
+
+  /* ---- 平台默认文件存储(设置 → 平台存储;MinIO 凭据需管理员权限) ---- */
+  storageConfig: () => request<StorageConfigState>('/storage-config'),
+  saveStorageConfig: (input: SaveStorageConfigInput) =>
+    request<{ backend: string }>('/storage-config', json('PUT', input)),
+  testStorageConfig: (input: SaveStorageConfigInput) =>
+    request<{ tested: boolean }>('/storage-config', json('POST', { ...input, action: 'test' })),
+  deleteStorageConfig: () => request<{ deleted: boolean }>('/storage-config', { method: 'DELETE' }),
 };
 
 export type PlatformApi = typeof platformApi;

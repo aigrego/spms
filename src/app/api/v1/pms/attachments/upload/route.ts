@@ -13,7 +13,7 @@ import { objectKeyPrefix, storageForCompany } from '@/server/storage';
       { mode:'vercel-token', objectKey } (Vercel,客户端再走去下方 2) 的握手)。
    2) @vercel/blob/client 的 handleUpload 握手(仅公司后端为 vercel_blob 时):
       blob SDK 期望自己的响应形态,直接返回 NextResponse.json(jsonResponse)。
-   公司无存储配置 → STORAGE_NOT_CONFIGURED(无平台级兜底)。 */
+   公司无存储配置 → 回落平台级配置;两级都无 → STORAGE_NOT_CONFIGURED。 */
 
 interface IntentBody {
   action: 'create-intent';
@@ -35,7 +35,7 @@ export const POST = route(async (req: NextRequest) => {
     if (!Number.isFinite(size) || !size || size <= 0 || size > MAX_ATTACHMENT_SIZE) {
       throw new ApiException('VALIDATION_FAILED', '附件大小需在 10MB 以内');
     }
-    const storage = await storageForCompany(actor.companyId); // 无配置即抛错
+    const storage = await storageForCompany(actor.companyId); // 公司→平台回落,皆无即抛错
     return ok(await storage.createUploadIntent(filename));
   }
 
