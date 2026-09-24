@@ -25,10 +25,12 @@ RUN pnpm build
 # MinIO Client（mc）：平台默认 MinIO 存储为公司自动开通 IAM 用户/策略时调用
 #（admin 操作无 JS SDK，走 mc CLI；运行时以临时 --config-dir 调用，无需写 HOME）。
 # 社区版已不再发布预编译二进制（仅源码分发），这里用 Go 从源码构建；
-# MC_REF 可钉版本（如 RELEASE.2025-07-21T05-28-08Z），GOPROXY 可指向境内代理。
+# MC_REF 可钉版本（如 RELEASE.2025-07-21T05-28-08Z）。
+# GOPROXY 默认走 goproxy.cn（七牛云镜像，同时代理 sum.golang.org 校验），
+# 构建机可直连 proxy.golang.org 时用 --build-arg GOPROXY=https://proxy.golang.org,direct 覆盖。
 FROM ${MC_BUILD_IMAGE} AS mcbuild
 ARG MC_REF=latest
-ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOPROXY=https://goproxy.cn,direct
 ENV GOPROXY=${GOPROXY}
 RUN go install github.com/minio/mc@${MC_REF}
 
