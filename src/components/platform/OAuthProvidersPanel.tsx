@@ -183,6 +183,14 @@ export function OAuthProvidersPanel() {
             <p className="m-0 rounded-lg bg-surface-2 px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">
               {t('oauth.desc')}
             </p>
+            {data.configSource !== 'auto' && (
+              <p
+                className="m-0 rounded-lg border px-3 py-2 text-[12.5px] leading-relaxed text-fg-1"
+                style={{ borderColor: 'color-mix(in srgb, var(--warning-500) 40%, transparent)', background: 'var(--warning-50)' }}
+              >
+                {t(data.configSource === 'env' ? 'oauth.configSourceEnv' : 'oauth.configSourceDb')}
+              </p>
+            )}
             {data.providers.map((conf) => (
               <ProviderCard key={conf.provider} conf={conf} />
             ))}

@@ -153,6 +153,13 @@ export interface OAuthProviderConf {
   hasSecret: boolean;
 }
 
+export interface OAuthProvidersResponse {
+  /* 全局配置来源开关（OAUTH_CONFIG_SOURCE）：auto = DB 优先 env 兜底；
+     db = 仅数据库；env = 仅环境变量（DB 配置不生效）。 */
+  configSource: 'auto' | 'db' | 'env';
+  providers: OAuthProviderConf[];
+}
+
 export interface SaveOAuthProviderInput {
   provider: string;
   appId: string;
@@ -219,7 +226,7 @@ export const platformApi = {
     request<unknown>('/permissions-matrix', json('PUT', { matrix })),
 
   /* ---- oauth providers (三方登录) ---- */
-  oauthProviders: () => request<{ providers: OAuthProviderConf[] }>('/oauth-providers'),
+  oauthProviders: () => request<OAuthProvidersResponse>('/oauth-providers'),
   saveOAuthProvider: (input: SaveOAuthProviderInput) =>
     request<{ provider: string; enabled: boolean; hasSecret: boolean }>('/oauth-providers', json('PUT', input)),
   deleteOAuthProvider: (provider: string) =>

@@ -148,6 +148,8 @@ const zhCN: Dict = {
   'oauth.sourceDb': '数据库',
   'oauth.sourceEnv': '环境变量',
   'oauth.notConfigured': '未配置',
+  'oauth.configSourceEnv': '当前 OAUTH_CONFIG_SOURCE=env：登录只使用环境变量，此处保存的数据库配置不会生效。',
+  'oauth.configSourceDb': '当前 OAUTH_CONFIG_SOURCE=db：登录只使用数据库配置，环境变量不再兜底。',
   'oauth.resetDb': '删除数据库配置',
   'oauth.resetDbBody': '删除后该提供方回退到环境变量配置（如已配置）。',
 
@@ -853,6 +855,8 @@ const en: Dict = {
   'oauth.sourceDb': 'Database',
   'oauth.sourceEnv': 'Env vars',
   'oauth.notConfigured': 'Not configured',
+  'oauth.configSourceEnv': 'OAUTH_CONFIG_SOURCE=env is active: login uses env vars only — the database configs saved here have no effect.',
+  'oauth.configSourceDb': 'OAUTH_CONFIG_SOURCE=db is active: login uses the database configs only — env vars are no longer a fallback.',
   'oauth.resetDb': 'Remove DB config',
   'oauth.resetDbBody': 'After removal this provider falls back to the env-var config (if any).',
 
@@ -1526,6 +1530,8 @@ const zhTW: Dict = {
   'oauth.sourceDb': '資料庫',
   'oauth.sourceEnv': '環境變數',
   'oauth.notConfigured': '未設定',
+  'oauth.configSourceEnv': '目前 OAUTH_CONFIG_SOURCE=env：登入只使用環境變數，此處儲存的資料庫設定不會生效。',
+  'oauth.configSourceDb': '目前 OAUTH_CONFIG_SOURCE=db：登入只使用資料庫設定，環境變數不再兜底。',
   'oauth.resetDb': '刪除資料庫設定',
   'oauth.resetDbBody': '刪除後該提供方回退到環境變數設定（如已設定）。',
 

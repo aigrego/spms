@@ -26,6 +26,16 @@ export const env = {
   // rewrites the Host header: OAuth redirect URIs and post-login redirects are
   // built from this instead of the internal request origin.
   publicOrigin: process.env.PUBLIC_ORIGIN?.replace(/\/+$/, ''),
+  /* 三方登录配置来源开关：
+     - auto（默认）：DB（oauth_provider_configs 启用行）优先，env 兜底
+     - db：只用数据库配置，完全不读各 provider 的 env（FEISHU/LARK/GITHUB 前缀）
+     - env：只用环境变量，数据库里的配置不生效（管理面板的修改不会作用于登录） */
+  oauthConfigSource: ((): 'auto' | 'db' | 'env' => {
+    const v = process.env.OAUTH_CONFIG_SOURCE ?? 'auto';
+    if (v === 'auto' || v === 'db' || v === 'env') return v;
+    console.warn(`[env] OAUTH_CONFIG_SOURCE 取值无效（${v}），回退为 auto`);
+    return 'auto';
+  })(),
   // Feishu (飞书, CN) OAuth login — optional; the 飞书 button is hidden when unset.
   // *RedirectUri 只填路径部分（如 /api/auth/feishu/callback），host 由
   // publicOrigin 拼接，从而随部署环境切换；完整 URL 形式也兼容（原样使用）。

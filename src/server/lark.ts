@@ -7,10 +7,11 @@ import { joinOriginPath } from '@/lib/url';
 
 /* OAuth provider helpers. Feishu (飞书, CN) / Lark (international) run on
    separate open platforms (open.feishu.cn vs open.larksuite.com); GitHub is an
-   OAuth App (https://github.com/settings/developers). Credentials are
-   configured per-provider in 设置 → 三方登录 (oauth_provider_configs table,
-   secrets AES-256-GCM encrypted); when no DB row exists the env vars act as
-   the fallback so existing deployments keep working. The redirect URI
+   OAuth App (https://github.com/settings/developers). Credentials come from
+   设置 → 三方登录 (oauth_provider_configs table, secrets AES-256-GCM
+   encrypted) or the FEISHU_/LARK_/GITHUB_-prefixed env vars, selected by
+   OAUTH_CONFIG_SOURCE: 'auto' (default) = enabled DB row first, env fallback;
+   'db' = DB only; 'env' = env only (DB rows ignored). The redirect URI
    defaults to <origin>/api/auth/<provider>/callback; a DB/env override stores
    only the path part — the host is joined from PUBLIC_ORIGIN (or the request
    origin) at use time. */
@@ -50,8 +51,12 @@ export function invalidateOAuthConfigCache() {
   cache = null;
 }
 
-/* DB row first (enabled rows only), env fallback. Null = not configured. */
+/* Config source is switched by OAUTH_CONFIG_SOURCE (see src/lib/env.ts):
+   auto = enabled DB row first, env fallback; db = DB only; env = env only.
+   Null = not configured. */
 export async function getProviderConf(p: OAuthProvider): Promise<ProviderConf | null> {
+  const mode = env.oauthConfigSource;
+  if (mode === 'env') return envConf(p);
   if (!cache || Date.now() - cache.at > 60_000) {
     const rows = await db.select().from(oauthProviderConfigs);
     const map: Partial<Record<OAuthProvider, ProviderConf | null>> = {};
@@ -77,7 +82,8 @@ export async function getProviderConf(p: OAuthProvider): Promise<ProviderConf | 
     }
     cache = { at: Date.now(), map };
   }
-  return cache.map[p] ?? envConf(p);
+  const fromDb = cache.map[p];
+  return mode === 'db' ? (fromDb ?? null) : (fromDb ?? envConf(p));
 }
 
 export function parseProvider(raw: string): OAuthProvider | null {

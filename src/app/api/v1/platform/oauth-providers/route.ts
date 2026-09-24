@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { oauthProviderConfigs } from '@/db/schema';
+import { env } from '@/lib/env';
 import { ApiException, ok } from '@/lib/envelope';
 import { decryptSecret, encryptSecret } from '@/server/crypto';
 import { jsonBody, publicOrigin, requireActor, requireAdmin, route } from '@/server/http';
@@ -8,7 +9,9 @@ import { getProviderConf, invalidateOAuthConfigCache, parseProvider, type OAuthP
 
 /* GET/PUT/DELETE /api/v1/platform/oauth-providers — 平台管理员在 设置→三方登录
    管理飞书/Lark/GitHub 的登录凭据。DB 行为权威配置(加密存 secret),无行的
-   provider 回退 env(来源标记 source: 'db'|'env'|null)。secret 永不回显:
+   provider 回退 env(来源标记 source: 'db'|'env'|null);全局生效来源由
+   OAUTH_CONFIG_SOURCE 决定(GET 回 configSource: 'auto'|'db'|'env'——
+   'env' 时 DB 配置不生效,'db' 时 env 不兜底)。secret 永不回显:
    GET 只回 hasSecret;PUT 不传 appSecret = 保留旧值。 */
 
 const PROVIDERS: OAuthProvider[] = ['feishu', 'lark', 'github'];
@@ -58,7 +61,7 @@ export const GET = route(async (req) => {
       };
     }),
   );
-  return ok({ providers: list });
+  return ok({ configSource: env.oauthConfigSource, providers: list });
 });
 
 export const PUT = route(async (req) => {
