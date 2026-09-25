@@ -452,9 +452,14 @@ export const api = {
   saveCompanyMatrix: (matrix: PermissionsMatrix['matrix']) =>
     request<unknown>('/permissions-matrix', json('PUT', { matrix })),
 
-  /* ---- 本公司存储状态(设置 → 文件存储,只读视图;开通由平台管理员在
-     公司管理操作,公司不再自助配置/测试/删除) ---- */
+  /* ---- 本公司存储(设置 → 偏好):GET 只读视图;POST 在平台存储已配置时
+     为当前公司一键开通(幂等),密钥轮换仍由平台管理员在公司管理操作 ---- */
   storageConfig: () => request<CompanyStorageInfo>('/storage-config'),
+  provisionStorage: () =>
+    request<{ companyId: string; provisioned: true; account: string | null; bucket: string | null; prefix: string }>(
+      '/storage-config',
+      json('POST'),
+    ),
 
   /* ---- 节点资源指派 / 虚拟团队 (PMS-2 §5.2) ---- */
   assignments: (nodeType: AssignmentNodeType, nodeId: string) =>

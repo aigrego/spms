@@ -179,9 +179,21 @@ export function useDeleteOAuthProvider() {
   });
 }
 
-/* ---- 本公司存储状态(设置 → 文件存储,只读卡片) ---- */
+/* ---- 本公司存储状态(设置 → 偏好) ---- */
 export function useStorageConfig(enabled = true) {
   return useQuery({ queryKey: ['storage-config'], queryFn: () => api.storageConfig(), enabled });
+}
+
+/* 设置 → 偏好:平台存储已配置且本公司未开通时,一键开通当前公司存储。 */
+export function useProvisionStorage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.provisionStorage(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['storage-config'] });
+      qc.invalidateQueries({ queryKey: platformKeys.companies() });
+    },
+  });
 }
 
 /* ---- 平台默认文件存储(设置 → 平台存储,平台管理员) ---- */

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Pencil, LogIn, Users, Database } from 'lucide-react';
+import { Armchair, Database, LogIn, Pencil, Plus, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton, StateBlock } from '@/components/StateBlock';
 import { useCompanies, useEnterCompany, usePlatformStorageConfig, useProvisionCompanyStorage } from '@/store/platform';
@@ -123,15 +123,23 @@ export function CompaniesPanel() {
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))' }}>
             {companies.map((c) => (
               <div key={c.id} className="lift-card group rounded-[14px] border border-border bg-surface p-[18px] shadow-1">
-                <div className="mb-3 flex items-center gap-2.5">
+                <div className="mb-3 flex items-start gap-2.5">
                   <span className="h-9 w-9 flex-none rounded-[10px]" style={{ background: c.color }} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[15px] font-semibold text-fg-1">{c.name}</div>
                     <div className="font-mono text-[11.5px] text-fg-3">{c.key}</div>
                   </div>
+                  <div className="flex flex-none flex-col items-end gap-1 text-[11.5px] text-fg-3">
+                    <span className="inline-flex items-center gap-1">
+                      <Users size={12} />
+                      {t('companies.memberCount', { n: c.memberCount })}
+                    </span>
+                    <span>{t('companies.createdAt', { date: fmtDate(c.createdAt) })}</span>
+                    {storageStatus(c)}
+                  </div>
                   <button
                     onClick={() => openEdit(c)}
-                    className="grid h-7 w-7 place-items-center rounded-md text-fg-3 opacity-0 transition-opacity hover:bg-surface-2 group-hover:opacity-100"
+                    className="grid h-7 w-7 flex-none place-items-center rounded-md text-fg-3 opacity-0 transition-opacity hover:bg-surface-2 group-hover:opacity-100"
                     aria-label={t('platform.common.edit')}
                   >
                     <Pencil size={14} />
@@ -140,17 +148,10 @@ export function CompaniesPanel() {
                 <p className="mb-3 min-h-[20px] truncate text-[13px] leading-normal text-fg-2">
                   {c.description || <span className="text-fg-3">{t('companies.noDesc')}</span>}
                 </p>
-                <div className="flex items-center gap-3 border-t border-border pt-3 text-[12px] text-fg-3">
-                  <span className="inline-flex items-center gap-1">
-                    <Users size={13} />
-                    {t('companies.memberCount', { n: c.memberCount })}
-                  </span>
-                  <span>{t('companies.createdAt', { date: fmtDate(c.createdAt) })}</span>
-                  {storageStatus(c)}
-                  <div className="flex-1" />
+                <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
                   {provisionBtn(c)}
                   <Button variant="secondary" size="sm" onClick={() => setSeatsCompany(c)}>
-                    {t('seats.seat')}
+                    <Armchair size={13} /> {t('seats.seat')}
                   </Button>
                   <Button
                     variant="primary"
