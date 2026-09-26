@@ -4,8 +4,8 @@
    Issues/requirements/test cases have a uuid surrogate `id` + a globally unique
    display `key` ("BUG-7" / "FR-2" / "TC-1"). The API presents `key` as the
    frontend-facing identifier, so serialize maps id ⇐ row.key. Internal uuids
-   never leave the server. assignee/project/sprint/label ids are the
-   members'/teams' own ids (opaque to the frontend, resolved via bootstrap maps).
+   never leave the server. assignee/project/sprint/label ids are the members'/
+   projects' own ids (opaque to the frontend, resolved via bootstrap maps).
 
    Ported from apps/spms-server/src/lib/serialize.ts (unchanged rules). */
 
@@ -15,7 +15,6 @@ type SubRow = { status: string };
 export function serializeIssueList(row: {
   id: string;
   key: string;
-  teamId: string | null;
   title: string;
   description: string | null;
   type: string;
@@ -44,7 +43,6 @@ export function serializeIssueList(row: {
   const done = row.subIssues.filter((s) => s.status === 'done').length;
   return {
     id: row.key, // display key — the identifier the frontend uses everywhere
-    teamId: row.teamId,
     title: row.title,
     description: row.description,
     type: row.type,
@@ -239,7 +237,6 @@ export function serializePlan(row: {
 
 export function serializeAttachment(row: {  id: string;
   url: string;
-  pathname: string;
   objectKey?: string | null;
   filename: string;
   contentType: string;
@@ -251,8 +248,8 @@ export function serializeAttachment(row: {  id: string;
     id: row.id,
     // 读取一律走应用内代理(鉴权 + 公司隔离);存储里的真实地址不出库。
     url: `/api/v1/pms/attachments/object?id=${row.id}`,
-    pathname: row.pathname,
     // 对象 key(MCP 等服务端读取用);null = 平台级 Vercel Blob 时代的旧行。
+    pathname: row.objectKey ?? null,
     objectKey: row.objectKey ?? null,
     filename: row.filename,
     contentType: row.contentType,

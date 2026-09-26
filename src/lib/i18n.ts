@@ -13,13 +13,6 @@ import { dict as plansDict } from './i18n/plans';
 
 export type Locale = 'zh-CN' | 'en' | 'zh-TW';
 
-export function normLocale(raw: string | null | undefined): Locale {
-  const l = (raw ?? 'zh-CN').toLowerCase();
-  if (l.startsWith('en')) return 'en';
-  if (l === 'zh-tw' || l === 'zh-hant' || l.includes('tw') || l.includes('hant')) return 'zh-TW';
-  return 'zh-CN';
-}
-
 type Dict = Record<string, string>;
 
 const zhCN: Dict = {
@@ -139,6 +132,16 @@ const zhCN: Dict = {
   'settingsPage.tab.companyMatrix': '权限矩阵',
   'settingsPage.tab.oauth': '三方登录',
   'settingsPage.tab.platformStorage': '平台存储',
+  'settingsPage.tab.attachments': '附件',
+
+  // 设置 → 附件（公司附件总表）
+  'attachmentsPanel.empty': '暂无附件',
+  'attachmentsPanel.emptyDesc': '上传到工单、测试用例或需求的附件会集中显示在这里',
+  'attachmentsPanel.file': '文件',
+  'attachmentsPanel.owner': '所属',
+  'attachmentsPanel.size': '大小',
+  'attachmentsPanel.uploader': '上传者',
+  'attachmentsPanel.uploadedAt': '上传时间',
 
   // 三方登录（平台管理员）
   'oauth.desc': '配置第三方登录提供方（飞书 / Lark / GitHub）。数据库配置优先；无数据库配置时回退到环境变量。密钥使用 AES-256-GCM 加密存储，保存后不可回显。',
@@ -255,7 +258,6 @@ const zhCN: Dict = {
   'nav.section.scrum': '敏捷 Scrum',
   'nav.backlog': '产品待办',
   'nav.sprints': '迭代 Sprint',
-  'nav.section.teams': '团队',
   'nav.section.agents': 'AI Agents',
   'nav.issues': 'Issues',
 
@@ -263,7 +265,6 @@ const zhCN: Dict = {
   'view.inbox': '收件箱',
   'view.myIssues': '我的 Issues',
   'view.myIssuesSub': '指派给你或你创建的 Issue',
-  'view.teamSub': '{team} 团队',
   'view.issues': 'Issues',
 
   // issues view
@@ -596,7 +597,6 @@ const zhCN: Dict = {
 
   // project create / edit
   'projects.edit': '编辑项目',
-  'project.team': '团队',
   'project.status': '状态',
   'project.phase': '生命周期阶段',
   'project.target': '目标',
@@ -860,6 +860,16 @@ const en: Dict = {
   'settingsPage.tab.companyMatrix': 'Permission matrix',
   'settingsPage.tab.oauth': 'Third-party login',
   'settingsPage.tab.platformStorage': 'Platform storage',
+  'settingsPage.tab.attachments': 'Attachments',
+
+  // Settings → Attachments (company-wide attachment list)
+  'attachmentsPanel.empty': 'No attachments yet',
+  'attachmentsPanel.emptyDesc': 'Files uploaded to issues, test cases or requirements show up here',
+  'attachmentsPanel.file': 'File',
+  'attachmentsPanel.owner': 'Owner',
+  'attachmentsPanel.size': 'Size',
+  'attachmentsPanel.uploader': 'Uploaded by',
+  'attachmentsPanel.uploadedAt': 'Uploaded at',
 
   // Third-party login (platform admin)
   'oauth.desc': 'Configure third-party login providers (Feishu / Lark / GitHub). The database config wins; env vars are the fallback when no DB row exists. Secrets are stored AES-256-GCM encrypted and are never shown again.',
@@ -975,14 +985,12 @@ const en: Dict = {
   'nav.section.scrum': 'Agile Scrum',
   'nav.backlog': 'Backlog',
   'nav.sprints': 'Sprints',
-  'nav.section.teams': 'Teams',
   'nav.section.agents': 'AI Agents',
   'nav.issues': 'Issues',
 
   'view.inbox': 'Inbox',
   'view.myIssues': 'My Issues',
   'view.myIssuesSub': 'Issues assigned to or created by you',
-  'view.teamSub': 'Team {team}',
   'view.issues': 'Issues',
 
   'issues.new': 'New Issue',
@@ -1294,7 +1302,6 @@ const en: Dict = {
   'common.save': 'Save',
 
   'projects.edit': 'Edit project',
-  'project.team': 'Team',
   'project.status': 'Status',
   'project.phase': 'Lifecycle phase',
   'project.target': 'Target',
@@ -1549,6 +1556,16 @@ const zhTW: Dict = {
   'settingsPage.tab.companyMatrix': '權限矩陣',
   'settingsPage.tab.oauth': '三方登入',
   'settingsPage.tab.platformStorage': '平台儲存',
+  'settingsPage.tab.attachments': '附件',
+
+  // 設定 → 附件（公司附件總表）
+  'attachmentsPanel.empty': '暫無附件',
+  'attachmentsPanel.emptyDesc': '上傳到工單、測試用例或需求的附件會集中顯示在這裡',
+  'attachmentsPanel.file': '檔案',
+  'attachmentsPanel.owner': '所屬',
+  'attachmentsPanel.size': '大小',
+  'attachmentsPanel.uploader': '上傳者',
+  'attachmentsPanel.uploadedAt': '上傳時間',
 
   // 三方登入（平台管理員）
   'oauth.desc': '設定第三方登入提供方（飛書 / Lark / GitHub）。資料庫設定優先；無資料庫設定時回退到環境變數。金鑰使用 AES-256-GCM 加密儲存，儲存後不可回顯。',
@@ -1664,14 +1681,12 @@ const zhTW: Dict = {
   'nav.section.scrum': '敏捷 Scrum',
   'nav.backlog': '產品待辦',
   'nav.sprints': '迭代 Sprint',
-  'nav.section.teams': '團隊',
   'nav.section.agents': 'AI Agents',
   'nav.issues': 'Issues',
 
   'view.inbox': '收件匣',
   'view.myIssues': '我的 Issues',
   'view.myIssuesSub': '指派給你或你建立的 Issue',
-  'view.teamSub': '{team} 團隊',
   'view.issues': 'Issues',
 
   'issues.new': '新增 Issue',
@@ -1983,7 +1998,6 @@ const zhTW: Dict = {
   'common.save': '儲存',
 
   'projects.edit': '編輯專案',
-  'project.team': '團隊',
   'project.status': '狀態',
   'project.phase': '生命週期階段',
   'project.target': '目標',

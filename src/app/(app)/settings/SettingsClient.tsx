@@ -10,13 +10,22 @@ import { MatrixPanel } from '@/components/platform/MatrixPanel';
 import { OAuthProvidersPanel } from '@/components/platform/OAuthProvidersPanel';
 import { StoragePanel } from '@/components/settings/StoragePanel';
 import { StorageInfoCard } from '@/components/settings/StorageInfoCard';
+import { AttachmentsPanel } from '@/components/settings/AttachmentsPanel';
 import { Card, Row } from '@/components/settings/common';
 import { useAppData } from '@/store/AppData';
 import { useT, useLocale, useSetLocale, type Locale } from '@/lib/i18n';
 import { usePersistentState } from '@/lib/prefs';
 import { applyTheme, readThemePref, type ThemePref } from '@/lib/theme';
 
-type TabKey = 'preferences' | 'companies' | 'members' | 'matrix' | 'oauth' | 'company-matrix' | 'platform-storage';
+type TabKey =
+  | 'preferences'
+  | 'attachments'
+  | 'companies'
+  | 'members'
+  | 'matrix'
+  | 'oauth'
+  | 'company-matrix'
+  | 'platform-storage';
 
 const selectCls =
   'h-8 rounded-md border border-border-strong bg-surface px-2 text-[13px] text-fg-1 outline-none focus:border-brand-blue disabled:opacity-60';
@@ -132,10 +141,14 @@ function PreferencesPanel() {
 export default function SettingsClient({ tab: tabProp }: { tab?: string }) {
   const t = useT();
   const router = useRouter();
-  const { isPlatformAdmin, companyRole } = useAppData();
+  const { isPlatformAdmin, companyRole, can } = useAppData();
+
+  // 附件总表对任一附件宿主模块（工单/用例/需求）有读权限的成员可见。
+  const canSeeAttachments = can('issues', 'read') || can('testcases', 'read') || can('requirements', 'read');
 
   const tabs: { key: TabKey; label: string; adminOnly?: boolean; companyAdminOnly?: boolean }[] = [
     { key: 'preferences', label: t('settingsPage.tab.preferences') },
+    ...(canSeeAttachments ? [{ key: 'attachments' as TabKey, label: t('settingsPage.tab.attachments') }] : []),
     { key: 'companies', label: t('settingsPage.tab.companies'), adminOnly: true },
     { key: 'members', label: t('settingsPage.tab.members'), adminOnly: true },
     { key: 'matrix', label: t('settingsPage.tab.matrix'), adminOnly: true },
@@ -181,6 +194,7 @@ export default function SettingsClient({ tab: tabProp }: { tab?: string }) {
       ) : (
         <div className="flex min-h-0 flex-1 flex-col pt-2">
           <div className="mx-auto flex min-h-0 w-full max-w-[860px] flex-1 flex-col">
+            {tab === 'attachments' && <AttachmentsPanel />}
             {tab === 'companies' && <CompaniesPanel />}
             {tab === 'members' && <MembersPanel />}
             {tab === 'matrix' && <MatrixPanel scope="global" />}

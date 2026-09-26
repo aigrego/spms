@@ -15,7 +15,7 @@ import {
 import { addEmail, findUserByEmail, normalizeEmail, primaryEmailsFor } from '@/lib/emails';
 import { unassignMemberEverywhere } from '@/lib/assignments';
 import { ApiException } from '@/lib/envelope';
-import { ensureCurrentMember, revokeMemberProjection } from '@/lib/identity';
+import { ensureCurrentMember } from '@/lib/identity';
 import { hashPassword } from '@/lib/password';
 import {
   CONFIGURABLE_ROLES,
@@ -27,6 +27,7 @@ import {
   type CompanyMatrix,
   type Matrix,
 } from '@/lib/permissions';
+import { assertCompanyRole, deleteSeat, querySeats, setSeatRole, type CompanyRole } from './seats';
 import type { Actor } from './types';
 
 /* Platform-admin business service (multi-company sandbox): company CRUD,
@@ -38,18 +39,13 @@ import type { Actor } from './types';
    to a company they belong to (never platform-level); admins keep full
    visibility. */
 
-// The 5 built-in company roles: company_admin + the 4 configurable ones.
-export const COMPANY_ROLES = ['company_admin', ...CONFIGURABLE_ROLES] as const;
-export type CompanyRole = (typeof COMPANY_ROLES)[number];
+/* 席位共享实现落在 services/seats.ts(TKT-243);这里 re-export 保持既有
+   import 点(resources.ts、平台路由)不变。 */
+export { COMPANY_ROLES, assertNotLastCompanyAdmin } from './seats';
+export type { CompanyRole } from './seats';
 
 function requirePlatformAdmin(actor: Actor): void {
   if (!actor.isPlatformAdmin) throw new ApiException('FORBIDDEN', '需要平台管理员权限', 403);
-}
-
-function assertCompanyRole(role: string): asserts role is CompanyRole {
-  if (!(COMPANY_ROLES as readonly string[]).includes(role)) {
-    throw new ApiException('VALIDATION_FAILED', `role 必须是内置角色之一（${COMPANY_ROLES.join(' / ')}）`);
-  }
 }
 
 async function companyExists(id: string): Promise<boolean> {
@@ -270,22 +266,12 @@ export async function deleteUser(actor: Actor, userId: string) {
   return { id: userId, revokedProjections: projections.length };
 }
 
-/* ---- a company's memberships joined with the users row ---- */
+/* ---- a company's memberships joined with the users row ----
+   与 resources.listSeats 共享 querySeats(TKT-243);平台侧历史返回字段名
+   为 id,在此映射保持对外 shape 不变。 */
 export async function listMembers(actor: Actor, companyId: string) {
   requirePlatformAdmin(actor);
-  return db
-    .select({
-      id: companyMemberships.id,
-      userId: users.id,
-      username: users.username,
-      name: users.name,
-      role: companyMemberships.role,
-      createdAt: companyMemberships.createdAt,
-    })
-    .from(companyMemberships)
-    .innerJoin(users, eq(companyMemberships.userId, users.id))
-    .where(eq(companyMemberships.companyId, companyId))
-    .orderBy(asc(companyMemberships.createdAt));
+  return (await querySeats(companyId)).map(({ membershipId, ...rest }) => ({ id: membershipId, ...rest }));
 }
 
 export interface AddMemberInput {
@@ -356,52 +342,17 @@ export async function addMember(actor: Actor, companyId: string, input: AddMembe
   return { id: membershipId, userId: u.id, username: u.username, name: u.name, role: input.role };
 }
 
-/* ---- 最后一个 company_admin 保护(BUG-11):目标席位是该公司唯一的
-   company_admin 时拒绝移除/降级,防止公司失去所有管理员。研发资源页的席位
-   操作(resources.ts)也复用本函数。 ---- */
-export async function assertNotLastCompanyAdmin(
-  companyId: string,
-  membershipId: string,
-  action: string,
-): Promise<void> {
-  const admins = await db
-    .select({ id: companyMemberships.id })
-    .from(companyMemberships)
-    .where(and(eq(companyMemberships.companyId, companyId), eq(companyMemberships.role, 'company_admin')));
-  if (admins.length === 1 && admins[0].id === membershipId) {
-    throw new ApiException('VALIDATION_FAILED', `不能${action}该公司唯一的公司管理员`);
-  }
-}
-
-/* ---- change a membership's company role ---- */
+/* ---- change a membership's company role(共享实现见 services/seats.ts) ---- */
 export async function updateMemberRole(actor: Actor, companyId: string, membershipId: string, role: CompanyRole) {
   requirePlatformAdmin(actor);
-  assertCompanyRole(role);
-  const [m] = await db
-    .select({ id: companyMemberships.id })
-    .from(companyMemberships)
-    .where(and(eq(companyMemberships.id, membershipId), eq(companyMemberships.companyId, companyId)))
-    .limit(1);
-  if (!m) throw new ApiException('MEMBER_NOT_FOUND', '成员不存在');
-  if (role !== 'company_admin') await assertNotLastCompanyAdmin(companyId, membershipId, '降级');
-  await db.update(companyMemberships).set({ role }).where(eq(companyMemberships.id, membershipId));
-  return { id: membershipId, role };
+  return setSeatRole(companyId, membershipId, role);
 }
 
 /* ---- remove a membership (the user account survives; their pool projection
    is revoked too so they leave assignee candidate lists) ---- */
 export async function removeMember(actor: Actor, companyId: string, membershipId: string) {
   requirePlatformAdmin(actor);
-  const [m] = await db
-    .select({ id: companyMemberships.id, userId: companyMemberships.userId })
-    .from(companyMemberships)
-    .where(and(eq(companyMemberships.id, membershipId), eq(companyMemberships.companyId, companyId)))
-    .limit(1);
-  if (!m) throw new ApiException('MEMBER_NOT_FOUND', '成员不存在');
-  await assertNotLastCompanyAdmin(companyId, membershipId, '移除');
-  await db.delete(companyMemberships).where(eq(companyMemberships.id, membershipId));
-  await revokeMemberProjection(companyId, m.userId);
-  return { id: membershipId };
+  return deleteSeat(companyId, membershipId);
 }
 
 /* ========================= Role permission matrix ========================= */

@@ -193,53 +193,57 @@ export async function updateRole(actor: Actor, id: string, role: AssignmentRole)
     .where(and(eq(resourceAssignments.companyId, actor.companyId), eq(resourceAssignments.id, id)))
     .limit(1);
   if (!row) throw new ApiException('RESOURCE_NOT_FOUND');
-  await db.update(resourceAssignments).set({ role }).where(eq(resourceAssignments.id, id));
+  // 改角色/贬旧 lead/同步 leadId 最多 5 条写同生同灭 → 一个事务:
+  // 中途失败不再留下双 lead 或 leadId 错指的半截状态。
+  await db.transaction(async (tx) => {
+    await tx.update(resourceAssignments).set({ role }).where(eq(resourceAssignments.id, id));
 
-  if (role === 'lead') {
-    await db
-      .update(resourceAssignments)
-      .set({ role: 'member' })
-      .where(
-        and(
-          eq(resourceAssignments.companyId, actor.companyId),
-          eq(resourceAssignments.nodeType, row.nodeType),
-          eq(resourceAssignments.nodeId, row.nodeId),
-          eq(resourceAssignments.role, 'lead'),
-          ne(resourceAssignments.id, id),
-        ),
-      );
-  }
-
-  // sprint/release have no leadId column — the demotion above is all they get.
-  if (row.nodeType === 'product') {
     if (role === 'lead') {
-      await db
-        .update(products)
-        .set({ leadId: row.memberId })
-        .where(and(eq(products.companyId, actor.companyId), eq(products.id, row.nodeId)));
-    } else {
-      await db
-        .update(products)
-        .set({ leadId: null })
+      await tx
+        .update(resourceAssignments)
+        .set({ role: 'member' })
         .where(
-          and(eq(products.companyId, actor.companyId), eq(products.id, row.nodeId), eq(products.leadId, row.memberId)),
+          and(
+            eq(resourceAssignments.companyId, actor.companyId),
+            eq(resourceAssignments.nodeType, row.nodeType),
+            eq(resourceAssignments.nodeId, row.nodeId),
+            eq(resourceAssignments.role, 'lead'),
+            ne(resourceAssignments.id, id),
+          ),
         );
     }
-  } else if (row.nodeType === 'project') {
-    if (role === 'lead') {
-      await db
-        .update(projects)
-        .set({ leadId: row.memberId })
-        .where(and(eq(projects.companyId, actor.companyId), eq(projects.id, row.nodeId)));
-    } else {
-      await db
-        .update(projects)
-        .set({ leadId: null })
-        .where(
-          and(eq(projects.companyId, actor.companyId), eq(projects.id, row.nodeId), eq(projects.leadId, row.memberId)),
-        );
+
+    // sprint/release have no leadId column — the demotion above is all they get.
+    if (row.nodeType === 'product') {
+      if (role === 'lead') {
+        await tx
+          .update(products)
+          .set({ leadId: row.memberId })
+          .where(and(eq(products.companyId, actor.companyId), eq(products.id, row.nodeId)));
+      } else {
+        await tx
+          .update(products)
+          .set({ leadId: null })
+          .where(
+            and(eq(products.companyId, actor.companyId), eq(products.id, row.nodeId), eq(products.leadId, row.memberId)),
+          );
+      }
+    } else if (row.nodeType === 'project') {
+      if (role === 'lead') {
+        await tx
+          .update(projects)
+          .set({ leadId: row.memberId })
+          .where(and(eq(projects.companyId, actor.companyId), eq(projects.id, row.nodeId)));
+      } else {
+        await tx
+          .update(projects)
+          .set({ leadId: null })
+          .where(
+            and(eq(projects.companyId, actor.companyId), eq(projects.id, row.nodeId), eq(projects.leadId, row.memberId)),
+          );
+      }
     }
-  }
+  });
   return { id, role };
 }
 

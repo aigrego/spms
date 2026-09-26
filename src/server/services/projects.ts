@@ -1,6 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db';
-import { projects, teams, releases, issues, sprints } from '@/db/schema';
+import { projects, releases, issues, sprints } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import { assignMember, clearNodesAssignments, sprintsDyingWithProjects } from '@/lib/assignments';
 import { requirePerm } from '@/lib/permissions';
@@ -23,15 +23,7 @@ function requireProjectAdmin(actor: Actor) {
   }
 }
 
-// Validate that an optional team / release exists within the company.
-async function teamExists(companyId: string, id: string) {
-  const [r] = await db
-    .select({ id: teams.id })
-    .from(teams)
-    .where(and(eq(teams.companyId, companyId), eq(teams.id, id)))
-    .limit(1);
-  return !!r;
-}
+// Validate that an optional release exists within the company.
 async function releaseExists(companyId: string, id: string) {
   const [r] = await db
     .select({ id: releases.id })
@@ -43,7 +35,6 @@ async function releaseExists(companyId: string, id: string) {
 
 export interface CreateProjectInput {
   name: string;
-  teamId?: string | null;
   releaseId?: string | null;
   status?: ProjectStatus;
   leadId?: string | null;
@@ -62,40 +53,42 @@ export async function createProject(actor: Actor, input: CreateProjectInput) {
   await requirePerm(actor, 'projects', 'write');
   requireProjectAdmin(actor);
   if (!input.name.trim()) throw new ApiException('VALIDATION_FAILED', '项目名称不能为空');
-  if (input.teamId && !(await teamExists(actor.companyId, input.teamId))) throw new ApiException('TEAM_NOT_FOUND');
   if (input.releaseId && !(await releaseExists(actor.companyId, input.releaseId))) {
     throw new ApiException('RELEASE_NOT_FOUND');
   }
 
   const id = crypto.randomUUID();
-  await db.insert(projects).values({
-    id,
-    companyId: actor.companyId,
-    name: input.name.trim(),
-    teamId: input.teamId ?? null,
-    releaseId: input.releaseId ?? null,
-    status: input.status ?? 'backlog',
-    leadId: input.leadId ?? null,
-    aiLeadId: input.aiLeadId ?? null,
-    icon: input.icon ?? 'box',
-    color: input.color ?? '#0063D3',
-    target: input.target ?? null,
-    description: input.description ?? null,
-    summary: input.summary ?? null,
-    goal: input.goal ?? null,
-    nonGoals: input.nonGoals ?? null,
+  // 项目行与 lead 双写同生同灭 → 一个事务:assignMember 传入 tx(读写走同一
+  // 句柄,祖先链传播才能看到事务内未提交的项目行),中途失败不再留下
+  // "leadId 已写但虚拟团队行缺失"的半截状态。
+  await db.transaction(async (tx) => {
+    await tx.insert(projects).values({
+      id,
+      companyId: actor.companyId,
+      name: input.name.trim(),
+      releaseId: input.releaseId ?? null,
+      status: input.status ?? 'backlog',
+      leadId: input.leadId ?? null,
+      aiLeadId: input.aiLeadId ?? null,
+      icon: input.icon ?? 'box',
+      color: input.color ?? '#0063D3',
+      target: input.target ?? null,
+      description: input.description ?? null,
+      summary: input.summary ?? null,
+      goal: input.goal ?? null,
+      nonGoals: input.nonGoals ?? null,
+    });
+    // PMS-2 §2.2: lead double-write — mirror leadId/aiLeadId as virtual-team
+    // assignments (propagates up to release/product).
+    if (input.leadId) await assignMember(actor.companyId, 'project', id, input.leadId, 'lead', actor.memberId, tx);
+    if (input.aiLeadId) await assignMember(actor.companyId, 'project', id, input.aiLeadId, 'member', actor.memberId, tx);
   });
-  // PMS-2 §2.2: lead double-write — mirror leadId/aiLeadId as virtual-team
-  // assignments (propagates up to release/product).
-  if (input.leadId) await assignMember(actor.companyId, 'project', id, input.leadId, 'lead', actor.memberId);
-  if (input.aiLeadId) await assignMember(actor.companyId, 'project', id, input.aiLeadId, 'member', actor.memberId);
   const [row] = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
   return row;
 }
 
 export interface UpdateProjectInput {
   name?: string;
-  teamId?: string | null;
   releaseId?: string | null;
   status?: ProjectStatus;
   leadId?: string | null;
@@ -118,14 +111,12 @@ export async function updateProject(actor: Actor, id: string, input: UpdateProje
     .where(and(eq(projects.companyId, actor.companyId), eq(projects.id, id)))
     .limit(1);
   if (!existing) throw new ApiException('PROJECT_NOT_FOUND');
-  if (input.teamId && !(await teamExists(actor.companyId, input.teamId))) throw new ApiException('TEAM_NOT_FOUND');
   if (input.releaseId && !(await releaseExists(actor.companyId, input.releaseId))) {
     throw new ApiException('RELEASE_NOT_FOUND');
   }
 
   const patch: Partial<typeof projects.$inferInsert> = {};
   if (input.name !== undefined) patch.name = input.name;
-  if (input.teamId !== undefined) patch.teamId = input.teamId;
   if (input.releaseId !== undefined) patch.releaseId = input.releaseId;
   if (input.status !== undefined) patch.status = input.status;
   if (input.leadId !== undefined) patch.leadId = input.leadId;

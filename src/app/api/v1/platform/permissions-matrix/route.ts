@@ -1,4 +1,4 @@
-import { ok } from '@/lib/envelope';
+import { ApiException, ok } from '@/lib/envelope';
 import type { Matrix } from '@/lib/permissions';
 import { getPermissionsMatrix, savePermissionsMatrix } from '@/server/services/platform';
 import { jsonBody, requireActor, requireAdmin, route } from '@/server/http';
@@ -15,6 +15,7 @@ export const GET = route(async () => {
 export const PUT = route(async (req) => {
   const actor = await requireActor();
   requireAdmin(actor);
-  const body = await jsonBody<{ matrix: Matrix }>(req);
+  const body = await jsonBody<{ matrix?: Matrix }>(req);
+  if (!body.matrix) throw new ApiException('VALIDATION_FAILED', '缺少 matrix');
   return ok(await savePermissionsMatrix(actor, body.matrix));
 });

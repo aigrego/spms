@@ -496,7 +496,7 @@ export function SprintsView({
                     {t(`sprintStatus.${detail.status}`)}
                   </Badge>
                   <div className="ml-auto flex items-center gap-1">
-                    <ResourcePanelCompact nodeType="sprint" nodeId={detail.id} variant="compact" />
+                    <ResourcePanelCompact nodeType="sprint" nodeId={detail.id} />
                   </div>
                 </div>
                 {/* PMS-2 §6.6: a sprint may span several projects → version

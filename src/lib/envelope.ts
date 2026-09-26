@@ -17,7 +17,6 @@ export const ERROR_CODES = [
   'CONFLICT',
   'METHOD_NOT_ALLOWED',
   // auth / session
-  'UNAUTHENTICATED',
   'UNAUTHORIZED',
   'FORBIDDEN',
   'NO_COMPANY',
@@ -26,7 +25,6 @@ export const ERROR_CODES = [
   'ISSUE_NOT_FOUND',
   'SPRINT_NOT_FOUND',
   'PROJECT_NOT_FOUND',
-  'TEAM_NOT_FOUND',
   'MEMBER_NOT_FOUND',
   'INVALID_TRANSITION',
   // lifecycle catalog + requirements (PLAN-5 扩展)
@@ -65,7 +63,6 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INTERNAL: '服务内部错误',
   CONFLICT: '资源冲突',
   METHOD_NOT_ALLOWED: '该端点不支持此请求方法',
-  UNAUTHENTICATED: '未登录',
   UNAUTHORIZED: '未登录',
   FORBIDDEN: '无权访问',
   NO_COMPANY: '需要被加入一个公司',
@@ -73,7 +70,6 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   ISSUE_NOT_FOUND: 'Issue 不存在',
   SPRINT_NOT_FOUND: '迭代不存在',
   PROJECT_NOT_FOUND: '项目不存在',
-  TEAM_NOT_FOUND: '团队不存在',
   MEMBER_NOT_FOUND: '成员不存在',
   INVALID_TRANSITION: '非法的状态流转',
   PRODUCT_LINE_NOT_FOUND: '产品线不存在',

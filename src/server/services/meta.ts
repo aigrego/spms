@@ -2,7 +2,6 @@ import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   members,
-  teams,
   labels,
   projects,
   sprints,
@@ -36,10 +35,9 @@ export async function bootstrap(actor: Actor) {
   await ensureAgents(companyId);
   await ensureAiLabel(companyId);
 
-  const [memberRows, teamRows, labelRows, projectRows, sprintRows, sprintProjectRows, productLineRows, productRows, releaseRows] =
+  const [memberRows, labelRows, projectRows, sprintRows, sprintProjectRows, productLineRows, productRows, releaseRows] =
     await Promise.all([
       db.select().from(members).where(eq(members.companyId, companyId)),
-      db.select().from(teams).where(eq(teams.companyId, companyId)),
       db.select().from(labels).where(eq(labels.companyId, companyId)),
       db.select().from(projects).where(eq(projects.companyId, companyId)),
       db.select().from(sprints).where(eq(sprints.companyId, companyId)).orderBy(asc(sprints.startDate)),
@@ -128,7 +126,6 @@ export async function bootstrap(actor: Actor) {
     currentCompany,
     permissions: await permsForActor(actor),
     members: memberRows.map((m) => withCompanyRole(m, companyRoleMap)),
-    teams: teamRows,
     labels: labelRows,
     projects: visProjects.map((p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 })),
     myProjectIds,

@@ -183,7 +183,6 @@ export const releaseCreateSchema = z.object({
   status: z.enum(releaseStatusEnum.enumValues).optional(),
   phase: z.enum(lifecyclePhaseEnum.enumValues).optional(),
   targetDate: dateString.nullable().optional(),
-  progress: z.number().optional(),
   position: z.number().optional(),
 });
 export const releaseUpdateSchema = releaseCreateSchema.partial().extend({
@@ -200,7 +199,6 @@ export const sprintCreateSchema = z.object({
   endDate: dateString,
   capacity: z.number().nullable().optional(),
   projectIds: z.array(z.string()).optional(),
-  teamId: idRef,
 });
 export const sprintUpdateSchema = sprintCreateSchema.partial();
 

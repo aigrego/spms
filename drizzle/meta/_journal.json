@@ -232,6 +232,27 @@
       "when": 1790351791782,
       "tag": "0032_strange_firebrand",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790407809763,
+      "tag": "0033_certain_rawhide_kid",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790408218130,
+      "tag": "0034_skinny_richard_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790422321818,
+      "tag": "0035_opposite_ted_forrester",
+      "breakpoints": true
     }
   ]
 }

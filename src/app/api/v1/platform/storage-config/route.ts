@@ -132,7 +132,6 @@ export const PUT = route(async (req) => {
     publicBaseUrl: conf.publicBaseUrl,
     accessKeyEnc: encryptSecret(conf.accessKey),
     secretKeyEnc: encryptSecret(conf.secretKey),
-    tokenEnc: null,
     updatedAt: new Date(),
   };
 

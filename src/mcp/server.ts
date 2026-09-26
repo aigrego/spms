@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { and, asc, eq, inArray, or } from 'drizzle-orm';
 import { db } from '@/db';
-import { attachments, companies, companyMemberships, labels, members, productLines, products, projects, releases, sprints, sprintProjects, teams, users } from '@/db/schema';
+import { attachments, companies, companyMemberships, labels, members, productLines, products, projects, releases, sprints, sprintProjects, users } from '@/db/schema';
 import { ApiException, type ErrorCode } from '@/lib/envelope';
 import { ensureAgents, ensureCurrentMember } from '@/lib/identity';
 import { computeRollups } from '@/lib/rollup';
@@ -120,10 +120,9 @@ async function buildMcpActor(companyId: string, ownerId: string | null): Promise
 async function loadBootstrap(actor: Actor) {
   const companyId = actor.companyId;
   await ensureAgents(companyId);
-  const [memberRows, teamRows, labelRows, projectRows, sprintRows, sprintProjectRows, productLineRows, productRows, releaseRows] =
+  const [memberRows, labelRows, projectRows, sprintRows, sprintProjectRows, productLineRows, productRows, releaseRows] =
     await Promise.all([
       db.select().from(members).where(eq(members.companyId, companyId)),
-      db.select().from(teams).where(eq(teams.companyId, companyId)),
       db.select().from(labels).where(eq(labels.companyId, companyId)),
       db.select().from(projects).where(eq(projects.companyId, companyId)),
       db.select().from(sprints).where(eq(sprints.companyId, companyId)).orderBy(asc(sprints.startDate)),
@@ -158,7 +157,6 @@ async function loadBootstrap(actor: Actor) {
     companyRole: actor.companyRole,
     currentCompany: currentCompany ?? null,
     members: memberRows,
-    teams: teamRows,
     labels: labelRows,
     projects: (visibleProjectIds ? projectRows.filter((p) => visibleProjectIds.includes(p.id)) : projectRows).map(
       (p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 }),
@@ -372,16 +370,16 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
     async (args) =>
       run(async () => {
         const actor = await actorFor(args.companyId);
-        // The service natively filters by assignee/project; the rest are
-        // post-filtered on the serialized rows (id there is the display key).
-        const rows = await issueSvc.listIssues(actor, { assignee: args.assignee, project: args.project });
-        return rows.filter(
-          (r) =>
-            (args.status === undefined || r.status === args.status) &&
-            (args.type === undefined || r.type === args.type) &&
-            (args.priority === undefined || r.priority === args.priority) &&
-            (args.sprint === undefined || r.sprintId === args.sprint),
-        );
+        // 过滤条件全部下推到 service 的动态 conds(LIMIT 在过滤之后生效),
+        // 不做内存后过滤,避免超限公司筛选结果静默不全。
+        return issueSvc.listIssues(actor, {
+          assignee: args.assignee,
+          project: args.project,
+          status: args.status,
+          type: args.type,
+          priority: args.priority,
+          sprint: args.sprint,
+        });
       }),
   );
 
@@ -1174,7 +1172,7 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
     {
       description:
         `更新版本/Release（按 id，spms_get_bootstrap 的 releases 可查）：可改 name/description/status/phase/` +
-        `targetDate/progress/position。status：planned|in_progress|released|deprecated；` +
+        `targetDate/position。status：planned|in_progress|released|deprecated；` +
         `phase 为产品生命周期段（concept 构思→development 开发→release 发布→maintenance 维护→retired 退役），` +
         `项目卡片的生命周期进度条读它。只传要改的字段。` +
         `发布门禁：status 传 'released' 时，要求版本下所有项目的 integration 测试用例（排除 deprecated）全部 passed，` +
@@ -1188,7 +1186,6 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         status: releaseStatus.optional(),
         phase: lifecyclePhase.optional().describe('产品生命周期段'),
         targetDate: z.string().nullable().optional().describe('目标日期（ISO），传 null 清空'),
-        progress: z.number().min(0).max(1).optional().describe('进度 0–1'),
         position: z.number().optional(),
         force: z.boolean().optional().describe('发布门禁的覆盖开关（integration 用例未全过时强制发布）'),
       },

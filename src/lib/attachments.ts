@@ -21,8 +21,6 @@ export const ALLOWED_DOC_TYPES = [
   'text/markdown',
 ];
 
-export const ALLOWED_ATTACHMENT_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_DOC_TYPES];
-
 // <input accept> string — extensions are more reliable than MIME on some OSes.
 export const ATTACHMENT_ACCEPT = 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.md';
 

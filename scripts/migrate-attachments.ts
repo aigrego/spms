@@ -335,7 +335,7 @@ async function main() {
       }
       const canonical = target.backend.canonicalUrl(newKey);
       await sql`
-        UPDATE attachments SET url = ${canonical}, pathname = ${newKey}, object_key = ${newKey}
+        UPDATE attachments SET url = ${canonical}, object_key = ${newKey}
         WHERE id = ${row.id}
       `;
       written.push({ id: row.id, companyId: row.companyId, newKey, bucket: target.bucket, client: target.client });

@@ -257,10 +257,6 @@ export const platformApi = {
     (await request<RawMember[]>(`/companies/${companyId}/members`)).map(mapMember),
   addMember: async (companyId: string, input: AddMemberInput) =>
     mapMember(await request<RawMember>(`/companies/${companyId}/members`, json('POST', input))),
-  updateMemberRole: async (companyId: string, membershipId: string, role: CompanyRole) =>
-    mapMember(
-      await request<RawMember>(`/companies/${companyId}/members/${membershipId}`, json('PATCH', { role })),
-    ),
   removeMember: (companyId: string, membershipId: string) =>
     request<{ id: string }>(`/companies/${companyId}/members/${membershipId}`, { method: 'DELETE' }),
 

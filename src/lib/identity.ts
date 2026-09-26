@@ -35,6 +35,10 @@ export function initialsFor(name: string): string {
 
 export type MemberRow = typeof members.$inferSelect;
 
+/* drizzle 事务句柄(db.transaction 回调参数),供须入事务的调用点传入(与
+   catalog.ts / lib/assignments.ts 的 Tx 同一模式)。 */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 // Ensure the four AI agents exist in the given company (idempotent; seed
 // already inserts them — this is the fallback for empty databases).
 export async function ensureAgents(companyId: string): Promise<void> {
@@ -247,14 +251,16 @@ export async function ensureCurrentMember(
 /* Revoke a user's member projection in a company (seat removed): strip every
    node assignment and mark the row revoked so it leaves assignee candidate
    lists. The row itself survives — issues/activities/etc. reference it without
-   cascade. Re-granting a seat reactivates it via ensureCurrentMember. */
-export async function revokeMemberProjection(companyId: string, userId: string): Promise<void> {
-  const [m] = await db
+   cascade. Re-granting a seat reactivates it via ensureCurrentMember.
+   须与席位删除同生同灭的调用点(removeMember/removeSeat)传入 tx 一并提交。 */
+export async function revokeMemberProjection(companyId: string, userId: string, tx?: Tx): Promise<void> {
+  const dbh = tx ?? db;
+  const [m] = await dbh
     .select({ id: members.id })
     .from(members)
     .where(and(eq(members.companyId, companyId), eq(members.userId, userId)))
     .limit(1);
   if (!m) return;
-  await unassignMemberEverywhere(companyId, m.id);
-  await db.update(members).set({ status: 'revoked' }).where(eq(members.id, m.id));
+  await unassignMemberEverywhere(companyId, m.id, tx);
+  await dbh.update(members).set({ status: 'revoked' }).where(eq(members.id, m.id));
 }

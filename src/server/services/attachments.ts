@@ -1,10 +1,10 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { attachments, issues, requirements, testCases } from '@/db/schema';
 import { serializeAttachment } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { isAllowedType } from '@/lib/attachments';
-import { requirePerm, type CompanyModule } from '@/lib/permissions';
+import { levelFor, requirePerm, type CompanyModule } from '@/lib/permissions';
 import { storageForCompany, type AttachmentCategory } from '@/server/storage';
 import type { Actor } from './types';
 
@@ -139,7 +139,6 @@ export async function registerAttachment(actor: Actor, entity: AttachmentEntityR
     companyId,
     ...ownerValues(conf.fkField, entityId),
     url: meta.url,
-    pathname: meta.pathname,
     objectKey: meta.pathname,
     filename: meta.filename?.trim() || 'file',
     contentType: meta.contentType,
@@ -150,24 +149,52 @@ export async function registerAttachment(actor: Actor, entity: AttachmentEntityR
   return serializeAttachment(row);
 }
 
-/* ---- list an entity's attachments (oldest first) ---- */
-export async function listAttachments(actor: Actor, entity: AttachmentEntityRef) {
-  const conf = ENTITY_CONF[entity.type];
-  await requirePerm(actor, conf.module, 'read');
-  const entityId = await conf.findId(actor.companyId, entity.key);
-  if (!entityId) throw conf.notFound(entity.key);
+/* ---- 公司附件总表(设置 → 附件 面板):本公司全部附件,左联出归属实体的
+   展示 key/标题。读闸门:issues/testcases/requirements 任一模块 read 即可
+   (附件必挂在这三类实体之一),三者皆 none 时 403。行级隔离靠
+   attachments.companyId = actor.companyId。 */
+export async function listCompanyAttachments(actor: Actor) {
+  if (!actor.isPlatformAdmin && actor.companyRole !== 'company_admin') {
+    const levels = await Promise.all(
+      (['issues', 'testcases', 'requirements'] as const).map((m) =>
+        levelFor(actor.companyRole, m, actor.companyId),
+      ),
+    );
+    if (levels.every((l) => l === 'none')) {
+      throw new ApiException('FORBIDDEN', '没有该模块的访问权限', 403);
+    }
+  }
   const rows = await db
-    .select()
+    .select({
+      attachment: attachments,
+      issueKey: issues.key,
+      issueTitle: issues.title,
+      testCaseKey: testCases.key,
+      testCaseTitle: testCases.title,
+      requirementKey: requirements.key,
+      requirementTitle: requirements.title,
+    })
     .from(attachments)
-    .where(eq(conf.fkColumn, entityId))
-    .orderBy(asc(attachments.createdAt));
-  return rows.map(serializeAttachment);
+    .leftJoin(issues, eq(attachments.issueId, issues.id))
+    .leftJoin(testCases, eq(attachments.testCaseId, testCases.id))
+    .leftJoin(requirements, eq(attachments.requirementId, requirements.id))
+    .where(eq(attachments.companyId, actor.companyId))
+    .orderBy(desc(attachments.createdAt));
+  return rows.map((r) => ({
+    ...serializeAttachment(r.attachment),
+    owner: r.issueKey
+      ? { type: 'issue' as const, key: r.issueKey, title: r.issueTitle ?? '' }
+      : r.testCaseKey
+        ? { type: 'testCase' as const, key: r.testCaseKey, title: r.testCaseTitle ?? '' }
+        : r.requirementKey
+          ? { type: 'requirement' as const, key: r.requirementKey, title: r.requirementTitle ?? '' }
+          : null,
+  }));
 }
 
 /* ---- delete: 按行实际 owner FK 分支 requirePerm;先删 DB 行再删对象,对象
    删除失败只记告警不抛错 —— 孤儿由 scripts/reconcile-attachments.ts 对账
-   清理,不影响行已删的事实 ---- */
-export async function deleteAttachment(actor: Actor, attachmentId: string) {
+   清理,不影响行已删的事实 ---- */export async function deleteAttachment(actor: Actor, attachmentId: string) {
   const [row] = await db
     .select()
     .from(attachments)

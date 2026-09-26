@@ -1,4 +1,4 @@
-import { ok } from '@/lib/envelope';
+import { ApiException, ok } from '@/lib/envelope';
 import { getCompanyMatrix, saveCompanyMatrix } from '@/server/services/platform';
 import type { CompanyMatrix } from '@/lib/permissions';
 import { jsonBody, requireActor, route } from '@/server/http';
@@ -15,6 +15,6 @@ export const GET = route(async () => {
 export const PUT = route(async (req) => {
   const actor = await requireActor();
   const body = await jsonBody<{ matrix?: CompanyMatrix }>(req);
-  if (!body.matrix) throw new Error('缺少 matrix');
+  if (!body.matrix) throw new ApiException('VALIDATION_FAILED', '缺少 matrix');
   return ok(await saveCompanyMatrix(actor, actor.companyId, body.matrix));
 });

@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { AttachmentMeta, CreateIssueInput, UpdateIssueInput, Api } from '@/lib/api';
+import type { AttachmentMeta, CreateIssueInput, UpdateIssueInput } from '@/lib/api';
 
 /* Issue-list query. "My issues" passes the current user's member id (resolved
    from /bootstrap) as the assignee param. */
-export function useIssues(params?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean }) {
+export function useIssues(params?: { assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean }) {
   return useQuery({
     queryKey: ['issues', params ?? {}],
     queryFn: () => api.issues(params),
@@ -36,6 +36,8 @@ function useInvalidateIssues() {
     qc.invalidateQueries({ queryKey: ['requirement'] });
     // Status/storyPoints/sprintId changes move sprint stats, burndown & velocity.
     qc.invalidateQueries({ queryKey: ['sprint'] });
+    // sprintId/archive changes move issues in and out of the backlog panel.
+    qc.invalidateQueries({ queryKey: ['backlog'] });
     qc.invalidateQueries({ queryKey: ['burndown'] });
     qc.invalidateQueries({ queryKey: ['velocity'] });
   };
@@ -115,5 +117,3 @@ export function useCreateLabel() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['bootstrap'] }),
   });
 }
-
-export type { Api };

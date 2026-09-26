@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { platformApi } from '@/lib/platformApi';
 import { api } from '@/lib/api';
-import type { AddMemberInput, CompanyRole, CreateCompanyInput, CreateMcpKeyInput, PermLevel, SaveOAuthProviderInput, SavePlatformStorageInput } from '@/lib/platformApi';
+import type { AddMemberInput, CreateCompanyInput, CreateMcpKeyInput, PermLevel, SaveOAuthProviderInput, SavePlatformStorageInput } from '@/lib/platformApi';
 
 /* Platform admin React Query hooks. All platform data lives under the
    ['platform', ...] key tree; mutations invalidate their subtree only —
@@ -108,15 +108,6 @@ export function useAddMember(companyId: string) {
   const invalidate = useInvalidateMembers();
   return useMutation({
     mutationFn: (input: AddMemberInput) => platformApi.addMember(companyId, input),
-    onSuccess: () => invalidate(companyId),
-  });
-}
-
-export function useUpdateMemberRole(companyId: string) {
-  const invalidate = useInvalidateMembers();
-  return useMutation({
-    mutationFn: ({ membershipId, role }: { membershipId: string; role: CompanyRole }) =>
-      platformApi.updateMemberRole(companyId, membershipId, role),
     onSuccess: () => invalidate(companyId),
   });
 }

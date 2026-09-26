@@ -153,7 +153,6 @@ async function doEnsure(platform: PlatformStorageConfigRow, companyId: string, f
     secretKeyEnc: encryptSecret(secretKey),
     bucket: platform.bucket,
     publicBaseUrl: platform.publicBaseUrl,
-    tokenEnc: null,
     provisioned: 'auto' as const,
     updatedAt: new Date(),
   };

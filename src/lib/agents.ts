@@ -12,21 +12,12 @@ import { ensureAiLabel } from './identity';
      - portal notifications are dropped (no portal in the rewrite).
 
    This is the SINGLE extension point between "an issue was handed to an agent"
-   and "the agent does work". The CONTRACT below is the seam a future real LLM
-   worker subscribes to — the payload shape will not change. The CURRENT
+   and "the agent does work". The dispatchAgentTask signature below is the seam
+   a future real LLM worker subscribes to. The CURRENT
    implementation only writes a scripted activity stream to reproduce the
    "AI Agent workspace · live steps" feel from PMS.md. There is NO real LLM here:
    no model call, no queue, no webhook table. Replacing this body with a real
    subscriber does not touch any caller. Do NOT imply a real model is running. */
-
-export interface AgentTaskEvent {
-  companyId: string; // companies.id — the sandbox this task runs in
-  issueId: string; // internal uuid
-  agentMemberId: string; // members.id of the assigned agent
-  agentKey: string; // 'atlas' | 'forge' | 'sentry' | 'scribe' | …
-  kind: 'assigned' | string;
-  payload?: Record<string, unknown>;
-}
 
 // Scripted step text per agent role. Demo flavor only.
 const SCRIPTS: Record<string, string[]> = {

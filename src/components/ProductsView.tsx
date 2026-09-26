@@ -93,9 +93,6 @@ function CatalogModal({ state, onClose }: { state: ModalState; onClose: () => vo
         : '',
   );
   const [leadId, setLeadId] = React.useState(state.kind === 'product' ? state.entity?.leadId ?? '' : '');
-  const [progress, setProgress] = React.useState(
-    state.kind === 'release' ? Math.round((state.entity?.progress ?? 0) * 100) : 0,
-  );
   // PLC phase 挂在版本上(项目卡片的生命周期进度条读它);status=released 时
   // 默认建议 release 段,用户仍可手改。
   const [phase, setPhase] = React.useState<ProjectPhase>(
@@ -134,7 +131,6 @@ function CatalogModal({ state, onClose }: { state: ModalState; onClose: () => vo
         description,
         status: status as ReleaseStatus,
         phase,
-        progress: progress / 100,
       };
       if (editing) await updateRelease.mutateAsync({ id: e!.id, input });
       else await createRelease.mutateAsync(input);
@@ -264,17 +260,6 @@ function CatalogModal({ state, onClose }: { state: ModalState; onClose: () => vo
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="w-[120px]">
-                <span className={fieldLabel}>{t('products.releaseProgress', { pct: progress })}</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={progress}
-                  onChange={(ev) => setProgress(Number(ev.target.value))}
-                  className="mt-2 w-full accent-[var(--brand-blue)]"
-                />
               </div>
             </div>
           )}
@@ -511,7 +496,7 @@ export function ProductsView() {
 
                           {/* footer: virtual team + delivery counts */}
                           <div className="mt-3 flex items-center gap-2.5 border-t border-border pt-2.5">
-                            <ResourcePanelCompact nodeType="product" nodeId={product.id} variant="compact" />
+                            <ResourcePanelCompact nodeType="product" nodeId={product.id} />
                             <div className="flex-1" />
                             <span className="inline-flex items-center gap-1 text-[12px] text-fg-3">
                               <Box size={13} /> {projectCountForReleases(relIds)}

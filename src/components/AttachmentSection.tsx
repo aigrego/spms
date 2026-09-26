@@ -1,9 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { ChevronLeft, ChevronRight, FileText, Loader2, Paperclip, Plus, X } from 'lucide-react';
-import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { FileText, Loader2, Paperclip, Plus, X } from 'lucide-react';
+import { ImageLightbox } from '@/components/ImageLightbox';
 import { useT } from '@/lib/i18n';
 import { ATTACHMENT_ACCEPT, isImageType } from '@/lib/attachments';
 import type { IssueAttachment } from '@/lib/types';
@@ -61,23 +60,9 @@ export function AttachmentSection({
     onPreviewOpenChange?.(previewOpen);
   }, [previewOpen, onPreviewOpenChange]);
 
-  // Current lightbox attachment + wrap-around stepping across image attachments
-  // only (documents never enter the lightbox — they open in a new tab).
+  // Current lightbox attachment — index into the image-only attachment list
+  // (documents never enter the lightbox — they open in a new tab).
   const imageAttachments = items.filter((a) => isImageType(a.contentType));
-  const preview = previewIndex !== null ? (imageAttachments[previewIndex] ?? null) : null;
-  const stepImage = (delta: number) =>
-    setPreviewIndex((i) => (i === null ? i : (i + delta + imageAttachments.length) % imageAttachments.length));
-
-  // ArrowLeft/ArrowRight cycle the preview while the lightbox is open.
-  React.useEffect(() => {
-    if (!previewOpen || imageAttachments.length < 2) return;
-    const k = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') setPreviewIndex((i) => (i === null ? i : (i - 1 + imageAttachments.length) % imageAttachments.length));
-      if (e.key === 'ArrowRight') setPreviewIndex((i) => (i === null ? i : (i + 1) % imageAttachments.length));
-    };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [previewOpen, imageAttachments.length]);
 
   // Upload each picked file straight to the storage backend, then the parent
   // registers it on the entity (onUpload resolves when registration settles).
@@ -195,63 +180,7 @@ export function AttachmentSection({
       />
 
       {/* Attachment image lightbox — replaces opening the blob URL in a new tab */}
-      <Dialog open={!!preview} onOpenChange={(open) => !open && setPreviewIndex(null)}>
-        <DialogContent aria-describedby={undefined} className="w-[min(920px,94vw)] overflow-hidden">
-          <DialogPrimitive.Title className="sr-only">{preview?.filename}</DialogPrimitive.Title>
-          {preview && (
-            <div>
-              <div className="relative flex items-center justify-center bg-surface-2">
-                <img
-                  src={preview.url}
-                  alt={preview.filename}
-                  className="max-h-[76vh] w-auto max-w-full object-contain"
-                />
-                {imageAttachments.length > 1 && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => stepImage(-1)}
-                      aria-label={t('issue.prevImage')}
-                      title={t('issue.prevImage')}
-                      className="absolute left-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-black/45 text-white transition-colors hover:bg-black/65"
-                    >
-                      <ChevronLeft size={18} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => stepImage(1)}
-                      aria-label={t('issue.nextImage')}
-                      title={t('issue.nextImage')}
-                      className="absolute right-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-black/45 text-white transition-colors hover:bg-black/65"
-                    >
-                      <ChevronRight size={18} />
-                    </button>
-                  </>
-                )}
-              </div>
-              <div className="flex items-center gap-2.5 px-4 py-2.5">
-                <span className="min-w-0 flex-1 truncate text-[12.5px] text-fg-2" title={preview.filename}>
-                  {preview.filename}
-                </span>
-                {imageAttachments.length > 1 && (
-                  <span className="flex-none text-[12px] tabular-nums text-fg-3">
-                    {(previewIndex ?? 0) + 1} / {imageAttachments.length}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setPreviewIndex(null)}
-                  aria-label={t('issue.closePreview')}
-                  title={t('issue.closePreview')}
-                  className="grid h-7 w-7 flex-none place-items-center rounded-[7px] text-fg-3 hover:bg-surface-2 hover:text-fg-1"
-                >
-                  <X size={15} />
-                </button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <ImageLightbox images={imageAttachments} index={previewIndex} onIndexChange={setPreviewIndex} />
     </div>
   );
 }

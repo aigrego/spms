@@ -343,7 +343,6 @@ export interface CreateReleaseInput {
   status?: ReleaseStatus;
   phase?: LifecyclePhase;
   targetDate?: Date | string | null;
-  progress?: number;
   position?: number;
 }
 
@@ -376,7 +375,6 @@ export async function createRelease(actor: Actor, input: CreateReleaseInput) {
     status: input.status ?? 'planned',
     phase: input.phase ?? 'concept',
     targetDate: input.targetDate ? parseTargetDate(input.targetDate) : null,
-    progress: input.progress ?? 0,
     position: input.position ?? 0,
   });
   return { id, key };
@@ -389,7 +387,6 @@ export interface UpdateReleaseInput {
   status?: ReleaseStatus;
   phase?: LifecyclePhase;
   targetDate?: Date | string | null;
-  progress?: number;
   position?: number;
   /* 发布门禁覆盖:status → released 要求版本下所有项目的 integration 用例全部
      passed;force=true 跳过该门禁(谨慎使用,调用方应自行留痕)。 */
@@ -415,7 +412,6 @@ export async function updateRelease(actor: Actor, id: string, input: UpdateRelea
   if (input.status !== undefined) patch.status = input.status;
   if (input.phase !== undefined) patch.phase = input.phase;
   if (input.targetDate !== undefined) patch.targetDate = input.targetDate ? parseTargetDate(input.targetDate) : null;
-  if (input.progress !== undefined) patch.progress = input.progress;
   if (input.position !== undefined) patch.position = input.position;
   await db.update(releases).set(patch).where(eq(releases.id, id));
   return { id };

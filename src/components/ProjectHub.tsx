@@ -288,7 +288,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
                   </div>
                   {/* stop propagation so interacting with the resource panel doesn't navigate */}
                   <div onClick={(e) => e.stopPropagation()}>
-                    <ResourcePanelCompact nodeType="sprint" nodeId={s.id} variant="compact" />
+                    <ResourcePanelCompact nodeType="sprint" nodeId={s.id} />
                   </div>
                   <ChevronRight size={15} className="flex-none text-fg-3 opacity-0 transition-opacity group-hover:opacity-100" />
                 </div>

@@ -3,6 +3,7 @@ import type {
   Issue,
   IssueDetail,
   IssueAttachment,
+  CompanyAttachment,
   IssueStatus,
   IssuePriority,
   Importance,
@@ -12,9 +13,6 @@ import type {
   SprintDetail,
   Burndown,
   Velocity,
-  ProductLine,
-  Product,
-  Release,
 
   ProductStatus,
   ReleaseStatus,
@@ -74,7 +72,6 @@ export interface AttachmentMeta {
 export interface CreateIssueInput {
   title: string;
   description?: string;
-  teamId?: string;
   type?: IssueType;
   status?: IssueStatus;
   priority?: IssuePriority;
@@ -170,7 +167,6 @@ export interface ReleaseInput {
   status?: ReleaseStatus;
   phase?: ProjectPhase;
   targetDate?: string | null;
-  progress?: number;
 }
 
 export interface InviteResourceInput {
@@ -198,7 +194,6 @@ export interface Seat {
 
 export interface ProjectInput {
   name: string;
-  teamId?: string | null;
   releaseId?: string | null;
   status?: ProjectStatus;
   leadId?: string | null;
@@ -282,7 +277,7 @@ const json = (method: string, body?: unknown): RequestInit => ({
 export const api = {
   bootstrap: () => request<Bootstrap>('/bootstrap'),
 
-  issues: (params?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean }) => {
+  issues: (params?: { assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean }) => {
     const q = new URLSearchParams(
       Object.entries({
         ...params,
@@ -323,19 +318,22 @@ export const api = {
 
   deleteAttachment: (id: string) => request<{ id: string }>(`/attachments/${id}`, { method: 'DELETE' }),
 
+  /* 设置 → 附件 面板:本公司全部附件(含归属实体 key/标题)。 */
+  companyAttachments: () => request<CompanyAttachment[]>('/attachments'),
+
   toggleSub: (id: string, subId: string, status: IssueStatus) =>
     request<{ id: string; status: IssueStatus }>(`/issues/${id}/sub/${subId}`, json('PATCH', { status })),
 
   /* ---- Scrum ---- */
-  sprints: (team?: string) => request<Sprint[]>(`/sprints${team ? `?team=${team}` : ''}`),
+  sprints: () => request<Sprint[]>('/sprints'),
 
-  backlog: (team?: string) => request<Issue[]>(`/sprints/backlog${team ? `?team=${team}` : ''}`),
+  backlog: () => request<Issue[]>('/sprints/backlog'),
 
   sprint: (id: string) => request<SprintDetail | null>(`/sprints/${id}`),
 
   burndown: (id: string) => request<Burndown | null>(`/sprints/${id}/burndown`),
 
-  velocity: (team?: string) => request<Velocity>(`/sprints/velocity${team ? `?team=${team}` : ''}`),
+  velocity: () => request<Velocity>('/sprints/velocity'),
 
   moveIssueToSprint: (sprintId: string, issueId: string, storyPoints?: number | null) =>
     request<{ issueId: string; sprintId: string | null }>(
@@ -344,7 +342,6 @@ export const api = {
     ),
 
   createSprint: (input: {
-    teamId?: string | null;
     projectIds?: string[];
     name: string;
     goal?: string | null;
@@ -356,7 +353,6 @@ export const api = {
   updateSprint: (
     id: string,
     input: Partial<{
-      teamId: string | null;
       projectIds: string[];
       name: string;
       goal: string | null;
@@ -375,20 +371,17 @@ export const api = {
     request<{ sprint: Sprint; movedCount: number }>(`/sprints/${id}/complete`, { method: 'POST' }),
 
   /* ---- Lifecycle catalog: 产品线 → 产品 → 版本/Release ---- */
-  productLines: () => request<ProductLine[]>('/product-lines'),
   createProductLine: (input: { name: string; description?: string | null; color?: string }) =>
     request<{ id: string; key: string }>('/product-lines', json('POST', input)),
   updateProductLine: (id: string, input: { name?: string; description?: string | null; color?: string }) =>
     request<{ id: string }>(`/product-lines/${id}`, json('PATCH', input)),
   deleteProductLine: (id: string) => request<{ id: string }>(`/product-lines/${id}`, { method: 'DELETE' }),
 
-  products: (line?: string) => request<Product[]>(`/products${line ? `?line=${line}` : ''}`),
   createProduct: (input: ProductInput) => request<{ id: string; key: string }>('/products', json('POST', input)),
   updateProduct: (id: string, input: Partial<ProductInput>) =>
     request<{ id: string }>(`/products/${id}`, json('PATCH', input)),
   deleteProduct: (id: string) => request<{ id: string }>(`/products/${id}`, { method: 'DELETE' }),
 
-  releases: (product?: string) => request<Release[]>(`/releases${product ? `?product=${product}` : ''}`),
   createRelease: (input: ReleaseInput) => request<{ id: string; key: string }>('/releases', json('POST', input)),
   updateRelease: (id: string, input: Partial<ReleaseInput>) =>
     request<{ id: string }>(`/releases/${id}`, json('PATCH', input)),
@@ -444,7 +437,6 @@ export const api = {
   deletePlan: (id: string) => request<{ id: string }>(`/plans/${id}`, { method: 'DELETE' }),
 
   /* ---- 研发资源池 (PMS-2 §5.1) ---- */
-  resources: () => request<Member[]>('/resources'),
   inviteResource: (input: InviteResourceInput) => request<Member>('/resources/invite', json('POST', input)),
   revokeResource: (id: string) =>
     request<{ id: string; status: string }>(`/resources/${id}/revoke`, { method: 'POST' }),

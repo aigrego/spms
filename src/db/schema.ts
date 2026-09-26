@@ -2,7 +2,6 @@ import {
   pgTable,
   text,
   integer,
-  real,
   boolean,
   timestamp,
   date,
@@ -315,21 +314,6 @@ export const members = pgTable(
   ],
 );
 
-/* Teams — `key` is the issue-number prefix ("AGT"), unique per company. */
-export const teams = pgTable(
-  'teams',
-  {
-    id: text('id').primaryKey(),
-    companyId: text('company_id')
-      .references(() => companies.id, { onDelete: 'cascade' })
-      .notNull(),
-    key: text('key').notNull(),
-    name: text('name').notNull(),
-    color: text('color').notNull(),
-  },
-  (t) => [uniqueIndex('teams_key_uidx').on(t.companyId, t.key)],
-);
-
 /* Labels — `key` is a stable handle ("ai" finds the AI-生成 label),
    unique per company. */
 export const labels = pgTable(
@@ -349,13 +333,12 @@ export const labels = pgTable(
 /* Sprints (Scrum) — real dates + committed points.
    A sprint spans ONE OR MORE projects (sprint_projects join): a product split
    into module-projects runs one iteration cycle across them. release/product
-   lineage derives through the projects. teamId kept for compat. */
+   lineage derives through the projects. */
 export const sprints = pgTable('sprints', {
   id: text('id').primaryKey(),
   companyId: text('company_id')
     .references(() => companies.id, { onDelete: 'cascade' })
     .notNull(),
-  teamId: text('team_id').references(() => teams.id),
   name: text('name').notNull(),
   goal: text('goal'),
   status: sprintStatusEnum('status').notNull().default('planned'),
@@ -466,7 +449,6 @@ export const releases = pgTable(
     // the product lifecycle phase lives on the version.
     phase: lifecyclePhaseEnum('phase').notNull().default('concept'),
     targetDate: timestamp('target_date', { withTimezone: true }),
-    progress: real('progress').notNull().default(0),
     position: integer('position').notNull().default(0),
   },
   (t) => [
@@ -482,7 +464,6 @@ export const projects = pgTable('projects', {
     .references(() => companies.id, { onDelete: 'cascade' })
     .notNull(),
   name: text('name').notNull(),
-  teamId: text('team_id').references(() => teams.id),
   // the release this project delivers (nullable). Deleting the release
   // cascade-deletes its projects (cascade-down rule).
   releaseId: text('release_id').references((): any => releases.id, { onDelete: 'cascade' }),
@@ -492,7 +473,6 @@ export const projects = pgTable('projects', {
   icon: text('icon').notNull().default('box'),
   color: text('color').notNull().default('#0063D3'),
   target: text('target'),
-  progress: real('progress').notNull().default(0),
   description: text('description'),
   // 基本信息 / PRD basics surfaced on the project hub's 基本信息 tab.
   summary: text('summary'), // Executive Summary (概述)
@@ -551,9 +531,6 @@ export const issues = pgTable(
       .references(() => companies.id, { onDelete: 'cascade' })
       .notNull(),
     key: text('key').notNull(),
-    // Team concept retired from the UI: an Issue is now project-driven. teamId is
-    // kept (nullable) only for legacy sprint/team filtering, derived from the project.
-    teamId: text('team_id').references(() => teams.id),
     title: text('title').notNull(),
     description: text('description'),
     type: issueTypeEnum('type').notNull().default('ticket'),
@@ -586,7 +563,6 @@ export const issues = pgTable(
   },
   (t) => [
     uniqueIndex('issues_key_uidx').on(t.companyId, t.key),
-    index('issues_team_idx').on(t.teamId),
     index('issues_sprint_idx').on(t.sprintId),
     index('issues_project_idx').on(t.projectId),
     index('issues_assignee_idx').on(t.assigneeId),
@@ -646,7 +622,6 @@ export const attachments = pgTable(
     testCaseId: text('test_case_id').references(() => testCases.id, { onDelete: 'cascade' }),
     requirementId: text('requirement_id').references(() => requirements.id, { onDelete: 'cascade' }),
     url: text('url').notNull(),
-    pathname: text('pathname').notNull(),
     // Object key inside the company's storage backend
     // ({companyId}/{category}/{userSegment}/{fileType}/{uuid}-{safeName};
     // pre-rekey objects keep the legacy issues/{companyId}/… shape).
@@ -985,7 +960,6 @@ export const platformStorageConfigs = pgTable('platform_storage_configs', {
   secretKeyEnc: text('secret_key_enc'),
   bucket: text('bucket'),
   publicBaseUrl: text('public_base_url'),
-  tokenEnc: text('token_enc'),
   enabled: boolean('enabled').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1015,8 +989,6 @@ export const companyStorageConfigs = pgTable('company_storage_configs', {
      无路径无尾斜杠）。预签名 URL 用它签发（签名覆盖 host 头，浏览器必须按
      公网 host 请求）；null = 用上面的 endpoint 直签（纯内网部署）。 */
   publicBaseUrl: text('public_base_url'),
-  // 遗留列：vercel_blob 后端已移除（TKT-213），运行时不再读取，仅存量行可能仍有值。
-  tokenEnc: text('token_enc'),
   /* 'auto' = 由平台默认存储自动开通（MinIO 按前缀隔离的独立 IAM 用户，
      凭据由 provisioning 生成）；NULL = 管理员手动配置。 */
   provisioned: text('provisioned'),
@@ -1082,7 +1054,6 @@ export const dailyReportEntries = pgTable(
 /* Relations                                                           */
 /* ------------------------------------------------------------------ */
 export const issuesRelations = relations(issues, ({ one, many }) => ({
-  team: one(teams, { fields: [issues.teamId], references: [teams.id] }),
   assignee: one(members, { fields: [issues.assigneeId], references: [members.id] }),
   project: one(projects, { fields: [issues.projectId], references: [projects.id] }),
   requirement: one(requirements, { fields: [issues.requirementId], references: [requirements.id] }),
@@ -1144,7 +1115,6 @@ export const activitiesRelations = relations(activities, ({ one }) => ({
 }));
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
-  team: one(teams, { fields: [projects.teamId], references: [teams.id] }),
   release: one(releases, { fields: [projects.releaseId], references: [releases.id] }),
   lead: one(members, { fields: [projects.leadId], references: [members.id] }),
   aiLead: one(members, { fields: [projects.aiLeadId], references: [members.id] }),
@@ -1153,8 +1123,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   sprintProjects: many(sprintProjects),
 }));
 
-export const sprintsRelations = relations(sprints, ({ one, many }) => ({
-  team: one(teams, { fields: [sprints.teamId], references: [teams.id] }),
+export const sprintsRelations = relations(sprints, ({ many }) => ({
   issues: many(issues),
   snapshots: many(sprintSnapshots),
   sprintProjects: many(sprintProjects),
