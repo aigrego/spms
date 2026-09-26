@@ -223,6 +223,13 @@
 }
 
 /* Interaction helpers (ported from prototype index.html) */
+.select-chevron {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236e7a94' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+  padding-right: 2rem;
+}
 .hover-surface {
   transition: background 100ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }

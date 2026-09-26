@@ -9,7 +9,7 @@ import { useAddMember } from '@/store/platform';
 import { useT } from '@/lib/i18n';
 import { ROLE_LABELS } from '@/lib/platformApi';
 import type { CompanyRole } from '@/lib/platformApi';
-import { fieldLabel, inputCls } from './common';
+import { fieldLabel, inputCls, selectCls } from './common';
 
 /* 添加成员：username 已存在则直接加入；不存在且给了初始密码则新建用户并加入。
    业务错误（用户不存在且未提供初始密码 / 已是成员）内联展示。 */
@@ -78,7 +78,7 @@ export function AddMemberModal({
             </div>
             <div className="w-[140px]">
               <span className={fieldLabel}>{t('settings.role')}</span>
-              <select className={inputCls} value={role} onChange={(e) => setRole(e.target.value as CompanyRole)}>
+              <select className={selectCls} value={role} onChange={(e) => setRole(e.target.value as CompanyRole)}>
                 {(Object.keys(ROLE_LABELS) as CompanyRole[]).map((r) => (
                   <option key={r} value={r}>
                     {t(`role.${r}`)}

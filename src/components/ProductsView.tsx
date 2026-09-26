@@ -35,6 +35,7 @@ const RELEASE_STATUSES: ReleaseStatus[] = ['planned', 'in_progress', 'released',
 const fieldLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wider text-fg-3';
 const inputCls =
   'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
+const selectCls = `${inputCls} select-chevron`;
 
 type ModalState =
   | { kind: 'line'; entity?: ProductLine }
@@ -148,7 +149,7 @@ function CatalogModal({ state, onClose }: { state: ModalState; onClose: () => vo
           {state.kind === 'product' && (
             <div>
               <span className={fieldLabel}>{t('nav.products')}</span>
-              <select className={inputCls} value={parentId} onChange={(ev) => setParentId(ev.target.value)}>
+              <select className={selectCls} value={parentId} onChange={(ev) => setParentId(ev.target.value)}>
                 {productLines.map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.name}
@@ -160,7 +161,7 @@ function CatalogModal({ state, onClose }: { state: ModalState; onClose: () => vo
           {state.kind === 'release' && (
             <div>
               <span className={fieldLabel}>{t('detail.product')}</span>
-              <select className={inputCls} value={parentId} onChange={(ev) => setParentId(ev.target.value)}>
+              <select className={selectCls} value={parentId} onChange={(ev) => setParentId(ev.target.value)}>
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -189,7 +190,7 @@ function CatalogModal({ state, onClose }: { state: ModalState; onClose: () => vo
             <div className="flex gap-3">
               <div className="flex-1">
                 <span className={fieldLabel}>{t('requirements.status')}</span>
-                <select className={inputCls} value={status} onChange={(ev) => setStatus(ev.target.value)}>
+                <select className={selectCls} value={status} onChange={(ev) => setStatus(ev.target.value)}>
                   {PRODUCT_STATUSES.map((s) => (
                     <option key={s} value={s}>
                       {t(`productStatus.${s}`)}
@@ -199,7 +200,7 @@ function CatalogModal({ state, onClose }: { state: ModalState; onClose: () => vo
               </div>
               <div className="flex-1">
                 <span className={fieldLabel}>{t('products.lead')}</span>
-                <select className={inputCls} value={leadId} onChange={(ev) => setLeadId(ev.target.value)}>
+                <select className={selectCls} value={leadId} onChange={(ev) => setLeadId(ev.target.value)}>
                   <option value="">—</option>
                   {humans.map((m) => (
                     <option key={m.id} value={m.id}>
@@ -235,7 +236,7 @@ function CatalogModal({ state, onClose }: { state: ModalState; onClose: () => vo
               <div className="flex-1">
                 <span className={fieldLabel}>{t('requirements.status')}</span>
                 <select
-                  className={inputCls}
+                  className={selectCls}
                   value={status}
                   onChange={(ev) => {
                     const v = ev.target.value;
@@ -253,7 +254,7 @@ function CatalogModal({ state, onClose }: { state: ModalState; onClose: () => vo
               </div>
               <div className="flex-1">
                 <span className={fieldLabel}>{t('project.phase')}</span>
-                <select className={inputCls} value={phase} onChange={(ev) => setPhase(ev.target.value as ProjectPhase)}>
+                <select className={selectCls} value={phase} onChange={(ev) => setPhase(ev.target.value as ProjectPhase)}>
                   {PROJECT_PHASE_ORDER.map((ph) => (
                     <option key={ph} value={ph}>
                       {t(`phase.${ph}`)}

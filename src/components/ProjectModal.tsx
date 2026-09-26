@@ -17,6 +17,7 @@ const STATUSES: ProjectStatus[] = ['backlog', 'planned', 'in_progress', 'complet
 const fieldLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wider text-fg-3';
 const inputCls =
   'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
+const selectCls = `${inputCls} select-chevron`;
 
 export function ProjectModal({
   open,
@@ -126,7 +127,7 @@ export function ProjectModal({
           <div className="flex gap-3">
             <div className="flex-1">
               <span className={fieldLabel}>{t('projects.release')}</span>
-              <select className={inputCls} value={releaseId} onChange={(e) => setReleaseId(e.target.value)}>
+              <select className={selectCls} value={releaseId} onChange={(e) => setReleaseId(e.target.value)}>
                 <option value="">—</option>
                 {releaseOptions.map((r) => (
                   <option key={r.id} value={r.id}>
@@ -140,7 +141,7 @@ export function ProjectModal({
           <div className="flex gap-3">
             <div className="flex-1">
               <span className={fieldLabel}>{t('project.status')}</span>
-              <select className={inputCls} value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
+              <select className={selectCls} value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
                 {STATUSES.map((s) => (
                   <option key={s} value={s}>
                     {t(`projectStatus.${s}`)}
@@ -153,7 +154,7 @@ export function ProjectModal({
           <div className="flex gap-3">
             <div className="flex-1">
               <span className={fieldLabel}>{t('products.lead')}</span>
-              <select className={inputCls} value={leadId} onChange={(e) => setLeadId(e.target.value)}>
+              <select className={selectCls} value={leadId} onChange={(e) => setLeadId(e.target.value)}>
                 <option value="">—</option>
                 {humans.map((m) => (
                   <option key={m.id} value={m.id}>
@@ -164,7 +165,7 @@ export function ProjectModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.aiOwner')}</span>
-              <select className={inputCls} value={aiLeadId} onChange={(e) => setAiLeadId(e.target.value)}>
+              <select className={selectCls} value={aiLeadId} onChange={(e) => setAiLeadId(e.target.value)}>
                 <option value="">—</option>
                 {agents.map((m) => (
                   <option key={m.id} value={m.id}>

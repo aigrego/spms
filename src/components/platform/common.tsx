@@ -11,6 +11,7 @@ import { useT } from '@/lib/i18n';
 export const fieldLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wider text-fg-3';
 export const inputCls =
   'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
+export const selectCls = `${inputCls} select-chevron`;
 
 /* Page header — mirrors the ViewHeader pattern in ProjectsView. */
 export function PlatformHeader({
