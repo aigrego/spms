@@ -6,7 +6,7 @@
 ## 权限门（RBAC）
 
 - 每个 service 入口按「路由 → 模块」映射做 `requirePerm(actor, module, read|write)`，不足 → **403 FORBIDDEN**（真实状态码）。
-- 模块映射：`/issues*`→issues · `/requirements*`→requirements · `/plans*`→requirements（复用，不新增模块）· `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases · `/reports*|/summary`→reports。
+- 模块映射：`/issues*`→issues · `/requirements*`→requirements · `/plans*`→requirements（复用，不新增模块）· `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases · `/reports*|/summary`→reports · 附件注册/删除按归属实体模块（issues/testcases/requirements，见「Attachments」节）。
 - `company_admin` 与平台管理员恒过；`viewer` 类只读角色调写接口同样 403。
 - **项目创建/删除**额外要求 `company_admin` 或平台管理员（矩阵 projects=write 不够）。
 - bootstrap 无模块门（登录即可），返回里的 `permissions` 供前端过滤 UI。
@@ -143,6 +143,21 @@
 | GET | `/test-runs?project&category` | 测试执行历史（倒序，含逐条明细） |
 | POST | `/test-runs` | 记录一次套件执行：`{projectId\|releaseId, category, results:[{key,result,note?}], note?, raiseBugs?}`（范围二选一）；逐条更新用例 result（draft 自动转 active）并写 test_runs/test_run_items；raiseBugs=true 时 failed 项自动生成 BUG |
 
+## Attachments 附件（`/attachments*` + 实体注册路由）
+
+附件可挂在 issue / test case / requirement 上（DB 恰一 owner FK，CHECK 约束）。浏览器流 = ①`upload` 拿预签名 PUT → ②直传 MinIO → ③调对应实体的注册路由落行；MCP 流为服务端直传后走同一注册服务。对象 key 全部由服务端铸造（`{companyId}/{category}/{userSegment}/{fileType}/{uuid}-{safeName}`，category = issues/cases/requirements，userSegment = 操作人 memberId），客户端不能指定任何一段。注册闸门顺序：requirePerm（归属模块 write）→ 实体存在 → meta 非空 → key 三段比对 → contentType allow-list → ≤10MB。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/attachments/upload` | `{ action:'create-intent', filename, contentType, size, category? }` → `{ mode:'presigned-put', uploadUrl, objectKey }`；category ∈ `issues\|cases\|requirements`（默认 `issues`）；仅登录门（真正闸门在注册时）；公司未开通 → STORAGE_NOT_PROVISIONED，平台未配置 → STORAGE_NOT_CONFIGURED，总开关关 → STORAGE_DISABLED；格式/大小不符 → VALIDATION_FAILED |
+| POST | `/issues/:key/attachments` | `{ url, pathname, filename, contentType, size }` 注册为 issue 附件（模块门 issues=write；issue 不存在 → ISSUE_NOT_FOUND；key 三段比对失败/格式/大小 → VALIDATION_FAILED）→ 附件行 |
+| POST | `/test-cases/:key/attachments` | 同上，注册到测试用例（模块门 testcases=write；TEST_CASE_NOT_FOUND） |
+| POST | `/requirements/:key/attachments` | 同上，注册到需求（模块门 requirements=write；REQUIREMENT_NOT_FOUND） |
+| GET | `/attachments/object?id=\|key=` | 读取代理（私有 bucket 唯一读口）：`?id=` 行级鉴权（附件行须属当前公司），`?key=` 校验 key 内嵌 companyId；鉴权后 302 到 MinIO 短时效 presigned GET（`Cache-Control: private, no-cache`）；objectKey 为 NULL 的 Vercel 旧行 302 其存量公网 url；不存在 → ATTACHMENT_NOT_FOUND，跨公司 → FORBIDDEN |
+| DELETE | `/attachments/:id` | 删行 + 删对象（对象删除失败只告警，孤儿由对账脚本清理）；模块门按行的实际归属实体（issues/testcases/requirements write）；不存在 → ATTACHMENT_NOT_FOUND |
+
+附件响应形状：`{ id, url, pathname, objectKey, filename, contentType, size, uploadedById, createdAt }`（`url` 恒为应用内代理地址 `?id=` 形式，真实存储地址不出库）。issue/testCase/requirement 详情响应内嵌 `attachments`（列表响应为空数组）。
+
 ## Dev Plans 开发计划（`/plans*`，模块门复用 requirements）
 
 项目级 markdown 计划，经 plan_requirements 关联 N 条需求（关联键 = FR/NFR 展示 key）；status：`draft`（待生成）/ `generated`（已生成）。
@@ -213,4 +228,4 @@
 
 ## 错误码（主要）
 
-`UNAUTHORIZED` `FORBIDDEN` `NO_COMPANY`（用户无公司归属）`VALIDATION_FAILED` `NOT_FOUND` `REQUIREMENT_NOT_FOUND` `LIFECYCLE_MISMATCH` `INVITE_FAILED` `RESOURCE_REVOKED`
+`UNAUTHORIZED` `FORBIDDEN` `NO_COMPANY`（用户无公司归属）`VALIDATION_FAILED` `NOT_FOUND` `REQUIREMENT_NOT_FOUND` `LIFECYCLE_MISMATCH` `INVITE_FAILED` `RESOURCE_REVOKED` `ATTACHMENT_NOT_FOUND` `STORAGE_NOT_CONFIGURED` `STORAGE_NOT_PROVISIONED` `STORAGE_DISABLED`

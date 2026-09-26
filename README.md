@@ -17,11 +17,11 @@
 - **产品目录**：产品线 → 产品 → 版本三级生命周期管理（级联删除确认）
 - **研发资源池**：内部成员 / 外部挂名资源 / 4 个内置 AI Agent；虚拟团队指派沿生命周期传播（direct/propagated）
 - **日报系统**：每人每天一份、按产品拆条目（按 项目→版本→产品 推导归属）；产品/人员/负责人三维度汇总 + 提交统计与未提交名单；MCP 可按项目上报
-- **图片附件**：issue 图片附件存 MinIO（平台级唯一后端，平台管理员在公司管理页为每个公司手动开通按前缀隔离的独立账号；jpeg/png/gif/webp/avif，≤10MB）；MCP 可 base64 上传，`spms_get_issue` 把图片以 image 内容块内联返回给 Agent 识别
+- **图片附件**：issue / 测试用例 / 需求的图片附件存 MinIO（平台级唯一后端，平台管理员在公司管理页为每个公司手动开通按 `{companyId}/*` 前缀隔离的独立账号；对象 key 全部由服务端按 `{companyId}/{category}/{userSegment}/{fileType}/{uuid}-{safeName}` 铸造；jpeg/png/gif/webp/avif，≤10MB）；MCP 可 base64 上传（三实体各一个上传工具），`spms_get_issue` 把图片以 image 内容块内联返回给 Agent 识别
 - **Notion 集成**：`/integrations` 页公共 OAuth 连接（每公司一条，token 仅服务端保存），同步数据库/目标项目/状态映射可配；手动增量同步（`lastSyncedAt` 水位）或全量重同步（`?full=1`），单向 Notion → Issues
 - **登录认证**：账号密码（用户名可填任一邮箱）+ 飞书 / Lark / GitHub OAuth 登录（对应 env 未配置时入口自动隐藏）；`/profile` 支持绑定/解绑第三方身份与改密
 - **全局**：52px 全局 Header（公司切换器 + 角色 Badge + 全局搜索 ⌘K + 用户下拉[个人资料/浅色模式/退出登录]）、侧边栏底部「设置 / 个人资料」入口、快速新建（`c`）、浅色主题（可在设置页切深色/跟随系统）、中文界面；`/profile` 个人资料页（资料/安全/已授权应用三 Tab）支持改名与改密码
-- **MCP**：26 个 `spms_*` tools（11 读 + 15 写），DB key 鉴权（公司级自动隔离 / 平台级跨公司），见 [docs/MCP.md](docs/MCP.md)
+- **MCP**：38 个 `spms_*` tools（14 读 + 24 写），DB key 鉴权（公司级自动隔离 / 平台级跨公司），见 [docs/MCP.md](docs/MCP.md)
 
 ## 快速开始
 

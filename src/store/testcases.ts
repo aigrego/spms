@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { CreateTestCaseInput, UpdateTestCaseInput } from '@/lib/api';
+import type { AttachmentMeta, CreateTestCaseInput, UpdateTestCaseInput } from '@/lib/api';
 import type { TestCaseStatus, TestResult, TestCaseCategory } from '@/lib/types';
 
 /* Test case queries + mutations. Mirrors the requirements store. */
@@ -44,4 +44,21 @@ export function useUpdateTestCase() {
 export function useDeleteTestCase() {
   const invalidate = useInvalidateTestCases();
   return useMutation({ mutationFn: (id: string) => api.deleteTestCase(id), onSuccess: () => invalidate() });
+}
+
+export function useRegisterAttachment() {
+  const invalidate = useInvalidateTestCases();
+  return useMutation({
+    mutationFn: ({ id, meta }: { id: string; meta: AttachmentMeta }) => api.registerTestCaseAttachment(id, meta),
+    onSuccess: (_d, vars) => invalidate(vars.id),
+  });
+}
+
+export function useDeleteAttachment() {
+  const invalidate = useInvalidateTestCases();
+  return useMutation({
+    mutationFn: ({ attachmentId }: { id: string; attachmentId: string }) =>
+      api.deleteAttachment(attachmentId),
+    onSuccess: (_d, vars) => invalidate(vars.id),
+  });
 }

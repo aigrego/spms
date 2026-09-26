@@ -65,7 +65,7 @@ spms/
 │   │   ├── catalog.ts resources.ts assignments.ts testcases.ts
 │   │   ├── reports.ts            # 日报（每人每天一份,按产品拆 entries,产品/人员/负责人三维度汇总）
 │   │   ├── summary.ts            # 团队总结（周期吞吐/周期时长/验收积压/流动健康/按成员分列,读 issue_status_transitions）
-│   │   ├── attachments.ts        # issue 图片附件（本公司存储后端；storage.assertMeta 校验注册 url/objectKey）
+│   │   ├── attachments.ts        # issue/用例/需求附件（本公司存储后端；storage.assertMeta 三段比对校验注册 url/objectKey）
 │   │   ├── notionSync.ts         # Notion → Issues 同步（lastSyncedAt 水位增量 / ?full=1 全量，幂等靠 notion_issue_links）
 │   │   ├── platform.ts           # 平台管理（公司/成员/矩阵/MCP key）
 │   │   └── meta.ts             # bootstrap 聚合
@@ -75,7 +75,7 @@ spms/
 │   │   ├── minio.ts              # MinIO/S3：presigned PUT 直传 / presigned GET / putObject / removeObject / 前缀探测
 │   │   ├── mc.ts                 # mc CLI 封装（临时 --config-dir、--json、超时、错误脱敏）
 │   │   └── provision.ts          # 公司隔离自动开通：canned policy（前缀授权）+ IAM 用户 + 物化公司行（provisioned='auto'）
-│   ├── mcp/                    # server.ts（McpServer + 26 个 tools 注册）+ workflow.ts（审查/关单工作流自动化）
+│   ├── mcp/                    # server.ts（McpServer + 38 个 tools 注册）+ workflow.ts（审查/关单工作流自动化）
 │   ├── app/
 │   │   ├── (auth)/login/       # 登录页（密码 + 飞书/Lark/GitHub OAuth）
 │   │   ├── (app)/              # 主应用（Header + Sidebar 布局 + AuthGate）
@@ -206,11 +206,11 @@ issue 指派给 agent 时：挂 `AI 生成` 标签 + 把预编剧本步骤**同�
 - **连接**：`/integrations/notion/authorize`（nonce cookie CSRF，同 Lark 绑定流）→ Notion 授权 → `/callback` 用 Basic auth 换 token，按公司 upsert `notion_connections`（**每公司一条**；accessToken 仅服务端保存，任何 API 都不序列化它）。token 不过期，无 refresh。断开 = 删连接行，`notion_issue_links` 随 cascade 清除。
 - **同步**（`src/server/services/notionSync.ts`，以点击用户的 Actor 调现有 `createIssue`/`updateIssue`/`registerAttachment`，RBAC 与活动日志复用）：数据库按 `last_edited_time` 倒序翻页、越过 `lastSyncedAt` 水位即停；逐条处理，单条失败记 `errors` 继续，结束后推进水位。幂等靠 `notion_issue_links`（(connectionId, notionPageId) ↔ issueId + 页面编辑时间）。
 - **字段映射**（v1 按客户「CRM Requests」库结构硬编码属性名）：展示 key←`Id`（unique_id，如 `CRM-518`；缺失才按类型自动分配）；标题←`Name`；描述←每次更新重生成的头行（`Notion: CRM-N · 状态 · url`）+ `Request Description` 纯文本 + 页面正文 blocks 纯文本（顶层，不递归子块）；状态←`Status`（Not started→todo / In progress、More info needed→in_progress / Ready for testing→testing / Done、Closed→done / No progress→canceled；归档优先→canceled；未知名创建按 todo、更新不动）；类型←`Tags`（BUGS→bug，Feature/Updated/Change→ticket，默认 bug）；指派人←`Assigned To` 第一人 email 先经 `user_emails`（主/备，大小写不敏感）匹配平台用户的本公司 member 投影，回退 `members.email`（外部邀请/存量行；无 email 能力时更新不动）。老数据追平（页面未变更也执行）：key 追平为 unique_id（被占用则保留原 key 并记入 errors）；映射状态与现值不一致时照常走完整更新。
-- **附件**（仅新建时同步，v1 不做 diff）：`Files & media` 里的图片（按扩展名判断）+ 页面 image blocks → 下载（预签名 URL，>10MB 跳过）→ 服务端 `put` 到**本公司配置的存储后端**（`storageForCompany`）→ `registerAttachment`。
+- **附件**（仅新建时同步，v1 不做 diff）：`Files & media` 里的图片（按扩展名判断）+ 页面 image blocks → 下载（预签名 URL，>10MB 跳过）→ 服务端 `put` 到**本公司配置的存储后端**（`storageForCompany`，对象 key 的 userSegment 固定保留字 `system`，DB `uploadedById` 仍记同步操作人作审计）→ `registerAttachment`。
 
 ## 文件存储（平台级 MinIO 唯一后端 + 公司隔离账号）
 
-附件存储后端已收敛为 **MinIO（S3 兼容，自托管）唯一后端**——Vercel Blob 已移除（TKT-213），旧数据仅保留 302 只读兼容（见下）：
+附件存储后端已收敛为 **MinIO（S3 兼容，自托管）唯一后端**——Vercel Blob 已移除（TKT-213），旧数据仅保留 302 只读兼容（见下）；ATTACHMENT-REKEY（PLAN-8）把对象 key 重键为 `{companyId}/{category}/{userSegment}/{fileType}/{uuid}-{safeName}` 五级规则，并把附件能力从仅 issue 泛化到 **issue / 测试用例 / 需求** 三类实体（`attachments` 表三 FK 恰一非空，CHECK 约束，见 DATA-MODEL.md）：
 
 - **平台级**：`platform_storage_configs` 表（单行），平台管理员在 设置→平台存储 维护，是全平台唯一的存储配置来源；`enabled` 为平台总开关——`false` 时全平台存储**读写全禁**（`STORAGE_DISABLED`）。
 - **公司级**：`company_storage_configs` 表，公司不再自助配置（公司侧 设置→文件存储 为只读状态，`GET /api/v1/pms/storage-config`）；行由平台管理员在 设置→公司管理 手动「开通存储」物化（`POST /api/v1/platform/companies/:id/storage` → `provision.ts`，`provisioned='auto'`；历史手动配置行 `provisioned IS NULL` 继续生效）。
@@ -220,8 +220,8 @@ issue 指派给 agent 时：挂 `AI 生成` 标签 + 把预编剧本步骤**同�
 
 平台默认 MinIO 时，公司为粒度做**凭据级物理隔离 + MinIO 服务端权限强制**，而不是只靠应用层自觉：
 
-- **模型**：所有公司共用一个私有 bucket（平台配置指定）；每个公司一对独立 IAM 用户（`spms-<cid8>`）+ 一条 canned policy（`spms-co-<cid8>`），策略只允许 `s3:GetObject/PutObject/DeleteObject` 等作用于 `arn:aws:s3:::<bucket>/issues/{companyId}/*`（ListBucket 带 `s3:prefix` 条件）。拿 A 公司密钥读 B 公司对象，MinIO 直接 AccessDenied。
-- **手动开通**（`src/server/storage/provision.ts`）：平台管理员在 设置→公司管理 点「开通存储」（`POST /api/v1/platform/companies/:id/storage`，body `{ force? }` 可省略）触发——`mc mb --ignore-existing` 确保 bucket → `mc admin policy create` 写入前缀策略 → `mc admin user add` 生成随机密钥的用户 → `mc admin policy attach` 绑定 → 用受限凭据在公司前缀下 put/del 探测端到端验证 → 探测通过后把凭据（AES-256-GCM）物化进 `company_storage_configs`（`provisioned='auto'`，endpoint/bucket/publicBaseUrl 拷贝自平台行）。默认幂等（已有公司行，含历史手动配置行，直接返回不覆盖）；`force=true` 重跑并覆盖行（`mc admin user add` 覆盖密钥 = 密钥轮换）。运行时**无惰性开通**（公司无行即 `STORAGE_NOT_PROVISIONED`）；进程内按公司互斥，竞态由「MinIO 侧后写覆盖 + 探测不过不落行」收敛。
+- **模型**：所有公司共用一个私有 bucket（平台配置指定）；每个公司一对独立 IAM 用户（`spms-<cid8>`）+ 一条 canned policy（`spms-co-<cid8>`），策略只允许 `s3:GetObject/PutObject/DeleteObject` 等作用于 `arn:aws:s3:::<bucket>/{companyId}/*`（ListBucket 带 `s3:prefix` 条件）——公司 ID 提为 key 第一段后，一段前缀即覆盖该公司全部附件对象（issues/cases/requirements 天然入隔离域）。拿 A 公司密钥读 B 公司对象，MinIO 直接 AccessDenied。**重键过渡期双前缀**：重键前的存量对象在旧前缀 `issues/{companyId}/*` 下，`companyPolicyDocument(bucket, cid, { includeLegacy: true })` 额外放行该前缀（迁移窗口内旧 key 仍可读删）；已开通公司由 `scripts/reprovision-policies.ts` 默认双前缀重发并逐公司回读校验，用户手动删完旧对象后以 `--tighten` 重跑收紧为仅 `{companyId}/*`。
+- **手动开通**（`src/server/storage/provision.ts`）：平台管理员在 设置→公司管理 点「开通存储」（`POST /api/v1/platform/companies/:id/storage`，body `{ force? }` 可省略）触发——`mc mb --ignore-existing` 确保 bucket → `mc admin policy create` 写入前缀策略（新开通只写 `{companyId}/*` 单前缀，不含 legacy）→ `mc admin user add` 生成随机密钥的用户 → `mc admin policy attach` 绑定 → 用受限凭据在公司前缀下 put/del 探测端到端验证 → 探测通过后把凭据（AES-256-GCM）物化进 `company_storage_configs`（`provisioned='auto'`，endpoint/bucket/publicBaseUrl 拷贝自平台行）。默认幂等（已有公司行，含历史手动配置行，直接返回不覆盖）；`force=true` 重跑并覆盖行（`mc admin user add` 覆盖密钥 = 密钥轮换；**旧凭据即丢**，手动行公司 force 重开通前必须先 `migrate-attachments.ts --backup-configs` 快照）。运行时**无惰性开通**（公司无行即 `STORAGE_NOT_PROVISIONED`）；进程内按公司互斥，竞态由「MinIO 侧后写覆盖 + 探测不过不落行」收敛。
 - **平台凭据要求**：必须有 MinIO 管理员权限（建用户/策略是 admin 操作）——root，或专用 `spms-provisioner` 用户。最小准备命令（运维一次执行）：
   ```bash
   mc alias set myminio https://<endpoint> <rootAK> <rootSK>
@@ -234,17 +234,27 @@ issue 指派给 agent 时：挂 `AI 生成` 标签 + 把预编剧本步骤**同�
   ```bash
   mc admin user remove myminio spms-<cid8>
   mc admin policy remove myminio spms-co-<cid8>
+  mc rm --recursive --force myminio/<bucket>/<companyId>/
+  # 重键前的旧对象另在 legacy 前缀下（过渡期未清理时）：
   mc rm --recursive --force myminio/<bucket>/issues/<companyId>/
   ```
 
-### 应用层隔离与读取链路（不变）
+### 对象 key 规则与应用层隔离
 
-- **公司隔离**：对象 key 一律 `issues/{companyId}/…`（服务端生成，客户端不能自选）；上传签发、注册校验（`storage.assertMeta`）、删除、读取都钉死本公司前缀——应用层校验作为 MinIO 策略之外的第二道防线。
-- **私有 bucket + 代理读取**：对象不公网可读；所有读取走 `GET /api/v1/pms/attachments/object`（`?id=` 附件行级鉴权 / `?key=` key 内嵌 companyId 比对），鉴权后 302 到 MinIO 短时效 presigned GET，`Cache-Control: private, no-cache`。`<img>`、markdown 嵌入图、MCP 读图全部经由它（MCP 走 `storage.get` 直读）。`issue_attachments.url` 存的是后端规范地址（身份标识），`object_key` 存 key；`object_key` 为 NULL 的存量行 = 平台级 Vercel Blob 旧数据，代理直接 302 到其存量公网 url（只读兼容，不再依赖任何 Vercel SDK）。
-- **浏览器直传**（唯一协议 presigned-put）：`POST /attachments/upload`（`action:'create-intent'`）签发上传意图——MinIO presigned PUT（bucket 需配 CORS 允许本站来源的 PUT），客户端按签发 URL 直传；objectKey 服务端生成，前缀校验带 companyId。
+- **key 规则（五级段序，服务端铸造）**：`{companyId}/{category}/{userSegment}/{fileType}/{uuid}-{safeName}`（`src/server/storage/types.ts`），客户端不能指定任何一段：
+  - `companyId`——第一段即公司隔离边界（IAM 策略一段前缀覆盖公司全部对象）；
+  - `category`——归属实体 `issues` / `cases` / `requirements`，由实体类型经服务端单点映射（注册路由按实体固定；上传意图入参是受限枚举，默认 `issues`）；
+  - `userSegment`——上传人 memberId（服务端取自 actor，客户端不可指定）；Notion 同步来源与无 member 投影的操作者落保留字 `system`（member id 是 uuid，不会撞保留字）；历史行迁移时取 `uploadedById ?? 'system'`；
+  - `fileType`——由 contentType(MIME) 三桶推导（`fileTypeOf()`，`src/lib/attachments.ts`，client/server/script 三处共用）：`image/*` → `images`，文档 allow-list → `documents`，其余/空 → `others`；不做魔数嗅探，新上传已过 allow-list 校验实际只落 images/documents，`others` 仅为历史脏 contentType 行兜底；
+  - `uuid` 保证唯一（不依赖随机后缀），`safeName` 沿用 sanitizer 保持可读。
+- **双格式兼容（`LEGACY-KEY:` 标记分支）**：重键前旧 key `issues/{companyId}/{uuid}-{safeName}` 在过渡期内**可读可删**——`assertOwnKey` / `companyIdFromKey` 双格式解析（仅读/删路径）；写路径（`put` / `createUploadIntent` / `assertMeta`）只产新格式、只认新格式。兼容分支统一标 `LEGACY-KEY:` 注释，待旧对象手动清理且策略 tighten 后另行删除。
+- **公司隔离**：上传签发、注册校验（`storage.assertMeta`：key 前缀 + category 段 + userSegment 段三重比对，错 category 或他人 userSegment 的 key 一律 `VALIDATION_FAILED`）、删除、读取都钉死本公司前缀——应用层校验作为 MinIO 策略之外的第二道防线。
+- **私有 bucket + 代理读取**：对象不公网可读；所有读取走 `GET /api/v1/pms/attachments/object`（`?id=` 附件行级鉴权 / `?key=` key 内嵌 companyId 比对——`companyIdFromKey` 双格式，新旧 key 均兼容），鉴权后 302 到 MinIO 短时效 presigned GET，`Cache-Control: private, no-cache`。`<img>`、markdown 嵌入图、MCP 读图全部经由它（MCP 走 `storage.get` 直读）。`attachments.url` 存的是后端规范地址（身份标识），`object_key` 存 key；`object_key` 为 NULL 的存量行 = 平台级 Vercel Blob 旧数据（迁移失败/未迁移），代理直接 302 到其存量公网 url（只读兼容，不再依赖任何 Vercel SDK）。
+- **浏览器直传**（唯一协议 presigned-put）：`POST /attachments/upload`（`action:'create-intent'`，入参含受限枚举 `category`，默认 `issues`）签发上传意图——MinIO presigned PUT（bucket 需配 CORS 允许本站来源的 PUT），客户端按签发 URL 直传；objectKey 服务端按新规则铸造（userSegment 恒为操作人 memberId，无 member 投影落 `system`）。
 - **内外网分离（publicBaseUrl）**：V4 预签名覆盖 host 头，浏览器必须按签发的 host 请求。站点经域名/反代访问时，在配置里填 `publicBaseUrl`（如 `https://s3.innev.cn`）：presigned PUT/GET 与规范 url 都按公网基址签发（专用客户端，region 写死 us-east-1 避免向公网地址发探活请求），服务端 put/get/del 与「测试连接」仍走内网 endpoint；留空 = 纯内网部署，按 endpoint 直签。规范化存储（默认端口省略、无路径无尾斜杠），与 minio-js 渲染规则一致，保证注册时 `assertMeta` 的 url 逐字节匹配。
 - **密钥安全**：accessKey/secretKey 经 `src/server/crypto.ts`（AES-256-GCM，密钥 = env `CONFIG_CRYPTO_KEY`）密文落库，平台级 API 只回 `hasAccessKey/hasSecretKey`（PUT 不传 = 保留旧值）；公司级无写 API，secret 永不回显（只回标识性 `account`）。
-- **对账**：`scripts/reconcile-attachments.ts` 遍历有配置的公司逐家对账（MinIO listObjectsV2），无配置公司跳过；存量旧行（object_key NULL）不再对账——`@vercel/blob` 已移除，此类行若需清理只删 DB 行、不触碰远端对象。
+- **对账**（`scripts/reconcile-attachments.ts`）：遍历有配置的公司逐家对账（MinIO listObjectsV2），无配置公司跳过。重键后语义：list 前缀切到 `{companyId}/`——旧前缀 `issues/{companyId}/` 对象天然不可见，不误报孤儿，也绝不替用户删旧对象；DB 侧不再 join issues，按 `attachments` 三 FK（issue / case / requirement）分列统计；`--min-age-days`（默认 7）护栏跳过最近 N 天内新建的未注册对象不删——评论粘贴图从未注册为附件行（既有缺陷），会被判为孤儿，护栏防刚粘贴的图被误删（根修另立项）。**迁移脚本 apply 完成前不要对本表 `--apply`**：窗口内 DB 行还是旧 key、list 前缀已切，全部存量行会被误判死链。存量旧行（object_key NULL）不再对账——`@vercel/blob` 已移除，VERCEL 死链只报告不处置，清理只删 DB 行、不触碰远端对象。
+- **历史迁移**（`scripts/migrate-attachments.ts`，一次性，默认 dry-run）：把三个时代的历史附件**只拷不删**地迁到新规则位置并清洗 DB 行地址。四类源：`NEW_FMT`（objectKey 命中 `^{companyId}/` → 跳过，幂等可反复跑）/ `LEGACY_SHARED`（`^issues/{companyId}/` 且公司行 auto → 同 bucket `copyObject`，字节不落盘）/ `LEGACY_MANUAL`（手动配置行或快照分叉 → 用 `--backup-configs` 快照里的旧凭据建源 client `getObject`）/ `VERCEL`（object_key NULL → 公网 `fetch` 行.url）；`--probe` 可达性探测出预计失败清单（VERCEL 走 HEAD、MinIO 走 statObject）；`--apply` 逐行 取回/拷贝 → 新 key put（写入端用公司 auto 受限凭据，pin `region:'us-east-1'`）→ `UPDATE attachments` 改 url/pathname/object_key（url 复用 `minioBackend().canonicalUrl`，不自拼），单行失败记录继续，收尾重扫 + 全部新 key statObject 抽验。红线：脚本无 `removeObject` / `DELETE FROM`，绝不删源对象、绝不删 DB 行；解密凭据只进内存不写日志。配套 `scripts/reprovision-policies.ts` 只动 canned policy（双前缀重发 / `--tighten` 收紧，create-or-replace 防御 + 回读逐字节校验），不碰 IAM user / secret / DB 行 / 对象。
 
 ## 三方登录（设置 → 三方登录，平台级）
 

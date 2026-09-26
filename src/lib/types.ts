@@ -195,6 +195,7 @@ export interface Requirement {
   position: number;
   issues: string[]; // linked issue keys
   issueStats: { total: number; done: number };
+  attachments: IssueAttachment[]; // detail 查询加载;列表响应为空数组
   createdAt: string;
   updatedAt: string;
 }
@@ -222,6 +223,7 @@ export interface TestCase {
   authorId: string | null;
   assigneeId: string | null;
   position: number;
+  attachments: IssueAttachment[]; // detail 查询加载;列表响应为空数组
   createdAt: string;
   updatedAt: string;
 }

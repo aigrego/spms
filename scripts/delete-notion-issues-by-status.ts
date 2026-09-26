@@ -2,7 +2,7 @@
  * One-off cleanup (2026-07): 物理删除 Notion 中当前状态为 "More info needed" /
  * "Approval needed" 的已同步 issue。Notion 库为真源:按状态过滤查出页面,
  * 经 notion_issue_links 定位 issue 后 DELETE(关联表均 FK cascade);附件的
- * issue_attachments 行随之级联删除。存储对象不在此显式清理(TKT-213 后
+ * attachments 行随之级联删除。存储对象不在此显式清理(TKT-213 后
  * @vercel/blob 已移除;MinIO 孤儿对象由 scripts/reconcile-attachments.ts 对账回收)。
  *
  * 用法:
@@ -131,7 +131,7 @@ async function main() {
       // reconcile-attachments 对账回收)。先查出数量,dry-run 也能看到。
       const ids = rows.map((r) => r.issue_id);
       const atts = await sql<{ id: string }[]>`
-        SELECT id FROM issue_attachments WHERE issue_id = ANY(${ids})
+        SELECT id FROM attachments WHERE issue_id = ANY(${ids})
       `;
       if (atts.length) console.log(`  关联附件 ${atts.length} 个(行随级联删除,对象留作对账孤儿)`);
       if (apply) {

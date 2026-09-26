@@ -61,7 +61,8 @@ export class ApiError extends Error {
   }
 }
 
-/* Metadata of an already-uploaded blob, registered as an issue attachment. */
+/* Metadata of an already-uploaded blob, registered as an attachment on an
+   issue / test case / requirement. */
 export interface AttachmentMeta {
   url: string;
   pathname: string;
@@ -313,6 +314,12 @@ export const api = {
 
   registerAttachment: (issueKey: string, meta: AttachmentMeta) =>
     request<IssueAttachment>(`/issues/${issueKey}/attachments`, json('POST', meta)),
+
+  registerTestCaseAttachment: (key: string, meta: AttachmentMeta) =>
+    request<IssueAttachment>(`/test-cases/${key}/attachments`, json('POST', meta)),
+
+  registerRequirementAttachment: (key: string, meta: AttachmentMeta) =>
+    request<IssueAttachment>(`/requirements/${key}/attachments`, json('POST', meta)),
 
   deleteAttachment: (id: string) => request<{ id: string }>(`/attachments/${id}`, { method: 'DELETE' }),
 

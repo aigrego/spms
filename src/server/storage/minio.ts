@@ -1,6 +1,7 @@
 import * as Minio from 'minio';
+import { fileTypeOf } from '@/lib/attachments';
 import { ApiException } from '@/lib/envelope';
-import { assertOwnKey, newObjectKey, type StorageBackend, type UploadIntent } from './types';
+import { assertOwnKey, categoryFromKey, newObjectKey, objectKeyPrefix, type StorageBackend, type UploadIntent } from './types';
 
 /* MinIO (S3-compatible) backend. The bucket is expected to be PRIVATE — all
    reads go through the app's /attachments/object proxy, which 302s to a
@@ -95,14 +96,17 @@ export function minioBackend(companyId: string, conf: MinioConfig): StorageBacke
     kind: 'minio',
     companyId,
 
-    async createUploadIntent(filename: string): Promise<UploadIntent> {
-      const objectKey = newObjectKey(companyId, filename);
+    async createUploadIntent(filename, keying): Promise<UploadIntent> {
+      const objectKey = newObjectKey(companyId, keying.category, keying.userSegment, fileTypeOf(keying.contentType), filename);
       const uploadUrl = await presignClient.presignedPutObject(conf.bucket, objectKey, PUT_EXPIRY_S);
       return { mode: 'presigned-put', uploadUrl, objectKey };
     },
 
     async put(objectKey, body, contentType) {
-      assertOwnKey(companyId, objectKey);
+      // 写路径只认新格式前缀（get/getReadUrl/del 才走 assertOwnKey 的双格式兼容）。
+      if (!objectKey.startsWith(objectKeyPrefix(companyId))) {
+        throw new Error(`object key ${objectKey} 不是公司 ${companyId} 的新格式 key（写路径不接受 legacy key）`);
+      }
       await client.putObject(conf.bucket, objectKey, body, body.length, { 'Content-Type': contentType });
     },
 
@@ -126,9 +130,17 @@ export function minioBackend(companyId: string, conf: MinioConfig): StorageBacke
 
     canonicalUrl,
 
-    assertMeta(url, objectKey) {
-      if (!objectKey.startsWith(`issues/${companyId}/`)) {
+    assertMeta(url, objectKey, expected) {
+      // 注册校验只认新格式：前缀 + category 段 + userSegment 段三重比对——
+      // 客户端上报错 category 段或他人 userSegment 段的 key 一律拒绝。
+      if (!objectKey.startsWith(objectKeyPrefix(companyId))) {
         throw new ApiException('VALIDATION_FAILED', '附件 objectKey 与签发前缀不一致');
+      }
+      if (categoryFromKey(objectKey) !== expected.category) {
+        throw new ApiException('VALIDATION_FAILED', '附件 objectKey 与签发 category 不一致');
+      }
+      if (objectKey.split('/')[2] !== expected.userSegment) {
+        throw new ApiException('VALIDATION_FAILED', '附件 objectKey 与签发用户不一致');
       }
       if (url !== canonicalUrl(objectKey)) {
         throw new ApiException('VALIDATION_FAILED', '附件 url 不属于本存储后端');

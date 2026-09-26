@@ -126,7 +126,7 @@ export function NewIssueModal({
           failed: false,
         },
       ]);
-      uploadAttachment(file)
+      uploadAttachment(file, 'issues')
         .then((meta) =>
           setPending((p) => p.map((x) => (x.key === key ? { ...x, meta, uploading: false } : x))),
         )

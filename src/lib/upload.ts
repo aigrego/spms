@@ -1,5 +1,6 @@
 import type { AttachmentMeta } from './api';
 import { isAllowedType } from './attachments';
+import type { AttachmentCategory } from '@/server/storage/types';
 
 /* Client-direct attachment upload over the company's provisioned MinIO
    storage (公司存储行由平台管理员开通,公司不再自助配置). Single protocol:
@@ -23,7 +24,9 @@ interface Intent {
   uploadUrl?: string;
 }
 
-async function createIntent(file: File): Promise<Intent> {
+/* category 只是 intent 的受限枚举入参(issues/cases/requirements);key 的
+   userSegment 与其余各段一律由服务端铸造,客户端不能指定。 */
+async function createIntent(file: File, category: AttachmentCategory): Promise<Intent> {
   const res = await fetch('/api/v1/pms/attachments/upload', {
     method: 'POST',
     credentials: 'same-origin',
@@ -33,6 +36,7 @@ async function createIntent(file: File): Promise<Intent> {
       filename: file.name,
       contentType: file.type,
       size: file.size,
+      category,
     }),
   });
   const env = (await res.json().catch(() => null)) as
@@ -44,7 +48,7 @@ async function createIntent(file: File): Promise<Intent> {
   return env.data;
 }
 
-export async function uploadAttachment(file: File): Promise<AttachmentMeta> {
+export async function uploadAttachment(file: File, category: AttachmentCategory = 'issues'): Promise<AttachmentMeta> {
   if (!isAllowedType(file.type)) {
     throw new Error('不支持的附件格式');
   }
@@ -52,7 +56,7 @@ export async function uploadAttachment(file: File): Promise<AttachmentMeta> {
     throw new Error('附件大小需在 10MB 以内');
   }
 
-  const intent = await createIntent(file);
+  const intent = await createIntent(file, category);
 
   // MinIO: 直传到 presigned URL(bucket 需配 CORS 允许本站 PUT)。
   const res = await fetch(intent.uploadUrl!, { method: 'PUT', body: file });

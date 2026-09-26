@@ -12,6 +12,7 @@ import {
   type NotionBlockObject,
   type NotionPageObject,
 } from '@/server/notion';
+import { fileTypeOf } from '@/lib/attachments';
 import { newObjectKey, storageForCompany } from '@/server/storage';
 import { registerAttachment } from './attachments';
 import { createIssue, updateIssue, type IssueStatus, type IssueType } from './issues';
@@ -290,9 +291,10 @@ async function syncAttachments(
       const safeName = c.name.split(/[\\/]/).pop() || 'image';
       // 服务端旁路上传 → 本公司配置的存储后端(无配置时整页报错,符合零兜底约定)。
       const storage = await storageForCompany(actor.companyId);
-      const objectKey = newObjectKey(actor.companyId, safeName);
+      // Notion 同步来源的附件固定落 system 段（DB uploadedById 仍记同步操作人，作审计）。
+      const objectKey = newObjectKey(actor.companyId, 'issues', 'system', fileTypeOf(contentType), safeName);
       await storage.put(objectKey, dl.buffer, contentType);
-      await registerAttachment(actor, issueKey, {
+      await registerAttachment(actor, { type: 'issue', key: issueKey }, {
         url: storage.canonicalUrl(objectKey),
         pathname: objectKey,
         filename: safeName,

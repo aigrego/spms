@@ -11,7 +11,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ### key 能力、有效期与使用记录
 
-- **能力上限**（`capabilities`，逗号分隔）：`read` = 13 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`）；`write` = 21 个写工具；`delete` 预留（当前无删除类工具）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
+- **能力上限**（`capabilities`，逗号分隔）：`read` = 14 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`）；`write` = 24 个写工具；`delete` 预留（当前无删除类工具）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
 - **有效期**（`expiresAt`，NULL = 永久）：到期后鉴权直接 401，无需吊销。
 - **最近使用**（`lastUsedAt`）：每次通过 MCP 鉴权时刷新（60s 节流），在令牌列表展示。
   2. **env 兜底**：未命中 DB 时回退到 env `MCP_API_KEY`（逗号分隔多个），一律视为**平台级** key（开发兼容）。
@@ -49,7 +49,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## Tools
 
-共 **34 个**（读 13 + 写 21）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
+共 **38 个**（读 14 + 写 24）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
 
 ### 读
 
@@ -80,6 +80,8 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_update_issue` | `key, ...任意可更新字段, force?` | 改状态/指派/优先级/标题/描述等。`status='done'` 且当前不在 testing → 拦截落库 `testing`，未显式传 `assigneeId` 时自动指派测试人员并写说明评论；testing → done 过测试关单门禁（关联用例须全部 passed，否则 TESTS_NOT_PASSED），`force=true` 强制关单 |
 | `spms_add_comment` | `key, body` | 给 issue 加评论 |
 | `spms_upload_issue_attachment` | `key, filename, data, contentType?` | 上传图片附件（data 为 base64；≤10MB，jpeg/png/gif/webp/avif）。配合 `spms_update_issue`（status='done'）实现"传图并关单" |
+| `spms_upload_test_case_attachment` | `key, filename, data, contentType?` | 上传图片附件到测试用例（key 为 TC-N；其余同上）。典型用法：执行用例后上传结果截图 |
+| `spms_upload_requirement_attachment` | `key, filename, data, contentType?` | 上传图片附件到需求（key 为 FR-N / NFR-N；其余同上）。典型用法：维护 PRD 时上传原型稿/流程图 |
 | `spms_create_requirement` | `projectId, title, type?, category?, priority?, importance?, description?, acceptanceCriteria?, releaseId?, assigneeId?` | 创建需求（自动分配 FR/NFR key）；assigneeId 指派负责人 |
 | `spms_update_requirement` | `key, ...` | 更新需求；assigneeId 指派负责人（null 取消） |
 | `spms_decompose_requirement` | `key` | **新增**：把需求拆解为工单（按验收标准逐行、空则回退 PRD 描述逐行；继承项目/紧急度/重要度，一次最多 20 条、key 连号） |

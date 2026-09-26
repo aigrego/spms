@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { CreateRequirementInput, UpdateRequirementInput } from '@/lib/api';
+import type { AttachmentMeta, CreateRequirementInput, UpdateRequirementInput } from '@/lib/api';
 import type { RequirementType } from '@/lib/types';
 
 /* Requirements / PRD queries + mutations. The linked-issue counts are derived
@@ -72,5 +72,22 @@ export function useDecomposeRequirement() {
       invalidate(id);
       qc.invalidateQueries({ queryKey: ['issues'] });
     },
+  });
+}
+
+export function useRegisterAttachment() {
+  const invalidate = useInvalidateRequirements();
+  return useMutation({
+    mutationFn: ({ id, meta }: { id: string; meta: AttachmentMeta }) => api.registerRequirementAttachment(id, meta),
+    onSuccess: (_d, vars) => invalidate(vars.id),
+  });
+}
+
+export function useDeleteAttachment() {
+  const invalidate = useInvalidateRequirements();
+  return useMutation({
+    mutationFn: ({ attachmentId }: { id: string; attachmentId: string }) =>
+      api.deleteAttachment(attachmentId),
+    onSuccess: (_d, vars) => invalidate(vars.id),
   });
 }

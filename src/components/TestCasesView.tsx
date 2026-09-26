@@ -13,12 +13,14 @@ import { Popover, PopoverContent, PopoverTrigger, MenuItem } from '@/components/
 import { SegBtn } from '@/components/ui/segmented';
 import { ProjectFilterMenu, useProjectFilter } from '@/components/ProjectFilterMenu';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
+import { AttachmentSection } from '@/components/AttachmentSection';
 import { TEST_CASE_STATUS, TEST_CASE_STATUS_ORDER, TEST_RESULT, TEST_RESULT_ORDER, TEST_CATEGORY, TEST_CATEGORY_ORDER, PRIORITY_ORDER } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
 import { usePersistentState } from '@/lib/prefs';
 import { useAppData } from '@/store/AppData';
 import { useAllRequirements } from '@/store/requirements';
-import { useTestCases, useTestCase, useCreateTestCase, useUpdateTestCase, useDeleteTestCase } from '@/store/testcases';
+import { useTestCases, useTestCase, useCreateTestCase, useUpdateTestCase, useDeleteTestCase, useRegisterAttachment, useDeleteAttachment } from '@/store/testcases';
+import { uploadAttachment } from '@/lib/upload';
 import { ApiError } from '@/lib/api';
 import type { TestCase, TestResult, TestCaseStatus, TestCaseCategory, IssuePriority } from '@/lib/types';
 
@@ -112,6 +114,10 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const { data: reqs = [] } = useAllRequirements();
   const update = useUpdateTestCase();
   const del = useDeleteTestCase();
+  const registerAttachment = useRegisterAttachment();
+  const deleteAttachment = useDeleteAttachment();
+  // 附件 lightbox 开闭(AttachmentSection 回调同步):开着时 Escape 只关 lightbox。
+  const [previewOpen, setPreviewOpen] = React.useState(false);
 
   const [steps, setSteps] = React.useState('');
   const [expected, setExpected] = React.useState('');
@@ -125,10 +131,14 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
   }, [tc?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   React.useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [onClose]);
+    // Capture 阶段(照 IssueDetail):先于 lightbox Dialog 的 Escape 处理执行,
+    // 此时 previewOpen 仍为 true——lightbox 开着时 Escape 只关 lightbox 不关抽屉。
+    const k = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !previewOpen) onClose();
+    };
+    window.addEventListener('keydown', k, true);
+    return () => window.removeEventListener('keydown', k, true);
+  }, [onClose, previewOpen]);
 
   if (!tc) return null;
   const patch = (input: Parameters<typeof update.mutate>[0]['input']) => update.mutate({ id, input });
@@ -137,6 +147,10 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
     const orig = (tc[field] ?? '') as string;
     if (value.trim() !== orig.trim()) patch({ [field]: value.trim() || null } as never);
   };
+  // 附件上传链路:直传(category 恒 cases)→ 注册到本用例;key 各段服务端铸造。
+  // mutateAsync 逐调用独立结算(多文件并发不丢回调)。
+  const uploadOne = (file: File) =>
+    uploadAttachment(file, 'cases').then((meta) => registerAttachment.mutateAsync({ id, meta }).then(() => undefined));
 
   return (
     <>
@@ -190,6 +204,15 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
               placeholder={t('testcases.noExpected')}
               className="w-full resize-none rounded-[9px] border border-transparent bg-transparent text-sm leading-relaxed text-fg-1 outline-none placeholder:text-fg-3 hover:border-border focus:border-brand-blue focus:px-2.5 focus:py-2"
             />
+            <div className="mt-[22px]">
+              <AttachmentSection
+                items={tc.attachments}
+                onUpload={uploadOne}
+                onDelete={(attachmentId) => deleteAttachment.mutate({ id, attachmentId })}
+                busy={registerAttachment.isPending || deleteAttachment.isPending}
+                onPreviewOpenChange={setPreviewOpen}
+              />
+            </div>
           </div>
 
           <div className="w-[238px] flex-none overflow-y-auto border-l border-border bg-surface px-4 py-5">

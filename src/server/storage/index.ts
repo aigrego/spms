@@ -6,8 +6,8 @@ import { decryptSecret } from '@/server/crypto';
 import { minioBackend, type MinioConfig } from './minio';
 import type { StorageBackend } from './types';
 
-export type { StorageBackend, UploadIntent } from './types';
-export { assertOwnKey, companyIdFromKey, newObjectKey, objectKeyPrefix } from './types';
+export type { AttachmentCategory, KeyingSegments, StorageBackend, UploadIntent } from './types';
+export { ATTACHMENT_CATEGORIES, assertOwnKey, categoryFromKey, companyIdFromKey, newObjectKey, objectKeyPrefix } from './types';
 
 /* Two-level storage config: the single platform_storage_configs row is the
    platform-level MinIO backend and the master switch — `enabled=false`

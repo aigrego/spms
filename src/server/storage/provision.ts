@@ -16,22 +16,36 @@ import { objectKeyPrefix } from './types';
    manually by the platform admin (设置 → 公司管理 → 开通存储) — never
    implicitly on first upload. One run creates
      1. a canned policy `spms-co-<cid>` allowing S3 ops only under the
-        company's key prefix `issues/{companyId}/` in the shared bucket,
+        company's key prefix `{companyId}/` in the shared bucket,
      2. an IAM user `spms-<cid>` with a random secret, policy attached,
    then materializes those restricted credentials (AES-256-GCM) into
    company_storage_configs (provisioned='auto'). From then on the company row
    is independent — a company admin can replace it with their own backend at
    any time (company-level always wins). MinIO enforces the isolation
-   server-side: company A's key cannot read company B's objects. */
+   server-side: company A's key cannot read company B's objects.
+   存量 auto 公司的策略重发（重键过渡期双前缀放行 / 旧对象清理后收紧）见
+   scripts/reprovision-policies.ts。 */
 
 const cid8 = (companyId: string) => companyId.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 8) || 'company';
 
 export const provisionUserName = (companyId: string) => `spms-${cid8(companyId)}`;
 export const provisionPolicyName = (companyId: string) => `spms-co-${cid8(companyId)}`;
 
-/* Prefix-scoped canned policy for one company (S3 policy JSON). */
-export function companyPolicyDocument(bucket: string, companyId: string): string {
+/* Prefix-scoped canned policy for one company (S3 policy JSON). The isolation
+   boundary is `{companyId}/*`; `includeLegacy` additionally allows the
+   pre-rekey prefix `issues/{companyId}/*` for the migration window
+   (LEGACY-KEY — scripts/reprovision-policies.ts --tighten drops it once
+   legacy objects are cleaned up). */
+export function companyPolicyDocument(bucket: string, companyId: string, opts?: { includeLegacy?: boolean }): string {
   const prefix = objectKeyPrefix(companyId);
+  const resources = [`arn:aws:s3:::${bucket}/${prefix}*`];
+  const listPrefixes = [`${prefix}*`];
+  if (opts?.includeLegacy) {
+    // LEGACY-KEY: 过渡窗口同时放行旧前缀，旧对象手动删除后 --tighten 收紧。
+    const legacy = `issues/${companyId}/`;
+    resources.push(`arn:aws:s3:::${bucket}/${legacy}*`);
+    listPrefixes.push(`${legacy}*`);
+  }
   return JSON.stringify(
     {
       Version: '2012-10-17',
@@ -40,14 +54,14 @@ export function companyPolicyDocument(bucket: string, companyId: string): string
           Sid: 'SpmsCompanyObjects',
           Effect: 'Allow',
           Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:AbortMultipartUpload', 's3:ListMultipartUploadParts'],
-          Resource: [`arn:aws:s3:::${bucket}/${prefix}*`],
+          Resource: resources,
         },
         {
           Sid: 'SpmsCompanyList',
           Effect: 'Allow',
           Action: ['s3:ListBucket'],
           Resource: [`arn:aws:s3:::${bucket}`],
-          Condition: { StringLike: { 's3:prefix': [`${prefix}*`] } },
+          Condition: { StringLike: { 's3:prefix': listPrefixes } },
         },
       ],
     },

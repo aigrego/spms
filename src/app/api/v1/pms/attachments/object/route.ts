@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { db } from '@/db';
-import { issueAttachments } from '@/db/schema';
+import { attachments } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import { requireActor, route } from '@/server/http';
 import { companyIdFromKey, storageForCompany } from '@/server/storage';
@@ -25,8 +25,8 @@ export const GET = route(async (req) => {
   if (id) {
     const [row] = await db
       .select()
-      .from(issueAttachments)
-      .where(and(eq(issueAttachments.companyId, actor.companyId), eq(issueAttachments.id, id)))
+      .from(attachments)
+      .where(and(eq(attachments.companyId, actor.companyId), eq(attachments.id, id)))
       .limit(1);
     if (!row) throw new ApiException('ATTACHMENT_NOT_FOUND', '附件不存在', 404);
     if (row.objectKey) {

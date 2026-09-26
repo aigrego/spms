@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   index,
   jsonb,
+  check,
 } from 'drizzle-orm/pg-core';
 import type { NotionStatusRule } from '@/lib/notionStatusMap';
 import { relations, sql } from 'drizzle-orm';
@@ -627,23 +628,28 @@ export const subIssues = pgTable(
   (t) => [index('sub_issues_issue_idx').on(t.issueId)],
 );
 
-/* Image attachments on an issue. The storage backend is configured per
-   company (company_storage_configs): browser client-direct upload, then
-   registerAttachment persists the row. Objects are private — reads go
-   through the /attachments/object proxy (company-isolated). */
-export const issueAttachments = pgTable(
-  'issue_attachments',
+/* Attachments on issues / test cases / requirements — exactly one owner FK is
+   set per row (attachments_one_owner_chk below). The storage backend is
+   configured per company (company_storage_configs): browser client-direct
+   upload, then registerAttachment persists the row. Objects are private —
+   reads go through the /attachments/object proxy (company-isolated). */
+export const attachments = pgTable(
+  'attachments',
   {
     id: text('id').primaryKey(),
     companyId: text('company_id')
       .references(() => companies.id, { onDelete: 'cascade' })
       .notNull(),
-    issueId: text('issue_id')
-      .references(() => issues.id, { onDelete: 'cascade' })
-      .notNull(),
+    // Exactly one of the three owner FKs (CHECK below). issueId dropped its
+    // NOT NULL when the table was generalized (renamed from issue_attachments).
+    issueId: text('issue_id').references(() => issues.id, { onDelete: 'cascade' }),
+    testCaseId: text('test_case_id').references(() => testCases.id, { onDelete: 'cascade' }),
+    requirementId: text('requirement_id').references(() => requirements.id, { onDelete: 'cascade' }),
     url: text('url').notNull(),
     pathname: text('pathname').notNull(),
-    // Object key inside the company's storage backend (issues/{companyId}/…).
+    // Object key inside the company's storage backend
+    // ({companyId}/{category}/{userSegment}/{fileType}/{uuid}-{safeName};
+    // pre-rekey objects keep the legacy issues/{companyId}/… shape).
     // Null on legacy rows uploaded to the platform-level Vercel Blob store —
     // the read-proxy falls back to their public `url` for those.
     objectKey: text('object_key'),
@@ -653,7 +659,12 @@ export const issueAttachments = pgTable(
     uploadedById: text('uploaded_by_id').references(() => members.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('issue_attachments_issue_idx').on(t.issueId)],
+  (t) => [
+    index('attachments_issue_idx').on(t.issueId),
+    index('attachments_test_case_idx').on(t.testCaseId),
+    index('attachments_requirement_idx').on(t.requirementId),
+    check('attachments_one_owner_chk', sql`num_nonnulls(${t.issueId}, ${t.testCaseId}, ${t.requirementId}) = 1`),
+  ],
 );
 
 /* Activity / comments feed on an issue */
@@ -1079,7 +1090,7 @@ export const issuesRelations = relations(issues, ({ one, many }) => ({
   issueLabels: many(issueLabels),
   subIssues: many(subIssues),
   activities: many(activities),
-  attachments: many(issueAttachments),
+  attachments: many(attachments),
 }));
 
 export const productLinesRelations = relations(productLines, ({ many }) => ({
@@ -1108,6 +1119,7 @@ export const requirementsRelations = relations(requirements, ({ one, many }) => 
   author: one(members, { fields: [requirements.authorId], references: [members.id] }),
   aiOwner: one(members, { fields: [requirements.aiOwnerId], references: [members.id] }),
   issues: many(issues),
+  attachments: many(attachments),
 }));
 
 export const issueLabelsRelations = relations(issueLabels, ({ one }) => ({
@@ -1119,9 +1131,11 @@ export const subIssuesRelations = relations(subIssues, ({ one }) => ({
   issue: one(issues, { fields: [subIssues.issueId], references: [issues.id] }),
 }));
 
-export const issueAttachmentsRelations = relations(issueAttachments, ({ one }) => ({
-  issue: one(issues, { fields: [issueAttachments.issueId], references: [issues.id] }),
-  uploadedBy: one(members, { fields: [issueAttachments.uploadedById], references: [members.id] }),
+export const attachmentsRelations = relations(attachments, ({ one }) => ({
+  issue: one(issues, { fields: [attachments.issueId], references: [issues.id] }),
+  testCase: one(testCases, { fields: [attachments.testCaseId], references: [testCases.id] }),
+  requirement: one(requirements, { fields: [attachments.requirementId], references: [requirements.id] }),
+  uploadedBy: one(members, { fields: [attachments.uploadedById], references: [members.id] }),
 }));
 
 export const activitiesRelations = relations(activities, ({ one }) => ({
@@ -1159,10 +1173,11 @@ export const resourceAssignmentsRelations = relations(resourceAssignments, ({ on
   member: one(members, { fields: [resourceAssignments.memberId], references: [members.id] }),
 }));
 
-export const testCasesRelations = relations(testCases, ({ one }) => ({
+export const testCasesRelations = relations(testCases, ({ one, many }) => ({
   project: one(projects, { fields: [testCases.projectId], references: [projects.id] }),
   requirement: one(requirements, { fields: [testCases.requirementId], references: [requirements.id] }),
   issue: one(issues, { fields: [testCases.issueId], references: [issues.id] }),
+  attachments: many(attachments),
 }));
 
 export const testRunsRelations = relations(testRuns, ({ one, many }) => ({

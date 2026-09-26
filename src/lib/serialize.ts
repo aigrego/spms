@@ -92,6 +92,8 @@ export function serializeRequirement(row: {
   createdAt: Date;
   updatedAt: Date;
   issues?: { key: string; status: string }[];
+  // detail 查询(getRequirement)加载;列表不加载 → 空数组(照 serializeIssueDetail 模式)。
+  attachments?: Parameters<typeof serializeAttachment>[0][];
 }) {
   const issueKeys = (row.issues ?? []).map((i) => i.key);
   const doneCount = (row.issues ?? []).filter((i) => i.status === 'done').length;
@@ -113,6 +115,10 @@ export function serializeRequirement(row: {
     position: row.position,
     issues: issueKeys,
     issueStats: { total: issueKeys.length, done: doneCount },
+    attachments: (row.attachments ?? [])
+      .slice()
+      .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt))
+      .map(serializeAttachment),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -141,6 +147,8 @@ export function serializeTestCase(row: {
   updatedAt: Date;
   requirement?: { key: string } | null;
   issue?: { key: string } | null;
+  // detail 查询(getTestCase)加载;列表不加载 → 空数组(照 serializeIssueDetail 模式)。
+  attachments?: Parameters<typeof serializeAttachment>[0][];
 }) {
   return {
     id: row.key,
@@ -158,6 +166,10 @@ export function serializeTestCase(row: {
     authorId: row.authorId,
     assigneeId: row.assigneeId,
     position: row.position,
+    attachments: (row.attachments ?? [])
+      .slice()
+      .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt))
+      .map(serializeAttachment),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

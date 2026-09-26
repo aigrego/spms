@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { and, asc, eq, inArray, or } from 'drizzle-orm';
 import { db } from '@/db';
-import { companies, companyMemberships, issueAttachments, labels, members, productLines, products, projects, releases, sprints, sprintProjects, teams, users } from '@/db/schema';
+import { attachments, companies, companyMemberships, labels, members, productLines, products, projects, releases, sprints, sprintProjects, teams, users } from '@/db/schema';
 import { ApiException, type ErrorCode } from '@/lib/envelope';
 import { ensureAgents, ensureCurrentMember } from '@/lib/identity';
 import { computeRollups } from '@/lib/rollup';
@@ -20,6 +20,7 @@ import * as sprintSvc from '@/server/services/sprints';
 import * as testCaseSvc from '@/server/services/testcases';
 import * as testRunSvc from '@/server/services/testruns';
 import type { Actor } from '@/server/services/types';
+import { fileTypeOf } from '@/lib/attachments';
 import { newObjectKey, storageForCompany } from '@/server/storage';
 import { reviewWithWorkflow, updateIssueWithWorkflow } from './workflow';
 
@@ -415,9 +416,9 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
             } else {
               // 平台级 Vercel Blob 时代的旧行:序列化 url 已是代理地址,回查 DB 原始公网 url。
               const [row] = await db
-                .select({ url: issueAttachments.url })
-                .from(issueAttachments)
-                .where(eq(issueAttachments.id, a.id))
+                .select({ url: attachments.url })
+                .from(attachments)
+                .where(eq(attachments.id, a.id))
                 .limit(1);
               if (!row) throw new Error('attachment row gone');
               const res = await fetch(row.url);
@@ -808,6 +809,38 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
+  /* 三个附件上传工具(issue/test case/requirement)的共用实现:服务端 put
+     直传(Agent 走不了浏览器直传流)+ registerAttachment(entity 形式)。
+     category 按实体类型固定,userSegment 恒取 actor.memberId(无座平台管理员
+     落保留段 system)——客户端不能指定 key 的任何一段。 */
+  const uploadAndRegister = async (
+    args: { companyId?: string; key: string; filename: string; data: string; contentType?: string },
+    entity: attachmentSvc.AttachmentEntityRef['type'],
+    category: 'issues' | 'cases' | 'requirements',
+  ) => {
+    const actor = await actorFor(args.companyId);
+    const buf = Buffer.from(args.data, 'base64');
+    if (buf.length === 0 || buf.length > attachmentSvc.MAX_ATTACHMENT_SIZE) {
+      throw new ApiException('VALIDATION_FAILED', '附件大小需在 10MB 以内');
+    }
+    const contentType = args.contentType ?? imageMimeFromFilename(args.filename);
+    if (!contentType) {
+      throw new ApiException('VALIDATION_FAILED', '无法从文件名推断图片类型，请显式传 contentType');
+    }
+    const safeName = args.filename.split(/[\\/]/).pop() || 'image';
+    // Server-side upload → the company's configured storage backend.
+    const storage = await storageForCompany(actor.companyId);
+    const objectKey = newObjectKey(actor.companyId, category, actor.memberId ?? 'system', fileTypeOf(contentType), safeName);
+    await storage.put(objectKey, buf, contentType);
+    return attachmentSvc.registerAttachment(actor, { type: entity, key: args.key }, {
+      url: storage.canonicalUrl(objectKey),
+      pathname: objectKey,
+      filename: safeName,
+      contentType,
+      size: buf.length,
+    });
+  };
+
   reg(
     'spms_upload_issue_attachment',
     {
@@ -826,31 +859,49 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
           .describe('图片 MIME 类型；不传则按 filename 扩展名推断'),
       },
     },
-    async (args) =>
-      run(async () => {
-        const actor = await actorFor(args.companyId);
-        const buf = Buffer.from(args.data, 'base64');
-        if (buf.length === 0 || buf.length > attachmentSvc.MAX_ATTACHMENT_SIZE) {
-          throw new ApiException('VALIDATION_FAILED', '附件大小需在 10MB 以内');
-        }
-        const contentType = args.contentType ?? imageMimeFromFilename(args.filename);
-        if (!contentType) {
-          throw new ApiException('VALIDATION_FAILED', '无法从文件名推断图片类型，请显式传 contentType');
-        }
-        const safeName = args.filename.split(/[\\/]/).pop() || 'image';
-        // Server-side upload (agents can't do the browser client-direct flow)
-        // → the company's configured storage backend.
-        const storage = await storageForCompany(actor.companyId);
-        const objectKey = newObjectKey(actor.companyId, safeName);
-        await storage.put(objectKey, buf, contentType);
-        return attachmentSvc.registerAttachment(actor, args.key, {
-          url: storage.canonicalUrl(objectKey),
-          pathname: objectKey,
-          filename: safeName,
-          contentType,
-          size: buf.length,
-        });
-      }),
+    async (args) => run(() => uploadAndRegister(args, 'issue', 'issues')),
+  );
+
+  reg(
+    'spms_upload_test_case_attachment',
+    {
+      description:
+        `上传图片附件到测试用例（按展示 key，如 TC-1）。data 传图片二进制的 base64 编码；支持 jpeg/png/gif/webp/avif，单个 ≤10MB` +
+        `（MCP 调用走 HTTP 请求体，部署平台对请求体大小有限制，过大的图片可能在到达服务前被网关拒绝）。` +
+        `典型用法：Agent 执行用例后上传结果截图/证据图。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        key: z.string().describe("测试用例展示 key，如 'TC-1'"),
+        filename: z.string().describe("文件名，如 'result.png'"),
+        data: z.string().describe('图片二进制内容的 base64 编码'),
+        contentType: z
+          .enum(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'])
+          .optional()
+          .describe('图片 MIME 类型；不传则按 filename 扩展名推断'),
+      },
+    },
+    async (args) => run(() => uploadAndRegister(args, 'testCase', 'cases')),
+  );
+
+  reg(
+    'spms_upload_requirement_attachment',
+    {
+      description:
+        `上传图片附件到需求（按展示 key，如 FR-2 / NFR-1）。data 传图片二进制的 base64 编码；支持 jpeg/png/gif/webp/avif，单个 ≤10MB` +
+        `（MCP 调用走 HTTP 请求体，部署平台对请求体大小有限制，过大的图片可能在到达服务前被网关拒绝）。` +
+        `典型用法：Agent 维护 PRD 时上传原型稿/流程图截图。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        key: z.string().describe("需求展示 key，如 'FR-2'"),
+        filename: z.string().describe("文件名，如 'result.png'"),
+        data: z.string().describe('图片二进制内容的 base64 编码'),
+        contentType: z
+          .enum(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'])
+          .optional()
+          .describe('图片 MIME 类型；不传则按 filename 扩展名推断'),
+      },
+    },
+    async (args) => run(() => uploadAndRegister(args, 'requirement', 'requirements')),
   );
 
   reg(

@@ -225,6 +225,13 @@
       "when": 1790240592715,
       "tag": "0031_moaning_zaran",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790351791782,
+      "tag": "0032_strange_firebrand",
+      "breakpoints": true
     }
   ]
 }
