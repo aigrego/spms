@@ -31,6 +31,7 @@ const isResultFilter = (v: unknown): v is TestResult | '' =>
 
 const inputCls =
   'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
+const selectCls = `${inputCls} select-chevron`;
 const fieldLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wider text-fg-3';
 const selCls =
   'w-full rounded-[7px] border border-transparent bg-transparent px-2 py-1 text-[13px] text-fg-1 hover:bg-surface-2 focus:border-brand-blue focus:bg-surface outline-none';
@@ -225,7 +226,7 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
                 <StatusMenu value={tc.status} onPick={(status) => patch({ status })} />
               </PropRow>
               <PropRow label={t('testcases.category')}>
-                <select className={selCls} value={tc.category} onChange={(e) => patch({ category: e.target.value as TestCaseCategory })}>
+                <select className={`${selCls} select-chevron`} value={tc.category} onChange={(e) => patch({ category: e.target.value as TestCaseCategory })}>
                   {TEST_CATEGORY_ORDER.map((c) => (
                     <option key={c} value={c}>{t(`tcCategory.${c}`)}</option>
                   ))}
@@ -241,7 +242,7 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
             </div>
             <div className="my-4 h-px bg-border" />
             <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-fg-3">{t('testcases.requirement')}</div>
-            <select className={selCls} value={tc.requirementId ?? ''} onChange={(e) => patch({ requirementId: e.target.value || null })}>
+            <select className={`${selCls} select-chevron`} value={tc.requirementId ?? ''} onChange={(e) => patch({ requirementId: e.target.value || null })}>
               <option value="">{t('testcases.noRequirement')}</option>
               {reqs.map((r) => (
                 <option key={r.id} value={r.id}>{r.id} · {r.title}</option>
@@ -266,7 +267,7 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
               <span className="truncate text-[13px] text-fg-1">{project?.name ?? '—'}</span>
             </PropRow>
             <PropRow label={t('detail.assignee')}>
-              <select className={selCls} value={tc.assigneeId ?? ''} onChange={(e) => patch({ assigneeId: e.target.value || null })}>
+              <select className={`${selCls} select-chevron`} value={tc.assigneeId ?? ''} onChange={(e) => patch({ assigneeId: e.target.value || null })}>
                 <option value="">{t('common.unassigned')}</option>
                 {[...humans, ...agents].map((m) => (
                   <option key={m.id} value={m.id}>{m.name}</option>
@@ -423,7 +424,7 @@ function NewTestCaseModal({
           <div className="flex gap-3">
             <div className="flex-1">
               <span className={fieldLabel}>{t('detail.belong')}</span>
-              <select className={inputCls} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <select className={selectCls} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
@@ -431,7 +432,7 @@ function NewTestCaseModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('testcases.requirement')}</span>
-              <select className={inputCls} value={requirementId} onChange={(e) => setRequirementId(e.target.value)}>
+              <select className={selectCls} value={requirementId} onChange={(e) => setRequirementId(e.target.value)}>
                 <option value="">{t('testcases.noRequirement')}</option>
                 {reqs.map((r) => (
                   <option key={r.id} value={r.id}>{r.id} · {r.title}</option>
@@ -446,7 +447,7 @@ function NewTestCaseModal({
           <div className="flex gap-3">
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.priority')}</span>
-              <select className={inputCls} value={priority} onChange={(e) => setPriority(e.target.value as IssuePriority)}>
+              <select className={selectCls} value={priority} onChange={(e) => setPriority(e.target.value as IssuePriority)}>
                 {PRIORITY_ORDER.map((p) => (
                   <option key={p} value={p}>{t(`priority.${p}`)}</option>
                 ))}
@@ -454,7 +455,7 @@ function NewTestCaseModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('testcases.status')}</span>
-              <select className={inputCls} value={status} onChange={(e) => setStatus(e.target.value as TestCaseStatus)}>
+              <select className={selectCls} value={status} onChange={(e) => setStatus(e.target.value as TestCaseStatus)}>
                 {TEST_CASE_STATUS_ORDER.map((s) => (
                   <option key={s} value={s}>{t(`tcStatus.${s}`)}</option>
                 ))}
@@ -462,7 +463,7 @@ function NewTestCaseModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('testcases.result')}</span>
-              <select className={inputCls} value={result} onChange={(e) => setResult(e.target.value as TestResult)}>
+              <select className={selectCls} value={result} onChange={(e) => setResult(e.target.value as TestResult)}>
                 {TEST_RESULT_ORDER.map((r) => (
                   <option key={r} value={r}>{t(`tcResult.${r}`)}</option>
                 ))}
@@ -470,7 +471,7 @@ function NewTestCaseModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('testcases.category')}</span>
-              <select className={inputCls} value={category} onChange={(e) => setCategory(e.target.value as TestCaseCategory)}>
+              <select className={selectCls} value={category} onChange={(e) => setCategory(e.target.value as TestCaseCategory)}>
                 {TEST_CATEGORY_ORDER.map((c) => (
                   <option key={c} value={c}>{t(`tcCategory.${c}`)}</option>
                 ))}

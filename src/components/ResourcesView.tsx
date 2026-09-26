@@ -49,7 +49,7 @@ function SeatRow({ seat, you, canAdmin }: { seat: Seat; you: boolean; canAdmin: 
         <div className="mt-0.5 truncate font-mono text-[11.5px] text-fg-3">{seat.username}</div>
       </div>
       <select
-        className="h-7 rounded-md border border-border-strong bg-surface px-1.5 text-[12.5px] text-fg-1 outline-none focus:border-brand-blue disabled:opacity-50"
+        className="h-7 rounded-md border border-border-strong bg-surface px-1.5 text-[12.5px] text-fg-1 outline-none focus:border-brand-blue disabled:opacity-50 select-chevron"
         value={seat.role}
         onChange={(e) => setRole.mutate({ id: seat.membershipId, role: e.target.value })}
         disabled={!canAdmin || (setRole.isPending && setRole.variables?.id === seat.membershipId)}

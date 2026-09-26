@@ -67,6 +67,7 @@ const isStatusFilter = (v: unknown): v is StatusFilter =>
 
 const inputCls =
   'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
+const selectCls = `${inputCls} select-chevron`;
 const fieldLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wider text-fg-3';
 
 function TypeTag({ type }: { type: RequirementType }) {
@@ -214,7 +215,7 @@ function NewRequirementModal({
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.project')}</span>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={projectId}
                 onChange={(e) => {
                   setProjectId(e.target.value);
@@ -232,7 +233,7 @@ function NewRequirementModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.release')}</span>
-              <select className={inputCls} value={releaseId} onChange={(e) => setReleaseId(e.target.value)}>
+              <select className={selectCls} value={releaseId} onChange={(e) => setReleaseId(e.target.value)}>
                 <option value="">{t('requirements.noRelease')}</option>
                 {releaseOptions.map((r) => (
                   <option key={r.id} value={r.id}>
@@ -243,7 +244,7 @@ function NewRequirementModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.type')}</span>
-              <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as RequirementType)}>
+              <select className={selectCls} value={type} onChange={(e) => setType(e.target.value as RequirementType)}>
                 {TYPE_ORDER.map((ty) => (
                   <option key={ty} value={ty}>
                     {t(`reqType.${ty}`)}
@@ -257,7 +258,7 @@ function NewRequirementModal({
               <div className="flex-1">
                 <span className={fieldLabel}>{t('requirements.category')}</span>
                 <select
-                  className={inputCls}
+                  className={selectCls}
                   value={category}
                   onChange={(e) => setCategory(e.target.value as RequirementCategory)}
                 >
@@ -272,7 +273,7 @@ function NewRequirementModal({
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.status')}</span>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={status}
                 onChange={(e) => setStatus(e.target.value as RequirementStatus)}
               >
@@ -288,7 +289,7 @@ function NewRequirementModal({
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.priority')}</span>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as IssuePriority)}
               >
@@ -302,7 +303,7 @@ function NewRequirementModal({
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.importance')}</span>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={importance}
                 onChange={(e) => setImportance(e.target.value as Importance)}
               >
@@ -379,7 +380,7 @@ function PropRow({ label, children }: { label: string; children: React.ReactNode
 const propBtn =
   'inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-[7px] px-2 py-1 text-[13px] text-fg-1 hover:bg-surface-2';
 const selCls =
-  'w-full rounded-[7px] border border-transparent bg-transparent px-2 py-1 text-[13px] text-fg-1 hover:bg-surface-2 focus:border-brand-blue focus:bg-surface outline-none';
+  'w-full rounded-[7px] border border-transparent bg-transparent px-2 py-1 text-[13px] text-fg-1 hover:bg-surface-2 focus:border-brand-blue focus:bg-surface outline-none select-chevron';
 
 /* Confirm + result dialog for "decompose into issues". The preview mirrors the
    server-side split (src/lib/decompose.ts); on success the created issue keys

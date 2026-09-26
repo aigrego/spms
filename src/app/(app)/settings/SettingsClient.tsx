@@ -28,7 +28,7 @@ type TabKey =
   | 'platform-storage';
 
 const selectCls =
-  'h-8 rounded-md border border-border-strong bg-surface px-2 text-[13px] text-fg-1 outline-none focus:border-brand-blue disabled:opacity-60';
+  'h-8 rounded-md border border-border-strong bg-surface px-2 text-[13px] text-fg-1 outline-none focus:border-brand-blue disabled:opacity-60 select-chevron';
 
 function PreferencesPanel() {
   const t = useT();

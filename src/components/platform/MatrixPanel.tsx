@@ -99,7 +99,7 @@ export function MatrixPanel({ scope = 'global' }: { scope?: 'global' | 'company'
                       return (
                         <td key={r} className={tdCls} style={{ textAlign: 'center' }}>
                           <select
-                            className="h-7 rounded-md border border-border-strong bg-surface px-1.5 text-[12.5px] outline-none focus:border-brand-blue"
+                            className="h-7 rounded-md border border-border-strong bg-surface px-1.5 text-[12.5px] outline-none focus:border-brand-blue select-chevron"
                             style={{ color: LEVEL_TONE[level], fontWeight: level === 'none' ? 400 : 500 }}
                             value={level}
                             onChange={(e) => setCell(r, mod, e.target.value as PermLevel)}
