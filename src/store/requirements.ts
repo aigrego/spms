@@ -1,58 +1,47 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { CreateRequirementInput, UpdateRequirementInput } from '@/lib/api';
-import type { RequirementType } from '@/lib/types';
+import type { Requirement } from '@/lib/types';
+import { createEntityHooks } from './createEntityHooks';
 
-/* Requirements / PRD queries + mutations. The linked-issue counts are derived
-   server-side, so requirement mutations and issue→requirement re-links both need
-   to refresh the requirement list (see issues store invalidation). */
+/* Requirements / PRD queries + mutations, built by the shared entity-hooks
+   factory. The linked-issue counts are derived server-side, so requirement
+   delete and issue→requirement re-links both need to refresh the issue list
+   (delete here; issue-side invalidation lives in the factory's
+   CROSS_ENTITY_KEYS). */
 
+const requirementHooks = createEntityHooks<
+  Parameters<typeof api.requirements>[0],
+  Requirement,
+  Requirement | null,
+  CreateRequirementInput,
+  UpdateRequirementInput
+>({
+  keys: { list: 'requirements', detail: 'requirement' },
+  api: {
+    list: api.requirements,
+    detail: api.requirement,
+    create: api.createRequirement,
+    update: api.updateRequirement,
+    remove: api.deleteRequirement,
+  },
+});
+
+export const useRequirements = requirementHooks.useList;
+export const useRequirement = requirementHooks.useDetail;
+export const useCreateRequirement = requirementHooks.useCreate;
+export const useUpdateRequirement = requirementHooks.useUpdate;
+
+/* Same cache key and fetch as useRequirements() with no params. */
 export function useAllRequirements() {
-  return useQuery({ queryKey: ['requirements', {}], queryFn: () => api.requirements() });
+  return useRequirements();
 }
 
-export function useRequirements(params?: { project?: string; type?: RequirementType }) {
-  return useQuery({
-    queryKey: ['requirements', params ?? {}],
-    queryFn: () => api.requirements(params),
-  });
-}
-
-export function useRequirement(id: string | null) {
-  return useQuery({
-    queryKey: ['requirement', id],
-    queryFn: () => api.requirement(id!),
-    enabled: !!id,
-  });
-}
-
-function useInvalidateRequirements() {
-  const qc = useQueryClient();
-  return (id?: string) => {
-    qc.invalidateQueries({ queryKey: ['requirements'] });
-    if (id) qc.invalidateQueries({ queryKey: ['requirement', id] });
-  };
-}
-
-export function useCreateRequirement() {
-  const invalidate = useInvalidateRequirements();
-  return useMutation({
-    mutationFn: (input: CreateRequirementInput) => api.createRequirement(input),
-    onSuccess: () => invalidate(),
-  });
-}
-
-export function useUpdateRequirement() {
-  const invalidate = useInvalidateRequirements();
-  return useMutation({
-    mutationFn: ({ id, input }: { id: string; input: UpdateRequirementInput }) =>
-      api.updateRequirement(id, input),
-    onSuccess: (_d, vars) => invalidate(vars.id),
-  });
-}
-
+/* Deleting a requirement only unlinks its issues (no cascade), so the issue
+   lists showing linked-requirement info need a refresh; the backlog is not
+   affected (status/sprint of the issues stay unchanged). */
 export function useDeleteRequirement() {
-  const invalidate = useInvalidateRequirements();
+  const invalidate = requirementHooks.useInvalidate();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deleteRequirement(id),
@@ -64,13 +53,15 @@ export function useDeleteRequirement() {
 }
 
 export function useDecomposeRequirement() {
-  const invalidate = useInvalidateRequirements();
+  const invalidate = requirementHooks.useInvalidate();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.decomposeRequirement(id),
     onSuccess: (_d, id) => {
       invalidate(id);
       qc.invalidateQueries({ queryKey: ['issues'] });
+      // Decomposed issues are todo + sprint-less → they join the product backlog.
+      qc.invalidateQueries({ queryKey: ['backlog'] });
     },
   });
 }

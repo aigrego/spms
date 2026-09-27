@@ -1,47 +1,29 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { CreateTestCaseInput, UpdateTestCaseInput } from '@/lib/api';
-import type { TestCaseStatus, TestResult, TestCaseCategory } from '@/lib/types';
+import type { TestCase } from '@/lib/types';
+import { createEntityHooks } from './createEntityHooks';
 
-/* Test case queries + mutations. Mirrors the requirements store. */
+/* Test case queries + mutations, built by the shared entity-hooks factory. */
 
-export function useTestCases(params?: {
-  project?: string;
-  requirement?: string;
-  issue?: string;
-  category?: TestCaseCategory;
-  status?: TestCaseStatus;
-  result?: TestResult;
-}) {
-  return useQuery({ queryKey: ['testcases', params ?? {}], queryFn: () => api.testCases(params) });
-}
+const testCaseHooks = createEntityHooks<
+  Parameters<typeof api.testCases>[0],
+  TestCase,
+  TestCase | null,
+  CreateTestCaseInput,
+  UpdateTestCaseInput
+>({
+  keys: { list: 'testcases', detail: 'testcase' },
+  api: {
+    list: api.testCases,
+    detail: api.testCase,
+    create: api.createTestCase,
+    update: api.updateTestCase,
+    remove: api.deleteTestCase,
+  },
+});
 
-export function useTestCase(id: string | null) {
-  return useQuery({ queryKey: ['testcase', id], queryFn: () => api.testCase(id!), enabled: !!id });
-}
-
-function useInvalidateTestCases() {
-  const qc = useQueryClient();
-  return (id?: string) => {
-    qc.invalidateQueries({ queryKey: ['testcases'] });
-    if (id) qc.invalidateQueries({ queryKey: ['testcase', id] });
-  };
-}
-
-export function useCreateTestCase() {
-  const invalidate = useInvalidateTestCases();
-  return useMutation({ mutationFn: (input: CreateTestCaseInput) => api.createTestCase(input), onSuccess: () => invalidate() });
-}
-
-export function useUpdateTestCase() {
-  const invalidate = useInvalidateTestCases();
-  return useMutation({
-    mutationFn: ({ id, input }: { id: string; input: UpdateTestCaseInput }) => api.updateTestCase(id, input),
-    onSuccess: (_d, vars) => invalidate(vars.id),
-  });
-}
-
-export function useDeleteTestCase() {
-  const invalidate = useInvalidateTestCases();
-  return useMutation({ mutationFn: (id: string) => api.deleteTestCase(id), onSuccess: () => invalidate() });
-}
+export const useTestCases = testCaseHooks.useList;
+export const useTestCase = testCaseHooks.useDetail;
+export const useCreateTestCase = testCaseHooks.useCreate;
+export const useUpdateTestCase = testCaseHooks.useUpdate;
+export const useDeleteTestCase = testCaseHooks.useDelete;

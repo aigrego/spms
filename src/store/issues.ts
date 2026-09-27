@@ -1,15 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { AttachmentMeta, CreateIssueInput, UpdateIssueInput, Api } from '@/lib/api';
+import type { Issue, IssueDetail } from '@/lib/types';
+import { createEntityHooks } from './createEntityHooks';
+
+/* Issue queries + mutations, built by the shared entity-hooks factory. The
+   cross-entity invalidation list (requirements / sprint / burndown / velocity
+   / backlog) is maintained centrally in the factory's CROSS_ENTITY_KEYS. */
+
+const issueHooks = createEntityHooks<
+  Parameters<typeof api.issues>[0],
+  Issue,
+  IssueDetail | null,
+  CreateIssueInput,
+  UpdateIssueInput
+>({
+  keys: { list: 'issues', detail: 'issue' },
+  api: {
+    list: api.issues,
+    detail: api.issue,
+    create: api.createIssue,
+    update: api.updateIssue,
+    remove: api.deleteIssue,
+  },
+});
 
 /* Issue-list query. "My issues" passes the current user's member id (resolved
    from /bootstrap) as the assignee param. */
-export function useIssues(params?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean }) {
-  return useQuery({
-    queryKey: ['issues', params ?? {}],
-    queryFn: () => api.issues(params),
-  });
-}
+export const useIssues = issueHooks.useList;
 
 export function useAllIssues(includeArchived = false) {
   return useQuery({
@@ -18,52 +36,12 @@ export function useAllIssues(includeArchived = false) {
   });
 }
 
-export function useIssue(id: string | null) {
-  return useQuery({
-    queryKey: ['issue', id],
-    queryFn: () => api.issue(id!),
-    enabled: !!id,
-  });
-}
+export const useIssue = issueHooks.useDetail;
+export const useCreateIssue = issueHooks.useCreate;
+export const useUpdateIssue = issueHooks.useUpdate;
+export const useDeleteIssue = issueHooks.useDelete;
 
-function useInvalidateIssues() {
-  const qc = useQueryClient();
-  return (id?: string) => {
-    qc.invalidateQueries({ queryKey: ['issues'] });
-    if (id) qc.invalidateQueries({ queryKey: ['issue', id] });
-    // An issue's requirement link affects requirement issue-counts/lists.
-    qc.invalidateQueries({ queryKey: ['requirements'] });
-    qc.invalidateQueries({ queryKey: ['requirement'] });
-    // Status/storyPoints/sprintId changes move sprint stats, burndown & velocity.
-    qc.invalidateQueries({ queryKey: ['sprint'] });
-    qc.invalidateQueries({ queryKey: ['burndown'] });
-    qc.invalidateQueries({ queryKey: ['velocity'] });
-  };
-}
-
-export function useCreateIssue() {
-  const invalidate = useInvalidateIssues();
-  return useMutation({
-    mutationFn: (input: CreateIssueInput) => api.createIssue(input),
-    onSuccess: () => invalidate(),
-  });
-}
-
-export function useUpdateIssue() {
-  const invalidate = useInvalidateIssues();
-  return useMutation({
-    mutationFn: ({ id, input }: { id: string; input: UpdateIssueInput }) => api.updateIssue(id, input),
-    onSuccess: (_d, vars) => invalidate(vars.id),
-  });
-}
-
-export function useDeleteIssue() {
-  const invalidate = useInvalidateIssues();
-  return useMutation({
-    mutationFn: (id: string) => api.deleteIssue(id),
-    onSuccess: () => invalidate(),
-  });
-}
+const useInvalidateIssues = issueHooks.useInvalidate;
 
 export function useArchiveIssue() {
   const invalidate = useInvalidateIssues();
@@ -90,6 +68,9 @@ export function useToggleSub() {
   });
 }
 
+/* Attachments exist only on issues (api.registerAttachment takes an issue key;
+   there is no requirement/testcase attachment endpoint), so these hooks stay
+   here on the issue invalidator. */
 export function useRegisterAttachment() {
   const invalidate = useInvalidateIssues();
   return useMutation({

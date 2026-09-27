@@ -1,39 +1,30 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { CreatePlanInput, UpdatePlanInput } from '@/lib/api';
+import type { Plan } from '@/lib/types';
+import { createEntityHooks } from './createEntityHooks';
 
-/* Dev plan (开发计划) queries + mutations. Mirrors the testcases store. */
+/* Dev plan (开发计划) queries + mutations, built by the shared entity-hooks
+   factory — same cache keys and invalidation semantics as before. */
 
-export function usePlans(params?: { project?: string }) {
-  return useQuery({ queryKey: ['plans', params ?? {}], queryFn: () => api.plans(params) });
-}
+const planHooks = createEntityHooks<
+  Parameters<typeof api.plans>[0],
+  Plan,
+  Plan | null,
+  CreatePlanInput,
+  UpdatePlanInput
+>({
+  keys: { list: 'plans', detail: 'plan' },
+  api: {
+    list: api.plans,
+    detail: api.plan,
+    create: api.createPlan,
+    update: api.updatePlan,
+    remove: api.deletePlan,
+  },
+});
 
-export function usePlan(id: string | null) {
-  return useQuery({ queryKey: ['plan', id], queryFn: () => api.plan(id!), enabled: !!id });
-}
-
-function useInvalidatePlans() {
-  const qc = useQueryClient();
-  return (id?: string) => {
-    qc.invalidateQueries({ queryKey: ['plans'] });
-    if (id) qc.invalidateQueries({ queryKey: ['plan', id] });
-  };
-}
-
-export function useCreatePlan() {
-  const invalidate = useInvalidatePlans();
-  return useMutation({ mutationFn: (input: CreatePlanInput) => api.createPlan(input), onSuccess: () => invalidate() });
-}
-
-export function useUpdatePlan() {
-  const invalidate = useInvalidatePlans();
-  return useMutation({
-    mutationFn: ({ id, input }: { id: string; input: UpdatePlanInput }) => api.updatePlan(id, input),
-    onSuccess: (_d, vars) => invalidate(vars.id),
-  });
-}
-
-export function useDeletePlan() {
-  const invalidate = useInvalidatePlans();
-  return useMutation({ mutationFn: (id: string) => api.deletePlan(id), onSuccess: () => invalidate() });
-}
+export const usePlans = planHooks.useList;
+export const usePlan = planHooks.useDetail;
+export const useCreatePlan = planHooks.useCreate;
+export const useUpdatePlan = planHooks.useUpdate;
+export const useDeletePlan = planHooks.useDelete;
