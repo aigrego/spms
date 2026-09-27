@@ -2,14 +2,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
-import { companies, companyMemberships, issueAttachments, labels, members, productLines, products, projects, releases, sprints, sprintProjects, teams, users } from '@/db/schema';
+import { companies, companyMemberships, members, users } from '@/db/schema';
 import { ApiException, type ErrorCode } from '@/lib/envelope';
 import { ensureAgents, ensureCurrentMember } from '@/lib/identity';
-import { computeRollups } from '@/lib/rollup';
 import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
 import * as issueSvc from '@/server/services/issues';
 import * as attachmentSvc from '@/server/services/attachments';
 import * as catalogSvc from '@/server/services/catalog';
+import * as metaSvc from '@/server/services/meta';
 import * as planSvc from '@/server/services/plans';
 import * as projectSvc from '@/server/services/projects';
 import * as requirementSvc from '@/server/services/requirements';
@@ -111,69 +111,38 @@ async function buildMcpActor(companyId: string, ownerId: string | null): Promise
 }
 
 /* ---- bootstrap payload ----------------------------------------------------
-   Mirrors services/meta.bootstrap minus permissions/companies: the MCP actor
-   is a synthetic agent (no users row), so the membership-driven parts do not
-   apply. currentCompany is kept so the Agent can confirm which sandbox it is
-   operating in. */
+   单一查询实现在 services/meta.bootstrap（9 表 Promise.all、computeRollups、
+   visibleSetsFor 过滤）；这里只做 MCP 侧的字段裁剪与令牌白名单叠加：
+   - 裁掉 companies/permissions/myProjectIds（membership 驱动，MCP 不适用），
+     members 去掉 meta 叠加的 companyRole，保持本工具的下发字段不变；
+   - currentCompany 保留，供 Agent 确认当前公司沙箱；
+   - projects 收窄为 令牌白名单 ∩ 指派可见性，sprint 须与收窄后项目集有交集
+     （多项目迭代经 sprint_projects）；products/releases 只按指派可见性过滤
+     （meta 已应用），不叠加白名单。 */
 async function loadBootstrap(actor: Actor) {
-  const companyId = actor.companyId;
-  await ensureAgents(companyId);
-  const [memberRows, teamRows, labelRows, projectRows, sprintRows, sprintProjectRows, productLineRows, productRows, releaseRows] =
-    await Promise.all([
-      db.select().from(members).where(eq(members.companyId, companyId)),
-      db.select().from(teams).where(eq(teams.companyId, companyId)),
-      db.select().from(labels).where(eq(labels.companyId, companyId)),
-      db.select().from(projects).where(eq(projects.companyId, companyId)),
-      db.select().from(sprints).where(eq(sprints.companyId, companyId)).orderBy(asc(sprints.startDate)),
-      db.select().from(sprintProjects).where(eq(sprintProjects.companyId, companyId)),
-      db
-        .select()
-        .from(productLines)
-        .where(eq(productLines.companyId, companyId))
-        .orderBy(asc(productLines.position)),
-      db.select().from(products).where(eq(products.companyId, companyId)).orderBy(asc(products.position)),
-      db.select().from(releases).where(eq(releases.companyId, companyId)).orderBy(asc(releases.position)),
-    ]);
-  // Project/release progress is derived from issue completion, not the stored column.
-  const { projectProgress, releaseProgress } = await computeRollups(companyId);
-  const [currentCompany] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
-  // 令牌项目白名单 ∩ 指派可见性(visibility.ts):projects/sprints/products/
-  // releases 同步收窄,避免泄露范围外节点;productLines 为导航壳不过滤。
+  const data = await metaSvc.bootstrap(actor);
+  // visibleSetsFor 按 (companyId, memberId) 有 60s 进程内缓存，这里拿到的正是
+  // meta.bootstrap 用过的同一套，不产生重复查询。
   const visible = await visibleSetsFor(actor);
   const visibleProjectIds = clampAllowed(actor, visible?.projectIds ?? null);
-  const visibleSprintIds = visible ? new Set(visible.sprintIds) : null;
-  const visibleProductIds = visible ? new Set(visible.productIds) : null;
-  const visibleReleaseIds = visible ? new Set(visible.releaseIds) : null;
-  // sprint 须与(白名单 ∩ 可见性)项目集有交集(多项目迭代经 sprint_projects)。
+  const projects = visibleProjectIds ? data.projects.filter((p) => visibleProjectIds.includes(p.id)) : data.projects;
   const sprintProjectAllowed = visibleProjectIds ? new Set(visibleProjectIds) : null;
-  const projectsBySprint = new Map<string, string[]>();
-  for (const l of sprintProjectRows) {
-    projectsBySprint.set(l.sprintId, [...(projectsBySprint.get(l.sprintId) ?? []), l.projectId]);
-  }
+  const sprints = sprintProjectAllowed
+    ? data.sprints.filter((s) => s.projectIds.some((pid) => sprintProjectAllowed.has(pid)))
+    : data.sprints;
   return {
-    me: actor.memberId,
-    role: actor.role,
-    companyRole: actor.companyRole,
-    currentCompany: currentCompany ?? null,
-    members: memberRows,
-    teams: teamRows,
-    labels: labelRows,
-    projects: (visibleProjectIds ? projectRows.filter((p) => visibleProjectIds.includes(p.id)) : projectRows).map(
-      (p) => ({ ...p, progress: projectProgress.get(p.id) ?? 0 }),
-    ),
-    sprints: sprintRows
-      .filter(
-        (s) =>
-          (!visibleSprintIds || visibleSprintIds.has(s.id)) &&
-          (!sprintProjectAllowed || (projectsBySprint.get(s.id) ?? []).some((pid) => sprintProjectAllowed.has(pid))),
-      )
-      .map((s) => ({ ...s, projectIds: projectsBySprint.get(s.id) ?? [] })),
-    productLines: productLineRows,
-    products: visibleProductIds ? productRows.filter((p) => visibleProductIds.has(p.id)) : productRows,
-    releases: (visibleReleaseIds ? releaseRows.filter((r) => visibleReleaseIds.has(r.id)) : releaseRows).map((r) => ({
-      ...r,
-      progress: releaseProgress.get(r.id) ?? 0,
-    })),
+    me: data.me,
+    role: data.role,
+    companyRole: data.companyRole,
+    currentCompany: data.currentCompany,
+    members: data.members.map(({ companyRole: _companyRole, ...m }) => m),
+    teams: data.teams,
+    labels: data.labels,
+    projects,
+    sprints,
+    productLines: data.productLines,
+    products: data.products,
+    releases: data.releases,
   };
 }
 
@@ -406,20 +375,17 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         const failed: string[] = [];
         for (const a of images) {
           try {
+            // 读取目标（新行对象 key / 旧行公网 url）由 attachments 服务解析，
+            // 与 /attachments/object 代理路由共用同一套历史行兼容逻辑。
+            const t = await attachmentSvc.attachmentReadTarget(actor, a.id);
             let buf: Buffer;
-            if (a.objectKey) {
+            if ('objectKey' in t) {
               // 经本公司存储后端直读(代理路由的 ?key= 需要浏览器会话,不适用 MCP)。
               const storage = await storageForCompany(actor.companyId);
-              buf = await storage.get(a.objectKey);
+              buf = await storage.get(t.objectKey);
             } else {
-              // 平台级 Vercel Blob 时代的旧行:序列化 url 已是代理地址,回查 DB 原始公网 url。
-              const [row] = await db
-                .select({ url: issueAttachments.url })
-                .from(issueAttachments)
-                .where(eq(issueAttachments.id, a.id))
-                .limit(1);
-              if (!row) throw new Error('attachment row gone');
-              const res = await fetch(row.url);
+              // 平台级 Vercel Blob 时代的旧行:序列化 url 已是代理地址,取服务解析出的原始公网 url。
+              const res = await fetch(t.legacyUrl);
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               buf = Buffer.from(await res.arrayBuffer());
             }

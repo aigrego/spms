@@ -67,6 +67,21 @@ export async function registerAttachment(actor: Actor, issueKey: string, meta: R
   return serializeAttachment(row);
 }
 
+/* ---- 读取目标解析（REST 代理路由与 MCP 图片内联共用）----
+   objectKey 在 → 本公司存储后端的对象（代理 302 到 getReadUrl / MCP 直接 get）；
+   null = 平台级 Vercel Blob 时代的旧行 → 存量公网 url（代理直接 302，MCP fetch）。 */
+export type AttachmentReadTarget = { objectKey: string } | { legacyUrl: string };
+
+export async function attachmentReadTarget(actor: Actor, attachmentId: string): Promise<AttachmentReadTarget> {
+  const [row] = await db
+    .select({ objectKey: issueAttachments.objectKey, url: issueAttachments.url })
+    .from(issueAttachments)
+    .where(and(eq(issueAttachments.companyId, actor.companyId), eq(issueAttachments.id, attachmentId)))
+    .limit(1);
+  if (!row) throw new ApiException('ATTACHMENT_NOT_FOUND', '附件不存在', 404);
+  return row.objectKey ? { objectKey: row.objectKey } : { legacyUrl: row.url };
+}
+
 /* ---- list an issue's attachments (oldest first) ---- */
 export async function listAttachments(actor: Actor, issueKey: string) {
   await requirePerm(actor, 'issues', 'read');

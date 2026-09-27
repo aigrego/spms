@@ -65,13 +65,13 @@ spms/
 │   │   ├── catalog.ts resources.ts assignments.ts testcases.ts
 │   │   ├── reports.ts            # 日报（每人每天一份,按产品拆 entries,产品/人员/负责人三维度汇总）
 │   │   ├── summary.ts            # 团队总结（周期吞吐/周期时长/验收积压/流动健康/按成员分列,读 issue_status_transitions）
-│   │   ├── attachments.ts        # issue 图片附件（本公司存储后端；storage.assertMeta 校验注册 url/objectKey）
+│   │   ├── attachments.ts        # issue 图片附件（本公司存储后端；storage.assertMeta 校验注册 url/objectKey；attachmentReadTarget 统一解析读取目标——objectKey/旧行公网 url，REST 代理与 MCP 图片内联共用）
 │   │   ├── notionSync.ts         # Notion → Issues 同步（lastSyncedAt 水位增量 / ?full=1 全量，幂等靠 notion_issue_links）+ 连接管理
 │   │   ├── platform.ts           # 平台管理（公司/成员/矩阵/MCP key）
 │   │   ├── storage.ts            # 公司文件存储配置（设置→文件存储；读/存/测/删，敏感字段加密落库）
 │   │   ├── oauth.ts              # 三方登录提供方配置 + OAuth callback 账号编排（绑定/邮箱匹配/建号/邀请认领）
 │   │   ├── workflow.ts           # 审查/关单工作流自动化（REST 与 MCP 共用）
-│   │   └── meta.ts             # bootstrap 聚合
+│   │   └── meta.ts             # bootstrap 聚合（REST 与 MCP 共用的单一查询实现；MCP 侧只裁剪字段 + 叠加令牌白名单）
 │   ├── server/crypto.ts          # AES-256-GCM 配置密钥加解密（CONFIG_CRYPTO_KEY；OAuth secret / 存储凭据密文落库）
 │   ├── server/storage/           # 公司级文件存储抽象（设置→文件存储；无配置=禁止上传，零平台兜底）
 │   │   ├── index.ts              # storageForCompany(companyId)：配置行 60s 缓存 + 解密构造后端

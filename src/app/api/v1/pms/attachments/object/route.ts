@@ -1,9 +1,7 @@
-import { and, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
-import { db } from '@/db';
-import { issueAttachments } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
 import { requireActor, route } from '@/server/http';
+import { attachmentReadTarget } from '@/server/services/attachments';
 import { companyIdFromKey, storageForCompany } from '@/server/storage';
 
 /* GET /api/v1/pms/attachments/object?id=<attachmentId> 或 ?key=<objectKey>
@@ -15,7 +13,8 @@ import { companyIdFromKey, storageForCompany } from '@/server/storage';
    - ?key= 对象 key 内嵌的 companyId 必须等于 actor.companyId —— 评论/描述里
      粘贴的图片不注册 attachment 行，key 前缀即归属证明。
    旧行（objectKey 为 null，平台级 Vercel Blob 时代的公网 url）直接 302 到
-   其存量的 url 以兼容历史数据。 */
+   其存量的 url 以兼容历史数据（读取目标解析见 attachments 服务，
+   与 MCP 图片内联共用）。 */
 export const GET = route(async (req) => {
   const actor = await requireActor();
   const id = req.nextUrl.searchParams.get('id');
@@ -23,17 +22,12 @@ export const GET = route(async (req) => {
 
   let target: string;
   if (id) {
-    const [row] = await db
-      .select()
-      .from(issueAttachments)
-      .where(and(eq(issueAttachments.companyId, actor.companyId), eq(issueAttachments.id, id)))
-      .limit(1);
-    if (!row) throw new ApiException('ATTACHMENT_NOT_FOUND', '附件不存在', 404);
-    if (row.objectKey) {
+    const t = await attachmentReadTarget(actor, id);
+    if ('objectKey' in t) {
       const storage = await storageForCompany(actor.companyId);
-      target = await storage.getReadUrl(row.objectKey);
+      target = await storage.getReadUrl(t.objectKey);
     } else {
-      target = row.url; // legacy 公网 url
+      target = t.legacyUrl; // legacy 公网 url
     }
   } else if (key) {
     if (companyIdFromKey(key) !== actor.companyId) throw new ApiException('FORBIDDEN', '无权访问该文件', 403);
