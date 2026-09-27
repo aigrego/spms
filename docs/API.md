@@ -149,6 +149,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
+| GET | `/attachments` | 公司附件分页列表（设置 → 附件 面板）：`?page=`（从 1 起，默认 1）`&pageSize=`（默认 24，上限 100）→ `{ items, total, page, pageSize }`，items 行附 `owner:{type,key,title}`；读闸门为 issues/testcases/requirements 任一模块 read，三者皆 none → 403 |
 | POST | `/attachments/upload` | `{ action:'create-intent', filename, contentType, size, category? }` → `{ mode:'presigned-put', uploadUrl, objectKey }`；category ∈ `issues\|cases\|requirements`（默认 `issues`）；仅登录门（真正闸门在注册时）；公司未开通 → STORAGE_NOT_PROVISIONED，平台未配置 → STORAGE_NOT_CONFIGURED，总开关关 → STORAGE_DISABLED；格式/大小不符 → VALIDATION_FAILED |
 | POST | `/issues/:key/attachments` | `{ url, pathname, filename, contentType, size }` 注册为 issue 附件（模块门 issues=write；issue 不存在 → ISSUE_NOT_FOUND；key 三段比对失败/格式/大小 → VALIDATION_FAILED）→ 附件行 |
 | POST | `/test-cases/:key/attachments` | 同上，注册到测试用例（模块门 testcases=write；TEST_CASE_NOT_FOUND） |

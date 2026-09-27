@@ -142,6 +142,9 @@ const zhCN: Dict = {
   'attachmentsPanel.size': '大小',
   'attachmentsPanel.uploader': '上传者',
   'attachmentsPanel.uploadedAt': '上传时间',
+  'attachmentsPanel.pageInfo': '第 {page} / {pages} 页 · 共 {total} 个',
+  'common.prev': '上一页',
+  'common.next': '下一页',
 
   // 三方登录（平台管理员）
   'oauth.desc': '配置第三方登录提供方（飞书 / Lark / GitHub）。数据库配置优先；无数据库配置时回退到环境变量。密钥使用 AES-256-GCM 加密存储，保存后不可回显。',
@@ -870,6 +873,9 @@ const en: Dict = {
   'attachmentsPanel.size': 'Size',
   'attachmentsPanel.uploader': 'Uploaded by',
   'attachmentsPanel.uploadedAt': 'Uploaded at',
+  'attachmentsPanel.pageInfo': 'Page {page} of {pages} · {total} files',
+  'common.prev': 'Prev',
+  'common.next': 'Next',
 
   // Third-party login (platform admin)
   'oauth.desc': 'Configure third-party login providers (Feishu / Lark / GitHub). The database config wins; env vars are the fallback when no DB row exists. Secrets are stored AES-256-GCM encrypted and are never shown again.',
@@ -1566,6 +1572,9 @@ const zhTW: Dict = {
   'attachmentsPanel.size': '大小',
   'attachmentsPanel.uploader': '上傳者',
   'attachmentsPanel.uploadedAt': '上傳時間',
+  'attachmentsPanel.pageInfo': '第 {page} / {pages} 頁 · 共 {total} 個',
+  'common.prev': '上一頁',
+  'common.next': '下一頁',
 
   // 三方登入（平台管理員）
   'oauth.desc': '設定第三方登入提供方（飛書 / Lark / GitHub）。資料庫設定優先；無資料庫設定時回退到環境變數。金鑰使用 AES-256-GCM 加密儲存，儲存後不可回顯。',

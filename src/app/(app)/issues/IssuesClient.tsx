@@ -45,7 +45,9 @@ export default function IssuesClient({
     }),
     [isMine, meId, showArchived],
   );
-  const { data: issues = [] } = useIssues(params);
+  // my-issues 等 meId 到位再发请求(否则先拉全量再拉本人,首屏两次等待)。
+  const issuesQuery = useIssues(params, !isMine || !!meId);
+  const issues = issuesQuery.data ?? [];
   const update = useUpdateIssue();
   // 详情抽屉翻页的上下文列表:视图按当前过滤/分组的展示顺序上报(TKT-26)。
   const [navKeys, setNavKeys] = React.useState<string[]>([]);
@@ -70,6 +72,7 @@ export default function IssuesClient({
     <>
       <IssuesView
         issues={issues}
+        loading={issuesQuery.isPending}
         title={meta.title}
         subtitle={meta.subtitle}
         showArchived={showArchived}

@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { attachments, issues, requirements, testCases } from '@/db/schema';
 import { serializeAttachment } from '@/lib/serialize';
@@ -152,8 +152,14 @@ export async function registerAttachment(actor: Actor, entity: AttachmentEntityR
 /* ---- 公司附件总表(设置 → 附件 面板):本公司全部附件,左联出归属实体的
    展示 key/标题。读闸门:issues/testcases/requirements 任一模块 read 即可
    (附件必挂在这三类实体之一),三者皆 none 时 403。行级隔离靠
-   attachments.companyId = actor.companyId。 */
-export async function listCompanyAttachments(actor: Actor) {
+   attachments.companyId = actor.companyId。
+   分页:page 从 1 起,pageSize 上限 100(内存保护,与各处 LIST_LIMIT 同口径)。 */
+export interface AttachmentListQuery {
+  page?: number;
+  pageSize?: number;
+}
+
+export async function listCompanyAttachments(actor: Actor, q: AttachmentListQuery = {}) {
   if (!actor.isPlatformAdmin && actor.companyRole !== 'company_admin') {
     const levels = await Promise.all(
       (['issues', 'testcases', 'requirements'] as const).map((m) =>
@@ -164,6 +170,10 @@ export async function listCompanyAttachments(actor: Actor) {
       throw new ApiException('FORBIDDEN', '没有该模块的访问权限', 403);
     }
   }
+  const page = Math.max(1, Math.floor(q.page ?? 1) || 1);
+  const pageSize = Math.min(100, Math.max(1, Math.floor(q.pageSize ?? 24) || 24));
+  const where = eq(attachments.companyId, actor.companyId);
+  const [totalRow] = await db.select({ n: count() }).from(attachments).where(where);
   const rows = await db
     .select({
       attachment: attachments,
@@ -178,18 +188,25 @@ export async function listCompanyAttachments(actor: Actor) {
     .leftJoin(issues, eq(attachments.issueId, issues.id))
     .leftJoin(testCases, eq(attachments.testCaseId, testCases.id))
     .leftJoin(requirements, eq(attachments.requirementId, requirements.id))
-    .where(eq(attachments.companyId, actor.companyId))
-    .orderBy(desc(attachments.createdAt));
-  return rows.map((r) => ({
-    ...serializeAttachment(r.attachment),
-    owner: r.issueKey
-      ? { type: 'issue' as const, key: r.issueKey, title: r.issueTitle ?? '' }
-      : r.testCaseKey
-        ? { type: 'testCase' as const, key: r.testCaseKey, title: r.testCaseTitle ?? '' }
-        : r.requirementKey
-          ? { type: 'requirement' as const, key: r.requirementKey, title: r.requirementTitle ?? '' }
-          : null,
-  }));
+    .where(where)
+    .orderBy(desc(attachments.createdAt))
+    .limit(pageSize)
+    .offset((page - 1) * pageSize);
+  return {
+    items: rows.map((r) => ({
+      ...serializeAttachment(r.attachment),
+      owner: r.issueKey
+        ? { type: 'issue' as const, key: r.issueKey, title: r.issueTitle ?? '' }
+        : r.testCaseKey
+          ? { type: 'testCase' as const, key: r.testCaseKey, title: r.testCaseTitle ?? '' }
+          : r.requirementKey
+            ? { type: 'requirement' as const, key: r.requirementKey, title: r.requirementTitle ?? '' }
+            : null,
+    })),
+    total: totalRow?.n ?? 0,
+    page,
+    pageSize,
+  };
 }
 
 /* ---- delete: 按行实际 owner FK 分支 requirePerm;先删 DB 行再删对象,对象

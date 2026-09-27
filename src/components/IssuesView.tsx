@@ -13,6 +13,7 @@ import { AISlaBadge, ProjectIcon } from '@/components/glyphs/misc';
 import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, AssigneeMenu } from '@/components/menus';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
 import { SegBtn } from '@/components/ui/segmented';
+import { Skeleton } from '@/components/StateBlock';
 import { ProjectFilterMenu, useProjectFilter } from '@/components/ProjectFilterMenu';
 import { STATUS_ORDER, PRIORITY_ORDER, IMPORTANCE_ORDER } from '@/lib/constants';
 import { usePersistentState } from '@/lib/prefs';
@@ -263,6 +264,7 @@ function GroupHeaderGlyph({ groupBy, k }: { groupBy: GroupBy; k: string }) {
 
 export function IssuesView({
   issues,
+  loading = false,
   title,
   subtitle,
   showArchived,
@@ -273,6 +275,8 @@ export function IssuesView({
   onVisibleKeysChange,
 }: {
   issues: Issue[];
+  /* 首屏查询未返回时渲染骨架屏(否则被误认为"暂无 Issue")。 */
+  loading?: boolean;
   title: string;
   subtitle?: string;
   showArchived?: boolean;
@@ -497,7 +501,9 @@ export function IssuesView({
       </div>
 
       {/* Body */}
-      {viewMode === 'list' ? (
+      {loading ? (
+        <Skeleton rows={9} />
+      ) : viewMode === 'list' ? (
         <div className="flex-1 overflow-y-auto">
           {groups.map((g) => (
             <div key={g.key}>

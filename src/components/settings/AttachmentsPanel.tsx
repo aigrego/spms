@@ -27,16 +27,21 @@ const formatSize = (n: number) => {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 };
 
+const PAGE_SIZE = 24;
+
 export function AttachmentsPanel() {
   const t = useT();
   const locale = useLocale();
   const { memberById } = useAppData();
-  const { data, isLoading, isError } = useCompanyAttachments();
+  const [page, setPage] = React.useState(1);
+  const { data, isLoading, isError } = useCompanyAttachments(page, PAGE_SIZE);
   const [viewMode, setViewMode] = usePersistentState<ViewMode>('settings.attachmentsViewMode', 'grid', isViewMode);
   // 预览下标指向图片子集（文档不进弹窗，新标签页打开），null = 关闭。
   const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
 
-  const items = React.useMemo(() => data ?? [], [data]);
+  const items = React.useMemo(() => data?.items ?? [], [data]);
+  const total = data?.total ?? 0;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const images = React.useMemo(() => items.filter((a) => isImageType(a.contentType)), [items]);
 
   const openItem = (a: CompanyAttachment) => {
@@ -94,7 +99,7 @@ export function AttachmentsPanel() {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <PlatformHeader title={t('settingsPage.tab.attachments')} count={items.length}>
+      <PlatformHeader title={t('settingsPage.tab.attachments')} count={total}>
         {viewToggle}
       </PlatformHeader>
 
@@ -180,6 +185,30 @@ export function AttachmentsPanel() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {pages > 1 && (
+        <div className="flex flex-none items-center justify-end gap-2 border-t border-border px-6 py-2.5">
+          <span className="mr-auto text-[12px] tabular-nums text-fg-3">
+            {t('attachmentsPanel.pageInfo', { page, pages, total })}
+          </span>
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            className="inline-flex h-7 items-center rounded-lg border border-border bg-surface px-2.5 text-[12.5px] text-fg-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {t('common.prev')}
+          </button>
+          <button
+            type="button"
+            disabled={page >= pages}
+            onClick={() => setPage((p) => Math.min(pages, p + 1))}
+            className="inline-flex h-7 items-center rounded-lg border border-border bg-surface px-2.5 text-[12.5px] text-fg-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {t('common.next')}
+          </button>
         </div>
       )}
 

@@ -344,6 +344,14 @@ export interface CompanyAttachment extends IssueAttachment {
   owner: { type: 'issue' | 'testCase' | 'requirement'; key: string; title: string } | null;
 }
 
+/* GET /attachments 的分页返回(page 从 1 起)。 */
+export interface CompanyAttachmentPage {
+  items: CompanyAttachment[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface IssueDetail extends Issue {
   subIssues: SubIssue[];
   activities: Activity[];

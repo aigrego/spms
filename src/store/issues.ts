@@ -3,11 +3,16 @@ import { api } from '@/lib/api';
 import type { AttachmentMeta, CreateIssueInput, UpdateIssueInput } from '@/lib/api';
 
 /* Issue-list query. "My issues" passes the current user's member id (resolved
-   from /bootstrap) as the assignee param. */
-export function useIssues(params?: { assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean }) {
+   from /bootstrap) as the assignee param. `enabled=false` 挂起查询(my-issues
+   等待 meId,避免先发一次无 assignee 的无效请求)。 */
+export function useIssues(
+  params?: { assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean },
+  enabled = true,
+) {
   return useQuery({
     queryKey: ['issues', params ?? {}],
     queryFn: () => api.issues(params),
+    enabled,
   });
 }
 

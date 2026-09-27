@@ -3,7 +3,7 @@ import type {
   Issue,
   IssueDetail,
   IssueAttachment,
-  CompanyAttachment,
+  CompanyAttachmentPage,
   IssueStatus,
   IssuePriority,
   Importance,
@@ -318,8 +318,15 @@ export const api = {
 
   deleteAttachment: (id: string) => request<{ id: string }>(`/attachments/${id}`, { method: 'DELETE' }),
 
-  /* 设置 → 附件 面板:本公司全部附件(含归属实体 key/标题)。 */
-  companyAttachments: () => request<CompanyAttachment[]>('/attachments'),
+  /* 设置 → 附件 面板:本公司附件分页列表(含归属实体 key/标题)。 */
+  companyAttachments: (params?: { page?: number; pageSize?: number }) => {
+    const q = new URLSearchParams(
+      Object.entries({ page: params?.page, pageSize: params?.pageSize })
+        .filter(([, v]) => v)
+        .map(([k, v]) => [k, String(v)]),
+    ).toString();
+    return request<CompanyAttachmentPage>(`/attachments${q ? `?${q}` : ''}`);
+  },
 
   toggleSub: (id: string, subId: string, status: IssueStatus) =>
     request<{ id: string; status: IssueStatus }>(`/issues/${id}/sub/${subId}`, json('PATCH', { status })),
