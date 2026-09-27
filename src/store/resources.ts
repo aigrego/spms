@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import * as React from 'react';
 import { api } from '@/lib/api';
 import type { InviteResourceInput } from '@/lib/api';
-import type { AssignmentNodeType, AssignmentRole } from '@/lib/types';
+import { useAppData } from '@/store/AppData';
+import type { AssignmentNodeType, AssignmentRole, Member } from '@/lib/types';
 
 /* PMS-2 资源池 + 虚拟团队 hooks. The pool ships in bootstrap (members carry
    origin/status), so invite/revoke invalidate ['bootstrap']. Per-node
@@ -64,6 +66,21 @@ export function useNodeAssignments(nodeType: AssignmentNodeType, nodeId: string 
     queryFn: () => api.assignments(nodeType, nodeId as string),
     enabled: !!nodeId,
   });
+}
+
+/* 负责人候选池(项目作用域):项目资源池中的 human + 全体 AI agents。
+   NewIssueModal / NewRequirementModal / RequirementDetail 共用这一套客户端组法;
+   IssueDetail 走服务端 useIssueCandidates(issue 已入迭代时可按迭代池收窄),
+   两者口径不同,勿互换。 */
+export function useAssigneeCandidates(projectId: string | null | undefined): Member[] {
+  const { agents } = useAppData();
+  const { data: assignments = [] } = useNodeAssignments('project', projectId);
+  return React.useMemo<Member[]>(() => {
+    const humans = assignments
+      .map((a) => a.member)
+      .filter((m): m is Member => !!m && m.type === 'human');
+    return [...humans, ...agents];
+  }, [assignments, agents]);
 }
 /* Candidate members for assigning a specific issue — scoped to the issue's project
    (or sprint) research resources, plus AI agents. Used by the assignee pickers. */

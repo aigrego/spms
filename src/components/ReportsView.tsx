@@ -9,7 +9,7 @@ import { SegBtn, TabBtn } from '@/components/ui/segmented';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { Markdown } from '@/components/Markdown';
 import { Skeleton } from '@/components/StateBlock';
-import { relativeTime } from '@/lib/time';
+import { relativeTime, localToday } from '@/lib/time';
 import { contentToHtmlList, inlineToHtml, parseContentLines } from '@/lib/reportHtml';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
@@ -20,10 +20,6 @@ import type { DailyReport, DailyReportEntry, Member, Product } from '@/lib/types
    汇总支持三种维度:按产品(产品 → 人员 → 任务,默认)、按人员(人员 → 产品 → 任务)、
    按负责人(负责人 → 产品 → 人员 → 任务,TKT-10),支持一键复制。
    日期一律用客户端本地时区的 'YYYY-MM-DD'(服务端只做不透明 day key)。 */
-
-function localToday(d = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 
 const dateInputCls =
   'h-8 rounded-md border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';

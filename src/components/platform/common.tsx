@@ -8,31 +8,9 @@ import { useT } from '@/lib/i18n';
 /* Shared bits for the /platform admin pages (kept out of components/ui —
    these are platform-specific compositions, not generic primitives). */
 
-export const fieldLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wider text-fg-3';
-export const inputCls =
-  'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
-
-/* Page header — mirrors the ViewHeader pattern in ProjectsView. */
-export function PlatformHeader({
-  title,
-  count,
-  children,
-}: {
-  title: string;
-  count?: number;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-3 border-b border-border px-6 py-3.5">
-      <h1 className="m-0 text-[18px] font-semibold tracking-tight text-fg-1">{title}</h1>
-      {count != null && (
-        <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">{count}</span>
-      )}
-      <div className="flex-1" />
-      {children}
-    </div>
-  );
-}
+// 通用表单样式常量的唯一定义在 @/components/common;此处转出口供 platform 各
+// 面板沿用现有 import 路径。
+export { fieldLabel, inputCls } from '@/components/common';
 
 /* First-letter avatar for platform members (they don't carry the full Member
    shape the glyphs Avatar expects). */

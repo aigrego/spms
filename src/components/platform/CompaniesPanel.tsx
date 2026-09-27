@@ -9,7 +9,8 @@ import { useCompanies, useEnterCompany } from '@/store/platform';
 import type { PlatformCompany } from '@/lib/platformApi';
 import { CompanyModal } from '@/components/platform/CompanyModal';
 import { SeatsDrawer } from '@/components/platform/SeatsDrawer';
-import { PlatformHeader, fmtDate } from '@/components/platform/common';
+import { fmtDate } from '@/components/platform/common';
+import { ViewHeader } from '@/components/common';
 import { useT } from '@/lib/i18n';
 
 export function CompaniesPanel() {
@@ -36,11 +37,11 @@ export function CompaniesPanel() {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <PlatformHeader title={t('companies.title')} count={companies?.length}>
+      <ViewHeader title={t('companies.title')} count={companies?.length}>
         <Button variant="primary" size="md" onClick={openNew}>
           <Plus size={14} /> {t('companies.new')}
         </Button>
-      </PlatformHeader>
+      </ViewHeader>
       <div className="flex-1 overflow-y-auto p-6">
         {isLoading ? (
           <Skeleton rows={5} />

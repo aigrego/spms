@@ -1,5 +1,10 @@
 import type { TFn, Locale } from './i18n';
 
+/* Client-local 'YYYY-MM-DD' day key (日报 / 团队总结共用;服务端只做边界换算). */
+export function localToday(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /* Render an ISO timestamp as a localized relative-time string. */
 export function relativeTime(iso: string, t: TFn): string {
   const then = new Date(iso).getTime();

@@ -5,14 +5,11 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { UserPlus } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { fieldLabel, inputCls } from '@/components/common';
 import { useT } from '@/lib/i18n';
 import { useInviteResource } from '@/store/resources';
 import { ApiError } from '@/lib/api';
 import type { Member } from '@/lib/types';
-
-const fieldLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wider text-fg-3';
-const inputCls =
-  'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
 
 /* Invite an external resource into the pool (PMS-2 §5.1). Shared by the resource
    pool page and the per-node assigner. Standalone rewrite: the blueprint's

@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, type NotionConnectionInfo, type NotionSyncResult } from '@/lib/api';
 import { SPMS_STATUSES, type NotionStatusRule } from '@/lib/notionStatusMap';
+import { Card, Row } from '@/components/settings/common';
 import { useAppData } from '@/store/AppData';
 import { useT } from '@/lib/i18n';
 
@@ -14,27 +15,6 @@ const primaryBtnCls =
   'h-8 rounded-md bg-brand-blue px-3 text-[13px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-40';
 const secondaryBtnCls =
   'h-8 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-medium text-fg-1 disabled:cursor-not-allowed disabled:opacity-40';
-
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-[14px] border border-border bg-surface px-6 py-5 shadow-1">
-      <h2 className="mb-2 text-[15px] font-semibold text-fg-1">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function Row({ label, desc, control }: { label: string; desc?: string; control: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-4 border-b border-border py-3 last:border-b-0">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13.5px] font-medium text-fg-1">{label}</div>
-        {desc && <div className="mt-0.5 text-[12px] text-fg-3">{desc}</div>}
-      </div>
-      {control}
-    </div>
-  );
-}
 
 /* 「Notion 集成」卡片(连接 / 配置数据库与目标项目 / 预览 / 同步 / 断开)。
    OAuth 回调跳回 /integrations?notion=connected|failed,这里给出内联反馈。

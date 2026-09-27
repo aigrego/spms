@@ -12,7 +12,8 @@ import { ApiError } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import type { PlatformUser } from '@/lib/platformApi';
 import { CreateUserModal } from '@/components/platform/CreateUserModal';
-import { LetterAvatar, PlatformHeader, fmtDate, tdCls, thCls } from '@/components/platform/common';
+import { LetterAvatar, fmtDate, tdCls, thCls } from '@/components/platform/common';
+import { ViewHeader } from '@/components/common';
 
 /* 成员管理 = 平台成员目录:系统全部用户及其公司席位。
    席位分配在「公司管理」的公司卡片 → 席位抽屉;公司角色在「研发资源」配置。
@@ -40,11 +41,11 @@ export function MembersPanel() {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <PlatformHeader title={t('members.title')} count={users?.length}>
+      <ViewHeader title={t('members.title')} count={users?.length}>
         <Button variant="primary" size="md" onClick={() => setModalOpen(true)}>
           <Plus size={14} /> {t('members.newUser')}
         </Button>
-      </PlatformHeader>
+      </ViewHeader>
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <Skeleton rows={5} />

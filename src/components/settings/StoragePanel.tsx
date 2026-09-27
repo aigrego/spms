@@ -4,7 +4,8 @@ import * as React from 'react';
 import { Check, Plug, Save, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton, StateBlock } from '@/components/StateBlock';
-import { PlatformHeader, PopoverConfirm, fieldLabel, inputCls } from '@/components/platform/common';
+import { PopoverConfirm, fieldLabel, inputCls } from '@/components/platform/common';
+import { ViewHeader } from '@/components/common';
 import { useDeleteStorageConfig, useSaveStorageConfig, useStorageConfig } from '@/store/platform';
 import { api, type SaveStorageConfigInput, type StorageConfigState } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -75,7 +76,7 @@ export function StoragePanel() {
   if (isLoading || !draft) {
     return (
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <PlatformHeader title={t('settingsPage.tab.storage')} />
+        <ViewHeader title={t('settingsPage.tab.storage')} />
         <div className="p-6">
           <Skeleton rows={5} />
         </div>
@@ -85,7 +86,7 @@ export function StoragePanel() {
   if (isError || !data) {
     return (
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <PlatformHeader title={t('settingsPage.tab.storage')} />
+        <ViewHeader title={t('settingsPage.tab.storage')} />
         <div className="p-6">
           <StateBlock icon="alert" tone="danger" title={t('matrix.loadFailed')} body={t('platform.common.retry')} />
         </div>
@@ -165,7 +166,7 @@ export function StoragePanel() {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <PlatformHeader title={t('settingsPage.tab.storage')}>
+      <ViewHeader title={t('settingsPage.tab.storage')}>
         <span
           className={cn(
             'rounded-full px-2.5 py-px text-[12px] font-semibold',
@@ -176,7 +177,7 @@ export function StoragePanel() {
             ? `${t('storage.configuredAs')}: ${data.backend === 'minio' ? 'MinIO' : 'Vercel Blob'}`
             : t('storage.notConfigured')}
         </span>
-      </PlatformHeader>
+      </ViewHeader>
       <div className="flex-1 overflow-y-auto p-6">
         <div className="flex max-w-[860px] flex-col gap-4">
           <p className="m-0 rounded-lg bg-surface-2 px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">

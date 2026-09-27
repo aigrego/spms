@@ -11,6 +11,7 @@ import { PRODUCT_STATUS, RELEASE_STATUS, PROJECT_PHASE_ORDER } from '@/lib/const
 import { ConfirmDestructive } from '@/components/ConfirmDestructive';
 import { ResourcePanelCompact } from '@/components/ResourcePanelCompact';
 import { RowActions } from '@/components/RowActions';
+import { ViewHeader, fieldLabel, inputCls } from '@/components/common';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useAllIssues } from '@/store/issues';
@@ -31,10 +32,6 @@ const SWATCHES = ['#0063D3', '#1F9D55', '#7A5AE0', '#D89400', '#D6293E', '#0EA5A
 const PRODUCT_ICONS = ['box', 'zap', 'eye', 'target', 'activity'];
 const PRODUCT_STATUSES: ProductStatus[] = ['active', 'maintenance', 'archived'];
 const RELEASE_STATUSES: ReleaseStatus[] = ['planned', 'in_progress', 'released', 'deprecated'];
-
-const fieldLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wider text-fg-3';
-const inputCls =
-  'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
 
 type ModalState =
   | { kind: 'line'; entity?: ProductLine }
@@ -360,19 +357,17 @@ export function ProductsView() {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b border-border px-6 py-3.5">
-        <h1 className="m-0 text-[18px] font-semibold tracking-tight text-fg-1">{t('products.title')}</h1>
-        <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">
-          {productLines.length}
-        </span>
-        <span className="text-[12.5px] text-fg-3">· {t('products.subtitle')}</span>
-        <div className="flex-1" />
+      <ViewHeader
+        title={t('products.title')}
+        count={productLines.length}
+        extra={<span className="text-[12.5px] text-fg-3">· {t('products.subtitle')}</span>}
+      >
         {canWrite && (
           <Button variant="primary" size="md" onClick={() => setModal({ kind: 'line' })}>
             <Plus size={14} /> {t('products.newLine')}
           </Button>
         )}
-      </div>
+      </ViewHeader>
 
       <div className="flex-1 overflow-y-auto p-6">
         {productLines.length === 0 && (

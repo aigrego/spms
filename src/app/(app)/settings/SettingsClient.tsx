@@ -8,6 +8,7 @@ import { MembersPanel } from '@/components/platform/MembersPanel';
 import { MatrixPanel } from '@/components/platform/MatrixPanel';
 import { OAuthProvidersPanel } from '@/components/platform/OAuthProvidersPanel';
 import { StoragePanel } from '@/components/settings/StoragePanel';
+import { Card, Row } from '@/components/settings/common';
 import { useAppData } from '@/store/AppData';
 import { useT, useLocale, useSetLocale, type Locale } from '@/lib/i18n';
 import { usePersistentState } from '@/lib/prefs';
@@ -18,27 +19,6 @@ type TabKey = 'preferences' | 'companies' | 'members' | 'matrix' | 'oauth' | 'co
 
 const selectCls =
   'h-8 rounded-md border border-border-strong bg-surface px-2 text-[13px] text-fg-1 outline-none focus:border-brand-blue disabled:opacity-60';
-
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-[14px] border border-border bg-surface px-6 py-5 shadow-1">
-      <h2 className="mb-2 text-[15px] font-semibold text-fg-1">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function Row({ label, desc, control }: { label: string; desc?: string; control: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-4 border-b border-border py-3 last:border-b-0">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13.5px] font-medium text-fg-1">{label}</div>
-        {desc && <div className="mt-0.5 text-[12px] text-fg-3">{desc}</div>}
-      </div>
-      {control}
-    </div>
-  );
-}
 
 /* 偏好开关:传了 onToggle 即可点击;否则为占位的禁用态("即将上线"
    tooltip 由外层 span 提供 —— disabled 按钮不触发事件)。 */

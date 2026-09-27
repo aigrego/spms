@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverTrigger, PopoverContent, MenuItem } from '@/components/ui/popover';
 import { ProjectCheckList } from '@/components/ProjectCheckList';
+import { inputCls } from '@/components/common';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useCreateSprint, useUpdateSprint, useDeleteSprint } from '@/store/sprints';
@@ -51,9 +52,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </label>
   );
 }
-
-const inputCls =
-  'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
 
 /* Lightweight plain confirm for sprint deletion — deleting a sprint only
    unmounts its issues back to the backlog (no cascade), so the type-to-confirm

@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger, MenuItem } from '@/components/
 import { Avatar } from '@/components/glyphs/Avatar';
 import { Skeleton } from '@/components/StateBlock';
 import { STATUS } from '@/lib/constants';
-import { formatDate } from '@/lib/time';
+import { formatDate, localToday } from '@/lib/time';
 import { useLocale, useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useTeamSummary } from '@/store/summary';
@@ -24,10 +24,6 @@ import type {
 /* 团队总结 (TKT-33) — 每日/每周两个页签的周期统计:吞吐、周期时长、验收积压、
    流动健康与按成员分列。统计口径见 src/server/services/summary.ts 文件头。
    日期一律用客户端本地时区的 'YYYY-MM-DD' day key(服务端只做边界换算)。 */
-
-function localToday(d = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 
 function shiftDay(day: string, offset: number): string {
   const d = new Date(`${day}T00:00:00Z`);

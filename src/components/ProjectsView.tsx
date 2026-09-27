@@ -19,6 +19,7 @@ import { ProjectModal } from '@/components/ProjectModal';
 import { ResourcePanelCompact } from '@/components/ResourcePanelCompact';
 import { RowActions } from '@/components/RowActions';
 import { ConfirmDestructive } from '@/components/ConfirmDestructive';
+import { ViewHeader } from '@/components/common';
 import { cn } from '@/lib/utils';
 import type { Project, ProjectPhase } from '@/lib/types';
 
@@ -237,18 +238,13 @@ export function ProjectsView() {
     <div className="flex h-full min-w-0 flex-1 flex-col">
       {/* Toolbar */}
       <div className="border-b border-border">
-        <div className="flex items-center gap-3 px-6 pb-3 pt-3.5">
-          <h1 className="m-0 text-[18px] font-semibold tracking-tight text-fg-1">{t('projects.title')}</h1>
-          <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">
-            {shownProjects.length}
-          </span>
-          <div className="flex-1" />
+        <ViewHeader title={t('projects.title')} count={shownProjects.length} bordered={false}>
           {canCreate && (
             <Button variant="primary" size="md" onClick={openNew}>
               <Plus size={14} /> {t('projects.new')}
             </Button>
           )}
-        </div>
+        </ViewHeader>
         <div className="flex items-center gap-2 px-6 pb-3">
           {/* 筛选(按产品):项目经 release 归属产品。 */}
           <Popover open={fltOpen} onOpenChange={setFltOpen}>

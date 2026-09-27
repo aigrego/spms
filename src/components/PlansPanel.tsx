@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger, MenuItem } from '@/components/ui/popover';
 import { Markdown } from '@/components/Markdown';
 import { Skeleton } from '@/components/StateBlock';
+import { fieldLabel } from '@/components/common';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { PLAN_STATUS, PLAN_STATUS_ORDER, REQUIREMENT_STATUS, REQUIREMENT_TYPE } from '@/lib/constants';
 import { formatDate } from '@/lib/time';
@@ -21,8 +22,6 @@ import type { Plan, PlanStatus } from '@/lib/types';
 
 /* 开发计划 tab(TKT-68):项目级 markdown 计划,关联 N 条需求,内容待 AI Agent
    按模板生成。权限复用 requirements 模块(不新增 RBAC 模块)。 */
-
-const fieldLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wider text-fg-3';
 
 /* ------------------------------------------------------------------ */
 /* 新建计划 dialog                                                      */

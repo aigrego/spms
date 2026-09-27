@@ -13,6 +13,7 @@ import { Avatar } from '@/components/glyphs/Avatar';
 import { AISlaBadge } from '@/components/glyphs/misc';
 import { ResourcePanelCompact } from '@/components/ResourcePanelCompact';
 import { Markdown } from '@/components/Markdown';
+import { ViewHeader } from '@/components/common';
 import { SprintModal, ConfirmDeleteSprint, useSprintDict } from '@/components/SprintModal';
 import { SPRINT_STATUS } from '@/lib/constants';
 import { useDragHighlight } from '@/lib/useDragHighlight';
@@ -34,19 +35,6 @@ import type { Issue, Sprint, Burndown, Velocity } from '@/lib/types';
 /* ------------------------------------------------------------------ */
 /* Shared bits                                                         */
 /* ------------------------------------------------------------------ */
-export function ViewHeader({ title, count, children }: { title: string; count?: number; children?: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-3 border-b border-border px-6 py-3.5">
-      <h1 className="m-0 text-[18px] font-semibold tracking-tight text-fg-1">{title}</h1>
-      {count != null && (
-        <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">{count}</span>
-      )}
-      <div className="flex-1" />
-      {children}
-    </div>
-  );
-}
-
 function PointsChip({ points }: { points: number | null }) {
   if (points == null) return null;
   return (

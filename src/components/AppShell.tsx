@@ -2,11 +2,11 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Header, HEADER_HEIGHT } from '@/components/Header';
+import { Header } from '@/components/Header';
 import { Sidebar } from '@/components/Sidebar';
 import { CommandPalette } from '@/components/CommandPalette';
 import { NewIssueModal } from '@/components/NewIssueModal';
-import { Skeleton } from '@/components/StateBlock';
+import { ShellSkeleton } from '@/components/StateBlock';
 import { useAppData } from '@/store/AppData';
 import { useAllIssues } from '@/store/issues';
 import type { IssueStatus } from '@/lib/types';
@@ -70,17 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   ).length;
 
   if (loading) {
-    return (
-      <div className="flex h-screen flex-col bg-bg">
-        <div className="flex-none border-b border-border bg-surface" style={{ height: HEADER_HEIGHT }} />
-        <div className="flex min-h-0 flex-1">
-          <div className="w-[244px] flex-none border-r border-border bg-surface-2" />
-          <div className="flex-1">
-            <Skeleton rows={9} />
-          </div>
-        </div>
-      </div>
-    );
+    return <ShellSkeleton />;
   }
 
   return (

@@ -53,3 +53,23 @@ export function Skeleton({ rows = 6 }: { rows?: number }) {
     </div>
   );
 }
+
+// Keep in sync with HEADER_HEIGHT in components/Header.tsx (importing the value
+// from the client Header module would create an import cycle via AppShell).
+const HEADER_HEIGHT = 52;
+
+/* App-chrome loading skeleton (top bar + sidebar + content rows): shared by the
+   (app) layout's Suspense fallback, AuthGate and AppShell. */
+export function ShellSkeleton() {
+  return (
+    <div className="flex h-screen flex-col bg-bg">
+      <div className="flex-none border-b border-border bg-surface" style={{ height: HEADER_HEIGHT }} />
+      <div className="flex min-h-0 flex-1">
+        <div className="w-[244px] flex-none border-r border-border bg-surface-2" />
+        <div className="flex-1">
+          <Skeleton rows={9} />
+        </div>
+      </div>
+    </div>
+  );
+}

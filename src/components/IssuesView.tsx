@@ -12,6 +12,7 @@ import { Avatar } from '@/components/glyphs/Avatar';
 import { AISlaBadge, ProjectIcon } from '@/components/glyphs/misc';
 import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, AssigneeMenu } from '@/components/menus';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
+import { ViewHeader } from '@/components/common';
 import { SegBtn } from '@/components/ui/segmented';
 import { ProjectFilterMenu, useProjectFilter } from '@/components/ProjectFilterMenu';
 import { STATUS_ORDER, PRIORITY_ORDER, IMPORTANCE_ORDER } from '@/lib/constants';
@@ -400,22 +401,13 @@ export function IssuesView({
     <div className="flex h-full min-w-0 flex-1 flex-col">
       {/* Toolbar */}
       <div className="border-b border-border">
-        <div className="flex items-center gap-3 px-5 pb-3 pt-3.5">
-          <div className="flex-1">
-            <div className="flex items-center gap-2.5">
-              <h1 className="m-0 text-[18px] font-semibold tracking-tight text-fg-1">{title}</h1>
-              <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">
-                {shownIssues.length}
-              </span>
-            </div>
-            {subtitle && <div className="mt-0.5 text-[12.5px] text-fg-3">{subtitle}</div>}
-          </div>
+        <ViewHeader title={title} count={shownIssues.length} subtitle={subtitle} bordered={false} className="px-5">
           {canWrite && (
             <Button variant="primary" size="md" onClick={() => onNewIssue()}>
               <Plus size={14} /> {t('issues.new')}
             </Button>
           )}
-        </div>
+        </ViewHeader>
         <div className="flex items-center gap-2 px-5 pb-3">
           <ProjectFilterMenu />
           <Popover open={grpOpen} onOpenChange={setGrpOpen}>

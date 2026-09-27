@@ -15,6 +15,7 @@ import { Avatar } from '@/components/glyphs/Avatar';
 import { AISlaBadge, LabelChip, ProjectIcon } from '@/components/glyphs/misc';
 import { Markdown } from '@/components/Markdown';
 import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, ScopedAssigneeMenu, RequirementMenu, LabelMenu } from '@/components/menus';
+import { DetailDrawer } from '@/components/DetailDrawer';
 import { useT, useLocale } from '@/lib/i18n';
 import { formatActivityTime, formatDate } from '@/lib/time';
 import { TEST_RESULT, TEST_CATEGORY } from '@/lib/constants';
@@ -461,98 +462,95 @@ export function IssueDetail({
 
   return (
     <>
-      <div
-        onClick={onClose}
-        className="fixed inset-0 z-[800] animate-fadeIn bg-[rgba(11,18,32,0.35)]"
-      />
-      <div
+      <DetailDrawer
+        onClose={onClose}
         onPaste={onPaste}
-        className="fixed inset-y-0 right-0 z-[810] flex w-[min(760px,92vw)] animate-slideIn flex-col border-l border-border bg-surface shadow-4"
-      >
-        {/* Header */}
-        <div className="flex items-center gap-2.5 border-b border-border px-[18px] py-3">
-          {onOpen && (
-            <button
-              aria-label={t('detail.prevIssue')}
-              title={t('detail.prevIssue')}
-              disabled={!prevKey}
-              onClick={() => prevKey && onOpen(prevKey)}
-              className="grid h-6 w-6 flex-none place-items-center rounded-md text-fg-3 hover:bg-surface-2 hover:text-fg-1 disabled:pointer-events-none disabled:opacity-30"
-            >
-              <ChevronLeft size={14} />
-            </button>
-          )}
-          <span className="flex-none whitespace-nowrap font-mono text-[12.5px] text-fg-3">
-            {issue.id}
-          </span>
-          {onOpen && (
-            <button
-              aria-label={t('detail.nextIssue')}
-              title={t('detail.nextIssue')}
-              disabled={!nextKey}
-              onClick={() => nextKey && onOpen(nextKey)}
-              className="grid h-6 w-6 flex-none place-items-center rounded-md text-fg-3 hover:bg-surface-2 hover:text-fg-1 disabled:pointer-events-none disabled:opacity-30"
-            >
-              <ChevronRight size={14} />
-            </button>
-          )}
-          {issue.archivedAt && (
-            <span className="inline-flex flex-none items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-fg-3">
-              <Archive size={11} /> {t('issue.archived')}
+        closeOnEscape={false}
+        header={
+          <>
+            {onOpen && (
+              <button
+                aria-label={t('detail.prevIssue')}
+                title={t('detail.prevIssue')}
+                disabled={!prevKey}
+                onClick={() => prevKey && onOpen(prevKey)}
+                className="grid h-6 w-6 flex-none place-items-center rounded-md text-fg-3 hover:bg-surface-2 hover:text-fg-1 disabled:pointer-events-none disabled:opacity-30"
+              >
+                <ChevronLeft size={14} />
+              </button>
+            )}
+            <span className="flex-none whitespace-nowrap font-mono text-[12.5px] text-fg-3">
+              {issue.id}
             </span>
-          )}
-          <div className="flex-1" />
-          {/* TKT-37:一键复制 issue 编号(原先藏在「更多」菜单里)。 */}
-          <Button variant="ghost" size="icon" aria-label={t('detail.copyId')} title={t('detail.copyId')} onClick={copyId}>
-            {copiedId ? <Check size={16} className="text-success" /> : <Copy size={16} />}
-          </Button>
-          <Button variant="ghost" size="icon" aria-label={t('detail.copyLink')} title={t('detail.copyLink')} onClick={copyLink}>
-            {copied ? <Check size={16} className="text-success" /> : <Link2 size={16} />}
-          </Button>
-          <Popover open={moreOpen} onOpenChange={setMoreOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label={t('detail.more')}>
-                <MoreHorizontal size={16} />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent style={{ width: 184 }} align="end">
-              <MenuItem
-                glyph={<Link2 size={15} className="text-fg-3" />}
-                label={t('detail.copyId')}
-                onClick={() => {
-                  copyId();
-                  setMoreOpen(false);
-                }}
-              />
-              <MenuItem
-                glyph={
-                  issue.archivedAt ? (
-                    <ArchiveRestore size={15} className="text-fg-3" />
-                  ) : (
-                    <Archive size={15} className="text-fg-3" />
-                  )
-                }
-                label={issue.archivedAt ? t('issue.unarchive') : t('issue.archive')}
-                onClick={() => {
-                  setMoreOpen(false);
-                  archive.mutate({ id, archived: !issue.archivedAt });
-                }}
-              />
-              <MenuItem
-                glyph={<Trash2 size={15} className="text-danger" />}
-                label={t('detail.deleteIssue')}
-                onClick={() => {
-                  setMoreOpen(false);
-                  del.mutate(id, { onSuccess: onClose });
-                }}
-              />
-            </PopoverContent>
-          </Popover>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="close">
-            <X size={16} />
-          </Button>
-        </div>
-
+            {onOpen && (
+              <button
+                aria-label={t('detail.nextIssue')}
+                title={t('detail.nextIssue')}
+                disabled={!nextKey}
+                onClick={() => nextKey && onOpen(nextKey)}
+                className="grid h-6 w-6 flex-none place-items-center rounded-md text-fg-3 hover:bg-surface-2 hover:text-fg-1 disabled:pointer-events-none disabled:opacity-30"
+              >
+                <ChevronRight size={14} />
+              </button>
+            )}
+            {issue.archivedAt && (
+              <span className="inline-flex flex-none items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-fg-3">
+                <Archive size={11} /> {t('issue.archived')}
+              </span>
+            )}
+          </>
+        }
+        headerActions={
+          <>
+            {/* TKT-37:一键复制 issue 编号(原先藏在「更多」菜单里)。 */}
+            <Button variant="ghost" size="icon" aria-label={t('detail.copyId')} title={t('detail.copyId')} onClick={copyId}>
+              {copiedId ? <Check size={16} className="text-success" /> : <Copy size={16} />}
+            </Button>
+            <Button variant="ghost" size="icon" aria-label={t('detail.copyLink')} title={t('detail.copyLink')} onClick={copyLink}>
+              {copied ? <Check size={16} className="text-success" /> : <Link2 size={16} />}
+            </Button>
+            <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label={t('detail.more')}>
+                  <MoreHorizontal size={16} />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent style={{ width: 184 }} align="end">
+                <MenuItem
+                  glyph={<Link2 size={15} className="text-fg-3" />}
+                  label={t('detail.copyId')}
+                  onClick={() => {
+                    copyId();
+                    setMoreOpen(false);
+                  }}
+                />
+                <MenuItem
+                  glyph={
+                    issue.archivedAt ? (
+                      <ArchiveRestore size={15} className="text-fg-3" />
+                    ) : (
+                      <Archive size={15} className="text-fg-3" />
+                    )
+                  }
+                  label={issue.archivedAt ? t('issue.unarchive') : t('issue.archive')}
+                  onClick={() => {
+                    setMoreOpen(false);
+                    archive.mutate({ id, archived: !issue.archivedAt });
+                  }}
+                />
+                <MenuItem
+                  glyph={<Trash2 size={15} className="text-danger" />}
+                  label={t('detail.deleteIssue')}
+                  onClick={() => {
+                    setMoreOpen(false);
+                    del.mutate(id, { onSuccess: onClose });
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
+          </>
+        }
+      >
         <div className="flex min-h-0 flex-1">
           {/* Main column */}
           <div className="min-w-0 flex-1 overflow-y-auto px-7 py-6">
@@ -1059,7 +1057,7 @@ export function IssueDetail({
             />
           </div>
         </div>
-      </div>
+      </DetailDrawer>
 
       {/* Attachment image lightbox — replaces opening the blob URL in a new tab */}
       <Dialog open={!!preview} onOpenChange={(open) => !open && setPreviewIndex(null)}>

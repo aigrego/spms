@@ -2,8 +2,7 @@
 
 import * as React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { HEADER_HEIGHT } from '@/components/Header';
-import { Skeleton } from '@/components/StateBlock';
+import { ShellSkeleton } from '@/components/StateBlock';
 import { useAppData } from '@/store/AppData';
 import type { ModuleKey } from '@/lib/api';
 
@@ -47,20 +46,6 @@ const MODULE_ORDER: { key: ModuleKey; path: string }[] = [
   { key: 'reports', path: '/reports' },
 ];
 
-function GateSkeleton() {
-  return (
-    <div className="flex h-screen flex-col bg-bg">
-      <div className="flex-none border-b border-border bg-surface" style={{ height: HEADER_HEIGHT }} />
-      <div className="flex min-h-0 flex-1">
-        <div className="w-[244px] flex-none border-r border-border bg-surface-2" />
-        <div className="flex-1">
-          <Skeleton rows={9} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -84,8 +69,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [sessionLoading, session, blockedPlatform, blockedModule, firstReadable, pathname, router]);
 
-  if (sessionLoading || !session) return <GateSkeleton />;
+  if (sessionLoading || !session) return <ShellSkeleton />;
   // Don't flash forbidden content while the redirect above fires.
-  if ((blockedPlatform || blockedModule) && firstReadable) return <GateSkeleton />;
+  if ((blockedPlatform || blockedModule) && firstReadable) return <ShellSkeleton />;
   return <>{children}</>;
 }

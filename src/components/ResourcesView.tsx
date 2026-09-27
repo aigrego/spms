@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { InviteResourceModal } from '@/components/InviteResourceModal';
+import { ViewHeader } from '@/components/common';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useRemoveSeat, useRevokeResource, useSeats, useUpdateSeatRole } from '@/store/resources';
@@ -190,17 +191,17 @@ export function ResourcesView() {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b border-border px-6 py-3.5">
-        <h1 className="m-0 text-[18px] font-semibold tracking-tight text-fg-1">{t('resources.title')}</h1>
-        <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">{total}</span>
-        <span className="hidden text-[12.5px] text-fg-3 md:inline">· {t('resources.subtitle')}</span>
-        <div className="flex-1" />
+      <ViewHeader
+        title={t('resources.title')}
+        count={total}
+        extra={<span className="hidden text-[12.5px] text-fg-3 md:inline">· {t('resources.subtitle')}</span>}
+      >
         {canWrite && (
           <Button variant="primary" size="md" onClick={() => setInviteOpen(true)}>
             <Plus size={14} /> {t('resources.invite')}
           </Button>
         )}
-      </div>
+      </ViewHeader>
 
       <div className="mx-auto flex w-full max-w-[920px] flex-1 flex-col gap-7 overflow-y-auto p-6">
         <Section

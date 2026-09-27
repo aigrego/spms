@@ -19,8 +19,8 @@ import { ATTACHMENT_ACCEPT, isImageType } from '@/lib/attachments';
 import { usePersistentState } from '@/lib/prefs';
 import { useAppData } from '@/store/AppData';
 import { useCreateIssue } from '@/store/issues';
-import { useNodeAssignments } from '@/store/resources';
-import type { IssueStatus, IssuePriority, Importance, IssueType, Member } from '@/lib/types';
+import { useAssigneeCandidates } from '@/store/resources';
+import type { IssueStatus, IssuePriority, Importance, IssueType } from '@/lib/types';
 
 // forwardRef is REQUIRED: these chips are used as `PopoverTrigger asChild`
 // triggers (the menu pickers). Radix's Slot needs to attach a ref to the trigger
@@ -69,7 +69,7 @@ export function NewIssueModal({
   onCreated: (id: string) => void;
 }) {
   const t = useT();
-  const { memberById, projectById, agents } = useAppData();
+  const { memberById, projectById } = useAppData();
   const create = useCreateIssue();
   const [title, setTitle] = React.useState('');
   const [desc, setDesc] = React.useState('');
@@ -151,13 +151,7 @@ export function NewIssueModal({
   };
 
   // Assignee pool = the chosen project's research resources (humans) + AI agents.
-  const { data: assignments = [] } = useNodeAssignments('project', projectId);
-  const candidates = React.useMemo<Member[]>(() => {
-    const humans = assignments
-      .map((a) => a.member)
-      .filter((m): m is Member => !!m && m.type === 'human');
-    return [...humans, ...agents];
-  }, [assignments, agents]);
+  const candidates = useAssigneeCandidates(projectId);
 
   const project = projectById(projectId);
   const assigneeP = memberById(assignee);

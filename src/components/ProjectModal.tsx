@@ -5,6 +5,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
 import { ProjectIcon } from '@/components/glyphs/misc';
+import { fieldLabel, inputCls } from '@/components/common';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useCreateProject, useUpdateProject } from '@/store/projects';
@@ -13,10 +14,6 @@ import type { Project, ProjectStatus } from '@/lib/types';
 const SWATCHES = ['#0063D3', '#1F9D55', '#7A5AE0', '#D89400', '#D6293E', '#0EA5A5', '#DB5A00'];
 const ICONS = ['box', 'zap', 'eye', 'target', 'activity'];
 const STATUSES: ProjectStatus[] = ['backlog', 'planned', 'in_progress', 'completed'];
-
-const fieldLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wider text-fg-3';
-const inputCls =
-  'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
 
 export function ProjectModal({
   open,

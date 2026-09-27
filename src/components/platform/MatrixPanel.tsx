@@ -7,7 +7,8 @@ import { Skeleton, StateBlock } from '@/components/StateBlock';
 import { useCompanyMatrix, usePermissionsMatrix, useSaveCompanyMatrix, useSavePermissionsMatrix } from '@/store/platform';
 import { MODULE_LABELS, PERM_LEVEL_LABELS, ROLE_LABELS } from '@/lib/platformApi';
 import type { CompanyRole, PermLevel } from '@/lib/platformApi';
-import { PlatformHeader, tdCls, thCls } from '@/components/platform/common';
+import { tdCls, thCls } from '@/components/platform/common';
+import { ViewHeader } from '@/components/common';
 import { useT } from '@/lib/i18n';
 
 type MatrixDraft = Record<string, Record<string, PermLevel>>;
@@ -57,7 +58,7 @@ export function MatrixPanel({ scope = 'global' }: { scope?: 'global' | 'company'
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <PlatformHeader title={isGlobal ? t('matrix.titleGlobal') : t('matrix.titleCompany')}>
+      <ViewHeader title={isGlobal ? t('matrix.titleGlobal') : t('matrix.titleCompany')}>
         {savedAt && (
           <span className="inline-flex items-center gap-1 text-[12.5px] font-medium" style={{ color: 'var(--success-500)' }}>
             <Check size={13} /> {t('profile.saved')}
@@ -66,7 +67,7 @@ export function MatrixPanel({ scope = 'global' }: { scope?: 'global' | 'company'
         <Button variant="primary" size="md" onClick={submit} disabled={!dirty || save.isPending}>
           <Save size={14} /> {t('common.save')}
         </Button>
-      </PlatformHeader>
+      </ViewHeader>
       <div className="flex-1 overflow-y-auto p-6">
         {isLoading ? (
           <Skeleton rows={6} />

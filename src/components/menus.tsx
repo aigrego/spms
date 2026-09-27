@@ -26,14 +26,17 @@ const SectionLabel = ({ children, accent }: { children: React.ReactNode; accent?
 );
 
 /* Generic inline-edit popover: renders a trigger, opens a menu. */
-function InlinePopover({
+export function InlinePopover({
   trigger,
   children,
   width = 220,
+  align,
 }: {
   trigger: React.ReactNode;
   children: (close: () => void) => React.ReactNode;
   width?: number;
+  /* PopoverContent 对齐方式(默认沿用 ui/popover 的 'start')。 */
+  align?: 'start' | 'center' | 'end';
 }) {
   const [open, setOpen] = React.useState(false);
   return (
@@ -43,6 +46,7 @@ function InlinePopover({
       </PopoverTrigger>
       <PopoverContent
         style={{ width }}
+        align={align}
         onClick={(e) => e.stopPropagation()}
         // Don't grab focus on open: when this menu is rendered inside a modal
         // Dialog (e.g. the New Issue form), the Dialog's focus trap yanks focus

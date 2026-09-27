@@ -1,18 +1,20 @@
 'use client';
 
 import * as React from 'react';
-import { X, Trash2, FlaskConical, Link2, CircleDot, Plus } from 'lucide-react';
+import { Trash2, FlaskConical, Link2, CircleDot, Plus } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { PriorityIcon } from '@/components/glyphs/PriorityIcon';
-import { PriorityMenu } from '@/components/menus';
-import { Popover, PopoverContent, PopoverTrigger, MenuItem } from '@/components/ui/popover';
+import { PriorityMenu, InlinePopover } from '@/components/menus';
+import { MenuItem } from '@/components/ui/popover';
 import { SegBtn } from '@/components/ui/segmented';
 import { ProjectFilterMenu, useProjectFilter } from '@/components/ProjectFilterMenu';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
+import { DetailDrawer } from '@/components/DetailDrawer';
+import { ViewHeader, fieldLabel, inputCls } from '@/components/common';
 import { TEST_CASE_STATUS, TEST_CASE_STATUS_ORDER, TEST_RESULT, TEST_RESULT_ORDER, TEST_CATEGORY, TEST_CATEGORY_ORDER, PRIORITY_ORDER } from '@/lib/constants';
 import { useT } from '@/lib/i18n';
 import { usePersistentState } from '@/lib/prefs';
@@ -27,9 +29,6 @@ const isCategoryFilter = (v: unknown): v is TestCaseCategory | '' =>
 const isResultFilter = (v: unknown): v is TestResult | '' =>
   v === '' || (TEST_RESULT_ORDER as readonly string[]).includes(v as string);
 
-const inputCls =
-  'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
-const fieldLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wider text-fg-3';
 const selCls =
   'w-full rounded-[7px] border border-transparent bg-transparent px-2 py-1 text-[13px] text-fg-1 hover:bg-surface-2 focus:border-brand-blue focus:bg-surface outline-none';
 
@@ -42,54 +41,62 @@ function CategoryDot({ category, size = 9 }: { category: TestCaseCategory; size?
 }
 
 /* Quick-change the last-run result from the list without opening the drawer. */
-function ResultMenu({ value, onPick }: { value: TestResult; onPick: (r: TestResult) => void }) {
+function TcResultMenu({ value, onPick }: { value: TestResult; onPick: (r: TestResult) => void }) {
   const t = useT();
-  const [open, setOpen] = React.useState(false);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button onClick={(e) => e.stopPropagation()}>
+    <InlinePopover
+      width={150}
+      align="end"
+      trigger={
+        <button>
           <Badge tone={TEST_RESULT[value].tone}>
             <ResultDot result={value} size={7} /> {t(`tcResult.${value}`)}
           </Badge>
         </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[150px]" onClick={(e) => e.stopPropagation()}>
-        {TEST_RESULT_ORDER.map((r) => (
-          <MenuItem
-            key={r}
-            glyph={<ResultDot result={r} />}
-            label={t(`tcResult.${r}`)}
-            selected={r === value}
-            onClick={() => {
-              onPick(r);
-              setOpen(false);
-            }}
-          />
-        ))}
-      </PopoverContent>
-    </Popover>
+      }
+    >
+      {(close) => (
+        <>
+          {TEST_RESULT_ORDER.map((r) => (
+            <MenuItem
+              key={r}
+              glyph={<ResultDot result={r} />}
+              label={t(`tcResult.${r}`)}
+              selected={r === value}
+              onClick={() => {
+                onPick(r);
+                close();
+              }}
+            />
+          ))}
+        </>
+      )}
+    </InlinePopover>
   );
 }
 
-function StatusMenu({ value, onPick }: { value: TestCaseStatus; onPick: (s: TestCaseStatus) => void }) {
+function TcStatusMenu({ value, onPick }: { value: TestCaseStatus; onPick: (s: TestCaseStatus) => void }) {
   const t = useT();
-  const [open, setOpen] = React.useState(false);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button onClick={(e) => e.stopPropagation()}>
+    <InlinePopover
+      width={140}
+      align="end"
+      trigger={
+        <button>
           <Badge tone={TEST_CASE_STATUS[value].tone} dot>
             {t(`tcStatus.${value}`)}
           </Badge>
         </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[140px]" onClick={(e) => e.stopPropagation()}>
-        {TEST_CASE_STATUS_ORDER.map((s) => (
-          <MenuItem key={s} label={t(`tcStatus.${s}`)} selected={s === value} onClick={() => { onPick(s); setOpen(false); }} />
-        ))}
-      </PopoverContent>
-    </Popover>
+      }
+    >
+      {(close) => (
+        <>
+          {TEST_CASE_STATUS_ORDER.map((s) => (
+            <MenuItem key={s} label={t(`tcStatus.${s}`)} selected={s === value} onClick={() => { onPick(s); close(); }} />
+          ))}
+        </>
+      )}
+    </InlinePopover>
   );
 }
 
@@ -124,12 +131,6 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
     }
   }, [tc?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  React.useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [onClose]);
-
   if (!tc) return null;
   const patch = (input: Parameters<typeof update.mutate>[0]['input']) => update.mutate({ id, input });
   const project = projectById(tc.projectId);
@@ -139,22 +140,22 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
   };
 
   return (
-    <>
-      <div onClick={onClose} className="fixed inset-0 z-[800] animate-fadeIn bg-[rgba(11,18,32,0.35)]" />
-      <div className="fixed inset-y-0 right-0 z-[810] flex w-[min(720px,92vw)] animate-slideIn flex-col border-l border-border bg-surface shadow-4">
-        <div className="flex items-center gap-2.5 border-b border-border px-[18px] py-3">
+    <DetailDrawer
+      onClose={onClose}
+      width={720}
+      header={
+        <>
           <FlaskConical size={15} className="text-fg-3" />
           <span className="flex-none font-mono text-[12.5px] text-fg-3">{tc.id}</span>
           <Badge tone={TEST_RESULT[tc.result].tone}><ResultDot result={tc.result} size={7} /> {t(`tcResult.${tc.result}`)}</Badge>
-          <div className="flex-1" />
-          <Button variant="ghost" size="icon" onClick={() => del.mutate(tc.id, { onSuccess: onClose })} aria-label="delete">
-            <Trash2 size={15} />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="close">
-            <X size={16} />
-          </Button>
-        </div>
-
+        </>
+      }
+      headerActions={
+        <Button variant="ghost" size="icon" onClick={() => del.mutate(tc.id, { onSuccess: onClose })} aria-label="delete">
+          <Trash2 size={15} />
+        </Button>
+      }
+    >
         <div className="flex min-h-0 flex-1">
           <div className="min-w-0 flex-1 overflow-y-auto px-7 py-6">
             <textarea
@@ -196,10 +197,10 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
             <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-fg-3">{t('detail.props')}</div>
             <div className="flex flex-col gap-1.5">
               <PropRow label={t('testcases.result')}>
-                <ResultMenu value={tc.result} onPick={(result) => patch({ result })} />
+                <TcResultMenu value={tc.result} onPick={(result) => patch({ result })} />
               </PropRow>
               <PropRow label={t('testcases.status')}>
-                <StatusMenu value={tc.status} onPick={(status) => patch({ status })} />
+                <TcStatusMenu value={tc.status} onPick={(status) => patch({ status })} />
               </PropRow>
               <PropRow label={t('testcases.category')}>
                 <select className={selCls} value={tc.category} onChange={(e) => patch({ category: e.target.value as TestCaseCategory })}>
@@ -256,8 +257,7 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
             </div>
           </div>
         </div>
-      </div>
-    </>
+    </DetailDrawer>
   );
 }
 
@@ -285,8 +285,8 @@ function TcRow({ tc, onOpen }: { tc: TestCase; onOpen: (id: string) => void }) {
         </span>
       )}
       <PriorityIcon priority={tc.priority} size={15} />
-      <StatusMenu value={tc.status} onPick={(status) => update.mutate({ id: tc.id, input: { status } })} />
-      <ResultMenu value={tc.result} onPick={(result) => update.mutate({ id: tc.id, input: { result } })} />
+      <TcStatusMenu value={tc.status} onPick={(status) => update.mutate({ id: tc.id, input: { status } })} />
+      <TcResultMenu value={tc.result} onPick={(result) => update.mutate({ id: tc.id, input: { result } })} />
       <Avatar person={memberById(tc.assigneeId)} size={20} />
     </div>
   );
@@ -513,18 +513,13 @@ export function TestCasesView({
     <div className="flex h-full min-w-0 flex-1 flex-col">
       {/* toolbar —— 与「全部 Issues」同款两行布局:标题行(标题/计数/新建) + 筛选行(项目筛选在最前)。 */}
       <div className="border-b border-border">
-        <div className="flex items-center gap-3 px-6 pb-3 pt-3.5">
-          <div className="flex items-center gap-2.5">
-            <h1 className="m-0 text-[18px] font-semibold tracking-tight text-fg-1">{t('testcases.title')}</h1>
-            <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">{cases.length}</span>
-          </div>
-          <div className="flex-1" />
+        <ViewHeader title={t('testcases.title')} count={cases.length} bordered={false}>
           {canWrite && (
             <Button variant="primary" size="md" onClick={() => setNewOpen(true)}>
               <Plus size={14} /> {t('testcases.new')}
             </Button>
           )}
-        </div>
+        </ViewHeader>
         <div className="flex flex-wrap items-center gap-2 px-6 pb-3">
           {/* 项目筛选 —— 复用「全部 Issues」的共享组件,共享浏览器记忆。 */}
           <ProjectFilterMenu />

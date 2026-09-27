@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { ProjectIcon } from '@/components/glyphs/misc';
-import { ViewHeader } from '@/components/ScrumViews';
+import { ViewHeader } from '@/components/common';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 

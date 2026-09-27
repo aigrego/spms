@@ -4,7 +4,8 @@ import * as React from 'react';
 import { Check, Save, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton, StateBlock } from '@/components/StateBlock';
-import { PlatformHeader, PopoverConfirm, fieldLabel, inputCls } from '@/components/platform/common';
+import { PopoverConfirm, fieldLabel, inputCls } from '@/components/platform/common';
+import { ViewHeader } from '@/components/common';
 import { useDeleteOAuthProvider, useOAuthProviders, useSaveOAuthProvider } from '@/store/platform';
 import type { OAuthProviderConf } from '@/lib/platformApi';
 import { useT } from '@/lib/i18n';
@@ -172,7 +173,7 @@ export function OAuthProvidersPanel() {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <PlatformHeader title={t('settingsPage.tab.oauth')} />
+      <ViewHeader title={t('settingsPage.tab.oauth')} />
       <div className="flex-1 overflow-y-auto p-6">
         {isLoading ? (
           <Skeleton rows={5} />

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, X, Trash2, GitBranch, Sparkles, FileText, ListTree, FlaskConical } from 'lucide-react';
+import { Plus, Trash2, GitBranch, Sparkles, FileText, ListTree, FlaskConical } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,8 @@ import { Popover, PopoverContent, PopoverTrigger, MenuItem } from '@/components/
 import { SegBtn, TabBtn } from '@/components/ui/segmented';
 import { ProjectFilterMenu, useProjectFilter } from '@/components/ProjectFilterMenu';
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
+import { DetailDrawer } from '@/components/DetailDrawer';
+import { ViewHeader, fieldLabel, inputCls } from '@/components/common';
 import { StatusIcon } from '@/components/glyphs/StatusIcon';
 import { PriorityIcon } from '@/components/glyphs/PriorityIcon';
 import { ImportanceIcon } from '@/components/glyphs/ImportanceIcon';
@@ -29,7 +31,7 @@ import {
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useAllIssues } from '@/store/issues';
-import { useNodeAssignments } from '@/store/resources';
+import { useAssigneeCandidates } from '@/store/resources';
 import { useTestCases } from '@/store/testcases';
 import {
   useRequirements,
@@ -49,7 +51,6 @@ import type {
   RequirementStatus,
   IssuePriority,
   Importance,
-  Member,
 } from '@/lib/types';
 
 const TYPE_ORDER: RequirementType[] = ['functional', 'non_functional'];
@@ -60,10 +61,6 @@ type StatusFilter = RequirementStatus | '';
 const isTypeTab = (v: unknown): v is RequirementType => TYPE_ORDER.includes(v as RequirementType);
 const isStatusFilter = (v: unknown): v is StatusFilter =>
   v === '' || (REQUIREMENT_STATUS_ORDER as RequirementStatus[]).includes(v as RequirementStatus);
-
-const inputCls =
-  'h-9 w-full rounded-lg border border-border-strong bg-surface px-2.5 text-[13px] text-fg-1 outline-none focus:border-brand-blue';
-const fieldLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wider text-fg-3';
 
 function TypeTag({ type }: { type: RequirementType }) {
   const t = useT();
@@ -93,7 +90,7 @@ function NewRequirementModal({
   onCreated: (id: string) => void;
 }) {
   const t = useT();
-  const { projects, projectById, releases, productById, memberById, agents } = useAppData();
+  const { projects, projectById, releases, productById, memberById } = useAppData();
   const create = useCreateRequirement();
   const [title, setTitle] = React.useState('');
   const [projectId, setProjectId] = React.useState('');
@@ -113,13 +110,7 @@ function NewRequirementModal({
 
   // Assignee pool = the chosen project's research resources (humans) + AI agents
   // (与 NewIssueModal 同一套候选组法)。
-  const { data: assignments = [] } = useNodeAssignments('project', projectId || null);
-  const candidates = React.useMemo<Member[]>(() => {
-    const humans = assignments
-      .map((a) => a.member)
-      .filter((m): m is Member => !!m && m.type === 'human');
-    return [...humans, ...agents];
-  }, [assignments, agents]);
+  const candidates = useAssigneeCandidates(projectId || null);
   const assigneeP = memberById(assignee);
 
   React.useEffect(() => {
@@ -494,7 +485,7 @@ function RequirementDetail({
   onOpenTestCase: (key: string) => void;
 }) {
   const t = useT();
-  const { projectById, memberById, releases, productById, agents } = useAppData();
+  const { projectById, memberById, releases, productById } = useAppData();
   const { data: req } = useRequirement(id);
   const { data: allIssues = [] } = useAllIssues();
   const { data: testCases = [] } = useTestCases({ requirement: id });
@@ -504,13 +495,7 @@ function RequirementDetail({
 
   // 负责人候选池:项目资源池 + AI agents,
   // 与 IssueDetail 的 issueCandidates 口径一致(客户端组法同 NewIssueModal)。
-  const { data: poolAssignments = [] } = useNodeAssignments('project', req?.projectId ?? null);
-  const candidates = React.useMemo<Member[]>(() => {
-    const humans = poolAssignments
-      .map((a) => a.member)
-      .filter((m): m is Member => !!m && m.type === 'human');
-    return [...humans, ...agents];
-  }, [poolAssignments, agents]);
+  const candidates = useAssigneeCandidates(req?.projectId ?? null);
 
   const [title, setTitle] = React.useState('');
   const [desc, setDesc] = React.useState('');
@@ -522,14 +507,6 @@ function RequirementDetail({
       setAcceptance(req.acceptanceCriteria ?? '');
     }
   }, [req?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  React.useEffect(() => {
-    const k = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [onClose]);
 
   if (!req) return null;
   const patch = (input: Parameters<typeof update.mutate>[0]['input']) => update.mutate({ id, input });
@@ -549,34 +526,34 @@ function RequirementDetail({
 
   return (
     <>
-      <div onClick={onClose} className="fixed inset-0 z-[800] animate-fadeIn bg-[rgba(11,18,32,0.35)]" />
-      <div className="fixed inset-y-0 right-0 z-[810] flex w-[min(760px,92vw)] animate-slideIn flex-col border-l border-border bg-surface shadow-4">
-        {/* Header */}
-        <div className="flex items-center gap-2.5 border-b border-border px-[18px] py-3">
-          <FileText size={15} className="text-fg-3" />
-          <span className="flex-none whitespace-nowrap font-mono text-[12.5px] text-fg-3">{req.id}</span>
-          <TypeTag type={req.type} />
-          {req.category && <Badge tone="neutral">{t(`reqCategory.${req.category}`)}</Badge>
-          }
-          <div className="flex-1" />
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setDecompOpen(true)}
-            disabled={decompositionItemsFor(req).length === 0}
-            aria-label="decompose"
-            title={t('requirements.decompose')}
-          >
-            <ListTree size={15} />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => del.mutate(req.id, { onSuccess: onClose })} aria-label="delete">
-            <Trash2 size={15} />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="close">
-            <X size={16} />
-          </Button>
-        </div>
-
+      <DetailDrawer
+        onClose={onClose}
+        header={
+          <>
+            <FileText size={15} className="text-fg-3" />
+            <span className="flex-none whitespace-nowrap font-mono text-[12.5px] text-fg-3">{req.id}</span>
+            <TypeTag type={req.type} />
+            {req.category && <Badge tone="neutral">{t(`reqCategory.${req.category}`)}</Badge>}
+          </>
+        }
+        headerActions={
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setDecompOpen(true)}
+              disabled={decompositionItemsFor(req).length === 0}
+              aria-label="decompose"
+              title={t('requirements.decompose')}
+            >
+              <ListTree size={15} />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => del.mutate(req.id, { onSuccess: onClose })} aria-label="delete">
+              <Trash2 size={15} />
+            </Button>
+          </>
+        }
+      >
         <div className="flex min-h-0 flex-1">
           {/* Main column */}
           <div className="min-w-0 flex-1 overflow-y-auto px-7 py-6">
@@ -817,7 +794,7 @@ function RequirementDetail({
             )}
           </div>
         </div>
-      </div>
+      </DetailDrawer>
       <DecomposeDialog req={req} open={decompOpen} onOpenChange={setDecompOpen} />
     </>
   );
@@ -926,18 +903,13 @@ export function RequirementsView({
     <div className="flex h-full min-w-0 flex-1 flex-col">
       {/* toolbar —— 与「全部 Issues」同款两行布局:标题行(标题/计数/新建) + 筛选行(项目筛选在最前)。 */}
       <div className="border-b border-border">
-        <div className="flex items-center gap-3 px-6 pb-3 pt-3.5">
-          <div className="flex items-center gap-2.5">
-            <h1 className="m-0 text-[18px] font-semibold tracking-tight text-fg-1">{t('requirements.title')}</h1>
-            <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">{requirements.length}</span>
-          </div>
-          <div className="flex-1" />
+        <ViewHeader title={t('requirements.title')} count={requirements.length} bordered={false}>
           {canWrite && (
             <Button variant="primary" size="md" onClick={() => setNewOpen(true)}>
               <Plus size={14} /> {t('requirements.new')}
             </Button>
           )}
-        </div>
+        </ViewHeader>
         <div className="flex flex-wrap items-center gap-2 px-6 pb-3">
           {/* 项目筛选 —— 复用「全部 Issues」的共享组件,共享浏览器记忆。 */}
           <ProjectFilterMenu />
