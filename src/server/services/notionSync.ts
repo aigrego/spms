@@ -1,14 +1,17 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { issues, members, notionConnections, notionIssueLinks } from '@/db/schema';
+import { issues, members, notionConnections, notionIssueLinks, projects } from '@/db/schema';
 import { findUserByEmail } from '@/lib/emails';
 import { ApiException } from '@/lib/envelope';
-import { rulesRecord, type NotionStatusRule } from '@/lib/notionStatusMap';
+import { mergeStatusRules, rulesRecord, SPMS_STATUSES, type NotionStatusRule } from '@/lib/notionStatusMap';
 import { requirePerm } from '@/lib/permissions';
 import {
   downloadFile,
+  getDatabaseStatusOptions,
   getPageBlocks,
+  notionConfigured,
   queryDatabase,
+  searchDatabases,
   type NotionBlockObject,
   type NotionPageObject,
 } from '@/server/notion';
@@ -37,7 +40,10 @@ import type { Actor } from './types';
    老数据追平(页面未变更也执行):key 追平为 unique_id;映射状态与现值
    不一致时照常走完整更新。
    v1 明示限制:附件只在新建时同步,后续新增的图片不补;正文 blocks 只取
-   顶层,不递归子块(toggle/嵌套列表里的内容不取)。 */
+   顶层,不递归子块(toggle/嵌套列表里的内容不取)。
+
+   文件末尾另承载设置页的连接管理（getNotionIntegration /
+   updateNotionConnection / disconnectNotion），与同步引擎共用连接行读取。 */
 
 const PROP = {
   title: 'Name',
@@ -466,4 +472,143 @@ export async function syncNotion(actor: Actor, opts?: { full?: boolean }): Promi
     .set({ lastSyncedAt: maxEdited ?? new Date(), updatedAt: new Date() })
     .where(eq(notionConnections.id, conn.id));
   return result;
+}
+
+/* ==================== 连接管理（设置 → 集成 → Notion） ====================
+   /api/v1/pms/integrations/notion 的业务逻辑：连接状态查询（可选附数据库
+   列表/状态映射）、保存同步数据库/目标项目/状态映射、断开连接。
+   accessToken 永不离开服务端（toPublicConnection 不含 token）。 */
+
+/* The connection shape served to clients — accessToken is NEVER included. */
+function toPublicConnection(c: ConnectionRow) {
+  return {
+    workspaceId: c.workspaceId,
+    workspaceName: c.workspaceName,
+    databaseId: c.databaseId,
+    databaseName: c.databaseName,
+    projectId: c.projectId,
+    statusMap: c.statusMap,
+    lastSyncedAt: c.lastSyncedAt,
+    createdAt: c.createdAt,
+  };
+}
+
+async function connectionFor(companyId: string): Promise<ConnectionRow | null> {
+  const [c] = await db
+    .select()
+    .from(notionConnections)
+    .where(eq(notionConnections.companyId, companyId))
+    .limit(1);
+  return c ?? null;
+}
+
+export interface NotionIntegrationQuery {
+  databases?: boolean;
+  statuses?: boolean;
+}
+
+/* ---- 本公司的连接状态（不含 token）。databases=true 附带集成可见的数据库
+   列表（Notion search API）；失败的 search（如 token 被撤销）降级为
+   databases:null + databasesError，不拖垮整体状态。statuses=true 返回有效
+   状态同步/映射规则（数据库状态选项 ∪ 已存规则，未配置的按默认映射猜测、
+   默认同步）。 ---- */
+export async function getNotionIntegration(actor: Actor, query: NotionIntegrationQuery = {}) {
+  await requirePerm(actor, 'notion', 'read');
+  const conn = await connectionFor(actor.companyId);
+  const out: Record<string, unknown> = {
+    configured: notionConfigured(),
+    connection: conn ? toPublicConnection(conn) : null,
+  };
+  if (query.databases && conn) {
+    try {
+      out.databases = await searchDatabases(conn.accessToken);
+    } catch (e) {
+      out.databases = null;
+      out.databasesError = e instanceof Error ? e.message : String(e);
+    }
+  }
+  if (query.statuses && conn) {
+    if (!conn.databaseId) {
+      out.statuses = null;
+      out.statusesError = 'no-database';
+    } else {
+      try {
+        const names = await getDatabaseStatusOptions(conn.accessToken, conn.databaseId);
+        out.statuses = mergeStatusRules(names, conn.statusMap);
+      } catch (e) {
+        out.statuses = null;
+        out.statusesError = e instanceof Error ? e.message : String(e);
+      }
+    }
+  }
+  return out;
+}
+
+export interface UpdateNotionConnectionInput {
+  databaseId?: string | null;
+  databaseName?: string | null;
+  projectId?: string | null;
+  statusMap?: NotionStatusRule[] | null;
+}
+
+/* 校验状态映射：每条 { name 非空, status ∈ issue 状态枚举 | null, sync 布尔 }。 */
+function validateStatusMap(input: unknown): NotionStatusRule[] | null {
+  if (input === null) return null;
+  if (!Array.isArray(input)) throw new ApiException('VALIDATION_FAILED', 'statusMap 必须是数组');
+  return input.map((r) => {
+    const rule = r as Partial<NotionStatusRule>;
+    if (typeof rule?.name !== 'string' || !rule.name.trim()) {
+      throw new ApiException('VALIDATION_FAILED', 'statusMap 条目缺少 name');
+    }
+    if (rule.status !== null && !(SPMS_STATUSES as string[]).includes(rule.status ?? '')) {
+      throw new ApiException('VALIDATION_FAILED', `statusMap 状态非法: ${rule.status}`);
+    }
+    return { name: rule.name.trim(), status: rule.status ?? null, sync: rule.sync !== false };
+  });
+}
+
+/* ---- 保存同步数据库和/或目标项目/状态映射；只有列出的字段可更新 ---- */
+export async function updateNotionConnection(actor: Actor, input: UpdateNotionConnectionInput) {
+  await requirePerm(actor, 'notion', 'write');
+  const set: Partial<ConnectionRow> = { updatedAt: new Date() };
+  let touched = false;
+  if (input.databaseId !== undefined) {
+    set.databaseId = input.databaseId || null;
+    set.databaseName = input.databaseId ? (input.databaseName ?? null) : null;
+    touched = true;
+  }
+  if (input.projectId !== undefined) {
+    const projectId = input.projectId || null;
+    if (projectId) {
+      const [p] = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.id, projectId), eq(projects.companyId, actor.companyId)))
+        .limit(1);
+      if (!p) throw new ApiException('PROJECT_NOT_FOUND');
+    }
+    set.projectId = projectId;
+    touched = true;
+  }
+  if (input.statusMap !== undefined) {
+    set.statusMap = validateStatusMap(input.statusMap);
+    touched = true;
+  }
+  if (!touched) throw new ApiException('VALIDATION_FAILED', '没有需要保存的字段');
+
+  const conn = await connectionFor(actor.companyId);
+  if (!conn) throw new ApiException('NOT_FOUND', '尚未连接 Notion');
+  await db.update(notionConnections).set(set).where(eq(notionConnections.id, conn.id));
+  const [updated] = await db.select().from(notionConnections).where(eq(notionConnections.id, conn.id)).limit(1);
+  return { configured: notionConfigured(), connection: updated ? toPublicConnection(updated) : null };
+}
+
+/* ---- 断开连接：删除连接行，其 notion_issue_links 随 connectionId cascade
+   一并删除（重连后重新全量） ---- */
+export async function disconnectNotion(actor: Actor) {
+  await requirePerm(actor, 'notion', 'write');
+  const conn = await connectionFor(actor.companyId);
+  if (!conn) throw new ApiException('NOT_FOUND', '尚未连接 Notion');
+  await db.delete(notionConnections).where(eq(notionConnections.id, conn.id));
+  return { disconnected: true };
 }

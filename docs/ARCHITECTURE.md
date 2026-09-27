@@ -66,8 +66,10 @@ spms/
 │   │   ├── reports.ts            # 日报（每人每天一份,按产品拆 entries,产品/人员/负责人三维度汇总）
 │   │   ├── summary.ts            # 团队总结（周期吞吐/周期时长/验收积压/流动健康/按成员分列,读 issue_status_transitions）
 │   │   ├── attachments.ts        # issue 图片附件（本公司存储后端；storage.assertMeta 校验注册 url/objectKey）
-│   │   ├── notionSync.ts         # Notion → Issues 同步（lastSyncedAt 水位增量 / ?full=1 全量，幂等靠 notion_issue_links）
+│   │   ├── notionSync.ts         # Notion → Issues 同步（lastSyncedAt 水位增量 / ?full=1 全量，幂等靠 notion_issue_links）+ 连接管理
 │   │   ├── platform.ts           # 平台管理（公司/成员/矩阵/MCP key）
+│   │   ├── storage.ts            # 公司文件存储配置（设置→文件存储；读/存/测/删，敏感字段加密落库）
+│   │   ├── oauth.ts              # 三方登录提供方配置 + OAuth callback 账号编排（绑定/邮箱匹配/建号/邀请认领）
 │   │   ├── workflow.ts           # 审查/关单工作流自动化（REST 与 MCP 共用）
 │   │   └── meta.ts             # bootstrap 聚合
 │   ├── server/crypto.ts          # AES-256-GCM 配置密钥加解密（CONFIG_CRYPTO_KEY；OAuth secret / 存储凭据密文落库）
