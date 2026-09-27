@@ -49,3 +49,6 @@ next-env.d.ts
 
 # local credentials (never commit)
 docs/minIO_credentials.json
+
+# CI 构建产物（scripts/build-mc.sh 的 mc 二进制，Dockerfile 构建期拷入）
+/.ci-assets/

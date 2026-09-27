@@ -229,7 +229,7 @@ issue 指派给 agent 时：挂 `AI 生成` 标签 + 把预编剧本步骤**同�
   mc admin policy attach myminio consoleAdmin --user spms-provisioner
   ```
   设置页的「测试连接」会完整验证：bucket 不存在则创建 + 根目录写删探测 + `mc admin user list` 管理员能力校验。
-- **mc 依赖**：admin 操作无维护中的 JS SDK（官方仅 Go madmin，且建用户/绑策略负载走 DARE 加密），实现选择 shell 调 `mc`（`src/server/storage/mc.ts`：临时 `--config-dir`、`--json`、15s 超时、错误脱敏）。社区版已不再发布预编译二进制（仅源码分发）：Docker 镜像用 Go 从源码构建 mc（Dockerfile `mcbuild` 阶段，`MC_REF` 可钉版本、`GOPROXY` 可换代理）；本地开发需 `go install github.com/minio/mc@latest`（Go ≥ 1.23）。
+- **mc 依赖**：admin 操作无维护中的 JS SDK（官方仅 Go madmin，且建用户/绑策略负载走 DARE 加密），实现选择 shell 调 `mc`（`src/server/storage/mc.ts`：临时 `--config-dir`、`--json`、15s 超时、错误脱敏）。社区版已不再发布预编译二进制（仅源码分发）：mc 由 `scripts/build-mc.sh` 用一次性 golang 容器从源码构建（`MC_REF` 钉版本、`GOPROXY` 可换代理），产物 `.ci-assets/mc` 在镜像构建期拷入（Dockerfile 为 runtime-node 单段模式，编译不出现在镜像构建中）；本地开发需 `go install github.com/minio/mc@latest`（Go ≥ 1.23）。
 - **孤儿回收**：删除公司只 cascade 删 DB 行，MinIO 侧用户/策略/对象保留，运维手动清理：
   ```bash
   mc admin user remove myminio spms-<cid8>
