@@ -1368,5 +1368,74 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
       }),
   );
 
+  /* ================= 工作流 Prompts =================
+     MCP prompts 原语：可复用的工作流模板，客户端经 prompts/list 发现、
+     prompts/get 获取后注入上下文，由模型按语义匹配任务。纯文本模板，不访问
+     数据，不经 capabilities 能力门。流程中的强制环节（审查/关单门禁）仍由
+     workflow.ts 服务端兜底，prompt 只做语义引导。 */
+  server.registerPrompt(
+    'spms_plan_workflow',
+    {
+      title: '项目计划生成流程',
+      description:
+        '新增项目开发计划 → 按优先级新增 issues → issues 关联开发计划（经需求间接关联）并指派给令牌所有人。适用于"为项目生成开发计划并拆分工单"。',
+      argsSchema: {
+        projectId: z.string().optional().describe('目标项目 id（uuid）；不传则由 Agent 结合上下文确定'),
+        title: z.string().optional().describe('开发计划标题；不传则由 Agent 自拟'),
+      },
+    },
+    (args) => ({
+      messages: [{ role: 'user', content: { type: 'text', text: planWorkflowText(args.projectId, args.title) } }],
+    }),
+  );
+
+  server.registerPrompt(
+    'spms_bug_fix_workflow',
+    {
+      title: 'BUG 处理流程',
+      description:
+        'review 审查 BUG 是否存在 → 可复现自动转 in_progress → 修复 → 传图 → 指派回 issue 发起人 → 置 testing。适用于"处理/修复一个缺陷"。',
+      argsSchema: {
+        bugKey: z.string().optional().describe("BUG 展示 key，如 'BUG-3'；不传则由 Agent 与用户确认或用 spms_list_issues 查找"),
+      },
+    },
+    (args) => ({
+      messages: [{ role: 'user', content: { type: 'text', text: bugFixWorkflowText(args.bugKey) } }],
+    }),
+  );
+
   return server;
+}
+
+/* spms_plan_workflow 的模板正文。issue 与 plan 无直接关联字段（plan ↔
+   requirement ↔ issue），经需求间接关联；无需求时保证同项目即可。 */
+function planWorkflowText(projectId?: string, title?: string): string {
+  const project = projectId ?? '待定——结合上下文确定，或用 spms_get_bootstrap 的 projects 与用户确认';
+  const planTitle = title ?? '（自拟或询问用户）';
+  return `按以下流程生成项目开发计划「${planTitle}」（目标项目：${project}）：
+
+1. 若本会话还没有参考数据，先调 spms_get_bootstrap：返回的 me 是令牌所有人（用户本人）的 member id，后续指派用它；projects 含项目 id。
+2. 调 spms_create_plan 创建开发计划：projectId 传目标项目 id，title 传「${planTitle}」；已有相关需求时传 requirementIds（FR-N / NFR-N 数组）一并关联。
+3. 按优先级从高到低（urgent → high → medium → low）逐条调 spms_create_issue 拆分工单：
+   - projectId 传同一项目 id，priority 按本条优先级设置；
+   - issue 与 plan 无直接关联字段：若第 2 步关联了需求，创建时传同一 requirementId 即完成间接关联（plan ↔ requirement ↔ issue）；无需求时保证同项目即可；
+   - assigneeId 一律传第 1 步拿到的 me（指派给令牌所有人本人）。
+4. 汇总输出：PLAN-N key、创建的 issue key 列表（含优先级）、指派人。`;
+}
+
+/* spms_bug_fix_workflow 的模板正文。发起人 = activities 中 kind='created'
+   记录的 whoId；显式传 assigneeId 会跳过 updateIssueWithWorkflow 的自动
+   指派测试人员逻辑。 */
+function bugFixWorkflowText(bugKey?: string): string {
+  const key = bugKey ?? "（展示 key 形如 BUG-3；先与用户确认，或用 spms_list_issues type='bug' 查找）";
+  return `按以下流程处理 BUG ${key}：
+
+1. 调 spms_get_issue 读描述与图片附件（图片以 image 内容块直接返回，可直接看图），核实缺陷是否真实存在。
+2. 调 spms_review_issue 完成审查（必做）：
+   - 可复现 → verdict='passed'：状态自动置 in_progress 并自动写审查评论，无需再手动改状态；
+   - 不可复现 → verdict='failed'：只写评论、状态不变，按返回的 suggestion 处理（补充复现步骤/环境信息，或确认非缺陷后置 canceled），本流程终止。
+3. 修复缺陷并自测通过。
+4. 调 spms_upload_issue_attachment 上传修复后的验证截图（data 为 base64，≤10MB，jpeg/png/gif/webp/avif）。
+5. 再调 spms_get_issue，从 activities 中找 kind='created' 的那条，其 whoId 即发起人（报告人）的 member id。
+6. 调 spms_update_issue 传 status='testing' 且 assigneeId=发起人 member id，把验证责任交回发起人（显式传 assigneeId 会跳过工作流的自动指派测试人员逻辑）。不要传 status='done'——会触发测试关单门禁（关联用例须全部 passed，否则 TESTS_NOT_PASSED）。找不到发起人时省略 assigneeId，由工作流自动指派测试人员。`;
 }

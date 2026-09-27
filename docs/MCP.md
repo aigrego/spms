@@ -101,6 +101,15 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 写工具与 REST API 复用同一套 `src/server/services/*`，业务规则一致（如 sprint-project 一致性校验、REQUIREMENT_NOT_FOUND 等错误码原样抛出）。
 
+## Prompts（工作流模板）
+
+共 **2 个**，即 MCP 规范的 prompts 原语：`prompts/list` 发现、`prompts/get` 获取，客户端注入上下文后由模型按语义匹配任务。纯文本模板，不访问数据、不受 key 能力上限限制；流程中的强制环节（审查/关单门禁）仍由服务端 workflow 兜底（见下节），prompt 只做语义引导。
+
+| Prompt | 参数 | 流程 |
+|---|---|---|
+| `spms_plan_workflow` | `projectId? title?` | 项目计划生成：`spms_get_bootstrap` 拿 `me`（令牌所有人 member id）→ `spms_create_plan` 建计划 → 按优先级（urgent→high→medium→low）逐条 `spms_create_issue` 拆工单 → 经需求间接关联计划（plan ↔ requirement ↔ issue；无需求则保证同项目）→ `assigneeId` 一律指派给令牌所有人 |
+| `spms_bug_fix_workflow` | `bugKey?` | BUG 处理：`spms_get_issue` 看图核实 → `spms_review_issue` 审查（`passed` 自动置 in_progress；`failed` 终止并按 suggestion 处理）→ 修复 → `spms_upload_issue_attachment` 传验证截图 → 从 activities 的 `kind='created'` 取发起人 whoId → `spms_update_issue` 置 `testing` 并显式指派回发起人（跳过自动指派测试人员；不传 `done`，避免触发关单门禁） |
+
 ## 工作流自动化（内置，无需显式提示词）
 
 实现于 `src/mcp/workflow.ts`，状态/评论落库全部走 service 层，活动流记录与 REST/UI 一致。
