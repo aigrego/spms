@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Trash2, FlaskConical, Link2, CircleDot, Plus } from 'lucide-react';
+import { Trash2, FlaskConical, Link2, CircleDot, Plus, History, Play } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
@@ -16,13 +16,15 @@ import { InlineCreateRow, EditableTitle } from '@/components/inline';
 import { DetailDrawer } from '@/components/DetailDrawer';
 import { ViewHeader, fieldLabel, inputCls } from '@/components/common';
 import { TEST_CASE_STATUS, TEST_CASE_STATUS_ORDER, TEST_RESULT, TEST_RESULT_ORDER, TEST_CATEGORY, TEST_CATEGORY_ORDER, PRIORITY_ORDER } from '@/lib/constants';
-import { useT } from '@/lib/i18n';
+import { useT, useLocale } from '@/lib/i18n';
+import { formatActivityTime } from '@/lib/time';
 import { usePersistentState } from '@/lib/prefs';
 import { useAppData } from '@/store/AppData';
 import { useAllRequirements } from '@/store/requirements';
-import { useTestCases, useTestCase, useCreateTestCase, useUpdateTestCase, useDeleteTestCase } from '@/store/testcases';
+import { useTestCases, useTestCase, useCreateTestCase, useUpdateTestCase, useDeleteTestCase, useTestRuns, useRecordTestRun } from '@/store/testcases';
 import { ApiError } from '@/lib/api';
-import type { TestCase, TestResult, TestCaseStatus, TestCaseCategory, IssuePriority } from '@/lib/types';
+import type { RecordTestRunInput } from '@/lib/api';
+import type { TestCase, TestResult, TestCaseStatus, TestCaseCategory, IssuePriority, TestRun } from '@/lib/types';
 
 const isCategoryFilter = (v: unknown): v is TestCaseCategory | '' =>
   v === '' || (TEST_CATEGORY_ORDER as readonly string[]).includes(v as string);
@@ -471,6 +473,250 @@ function NewTestCaseModal({
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Test runs — 执行记录面板 + 执行套件弹窗                              */
+/* ------------------------------------------------------------------ */
+
+/* 一次执行的明细行:结果点 + 用例 key + 备注。 */
+function RunItems({ run }: { run: TestRun }) {
+  if (!run.items?.length) return null;
+  return (
+    <div className="mt-1.5 flex flex-col gap-0.5">
+      {run.items.map((it, i) => (
+        <div key={i} className="flex items-center gap-1.5 text-[12px] text-fg-2">
+          <ResultDot result={it.result} size={7} />
+          <span className="flex-none font-mono text-fg-3">{it.testCase}</span>
+          {it.note && <span className="min-w-0 truncate text-fg-3">· {it.note}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* 执行历史(倒序):谁/何时/哪类套件/哪个范围/汇总/备注/逐条结果。 */
+function TestRunsPanel({ onClose, onRunSuite, canWrite }: { onClose: () => void; onRunSuite: () => void; canWrite: boolean }) {
+  const t = useT();
+  const locale = useLocale();
+  const { memberById, projectById, releaseById } = useAppData();
+  const { data: runs = [] } = useTestRuns();
+  return (
+    <DetailDrawer
+      onClose={onClose}
+      width={640}
+      header={
+        <>
+          <History size={15} className="text-fg-3" />
+          <span className="text-[14px] font-semibold text-fg-1">{t('testruns.title')}</span>
+          <span className="rounded-full bg-surface-2 px-2.5 py-px text-[12.5px] font-semibold text-fg-3">{runs.length}</span>
+        </>
+      }
+      headerActions={
+        canWrite ? (
+          <Button variant="primary" size="sm" onClick={onRunSuite}>
+            <Play size={13} /> {t('testruns.run')}
+          </Button>
+        ) : undefined
+      }
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {runs.length === 0 ? (
+          <div className="grid h-[40vh] place-items-center text-[13px] text-fg-3">
+            <span className="flex items-center gap-2"><CircleDot size={14} /> {t('testruns.empty')}</span>
+          </div>
+        ) : (
+          runs.map((run) => (
+            <div key={run.id} className="border-b border-border px-5 py-3">
+              <div className="flex items-center gap-2">
+                <Badge tone={TEST_CATEGORY[run.category].tone}>
+                  <CategoryDot category={run.category} size={7} /> {t(`tcCategory.${run.category}`)}
+                </Badge>
+                <span className="min-w-0 truncate text-[12px] text-fg-3">
+                  {run.projectId
+                    ? projectById(run.projectId)?.name ?? ''
+                    : `${t('detail.release')} · ${releaseById(run.releaseId)?.name ?? ''}`}
+                </span>
+                <div className="flex-1" />
+                <span className="flex-none text-[12px] text-fg-3">{formatActivityTime(run.createdAt, locale)}</span>
+              </div>
+              <div className="mt-1.5 flex items-center gap-2">
+                <Avatar person={memberById(run.executorId)} size={18} />
+                <span className="text-[12.5px] text-fg-2">{memberById(run.executorId)?.name ?? t('detail.system')}</span>
+                <div className="flex-1" />
+                <div className="flex items-center gap-2 text-[12px] font-medium">
+                  {(['passed', 'failed', 'blocked'] as const)
+                    .filter((r) => run[r] > 0)
+                    .map((r) => (
+                      <span key={r} className="inline-flex items-center gap-1" style={{ color: TEST_RESULT[r].color }}>
+                        <ResultDot result={r} size={7} /> {run[r]}
+                      </span>
+                    ))}
+                  <span className="text-fg-3">/ {run.total}</span>
+                </div>
+              </div>
+              {run.note && <div className="mt-1 text-[12.5px] text-fg-2">{run.note}</div>}
+              <RunItems run={run} />
+            </div>
+          ))
+        )}
+      </div>
+    </DetailDrawer>
+  );
+}
+
+/* 执行套件:选 category + 范围(项目/版本)→ 取该范围的待执行用例(非废弃),
+   逐条标记结果(复用 TcResultMenu),提交调 recordTestRun。范围/类别与服务端
+   listSuite 同语义;结果沿用用例当前值,仅提交非 untested 的行(避免把未执行
+   的 draft 用例误推进为 active)。条件挂载(打开时才渲染),状态用初始值即可,
+   关闭再打开自动重置。 */
+function RunSuiteModal({
+  open,
+  onOpenChange,
+  defaultProject,
+  defaultCategory,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  defaultProject?: string;
+  defaultCategory?: TestCaseCategory;
+}) {
+  const t = useT();
+  const { projects, releases } = useAppData();
+  const record = useRecordTestRun();
+  const [category, setCategory] = React.useState<TestCaseCategory>(defaultCategory || 'functional');
+  // 'p:<projectId>' | 'r:<releaseId>'
+  const [scope, setScope] = React.useState(() => {
+    if (defaultProject) return `p:${defaultProject}`;
+    const firstProject = projects.find((p) => !p.archivedAt);
+    if (firstProject) return `p:${firstProject.id}`;
+    return releases[0] ? `r:${releases[0].id}` : '';
+  });
+  const [marks, setMarks] = React.useState<Record<string, { result: TestResult; note: string }>>({});
+  const [note, setNote] = React.useState('');
+  const [raiseBugs, setRaiseBugs] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const activeProjects = projects.filter((p) => !p.archivedAt);
+
+  // 待执行清单:该类别全量用例(共享主列表缓存)按范围过滤,与 listSuite 同口径。
+  const { data: catCases = [], isLoading } = useTestCases({ category });
+  const suite = React.useMemo(() => {
+    if (!scope) return [];
+    const ids = scope.startsWith('p:')
+      ? [scope.slice(2)]
+      : projects.filter((p) => p.releaseId === scope.slice(2)).map((p) => p.id);
+    return catCases.filter((c) => ids.includes(c.projectId) && c.status !== 'deprecated');
+  }, [scope, catCases, projects]);
+
+  const markOf = (key: string, fallback: TestResult) => marks[key] ?? { result: fallback, note: '' };
+  const executable = suite.filter((tc) => markOf(tc.id, tc.result).result !== 'untested');
+  const hasFailed = executable.some((tc) => markOf(tc.id, tc.result).result === 'failed');
+
+  const submit = async () => {
+    if (!scope || !executable.length || record.isPending) return;
+    setError(null);
+    const input: RecordTestRunInput = {
+      category,
+      ...(scope.startsWith('p:') ? { projectId: scope.slice(2) } : { releaseId: scope.slice(2) }),
+      results: executable.map((tc) => {
+        const m = markOf(tc.id, tc.result);
+        return { key: tc.id, result: m.result, ...(m.note.trim() ? { note: m.note.trim() } : {}) };
+      }),
+      ...(note.trim() ? { note: note.trim() } : {}),
+      raiseBugs: raiseBugs && hasFailed,
+    };
+    try {
+      await record.mutateAsync(input);
+      onOpenChange(false);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : t('common.createFailed'));
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent aria-describedby={undefined}>
+        <div className="flex items-center gap-2.5 px-[18px] pb-1 pt-4">
+          <span className="grid h-7 w-7 place-items-center rounded-lg" style={{ background: 'var(--brand-blue-tint-8)', color: 'var(--brand-blue)' }}>
+            <Play size={15} />
+          </span>
+          <DialogPrimitive.Title className="text-[15px] font-semibold text-fg-1">{t('testruns.run')}</DialogPrimitive.Title>
+        </div>
+        <div className="flex flex-col gap-3 px-[18px] py-3">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <span className={fieldLabel}>{t('testcases.category')}</span>
+              <select className={inputCls} value={category} onChange={(e) => setCategory(e.target.value as TestCaseCategory)}>
+                {TEST_CATEGORY_ORDER.map((c) => (
+                  <option key={c} value={c}>{t(`tcCategory.${c}`)}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1">
+              <span className={fieldLabel}>{t('testruns.scope')}</span>
+              <select className={inputCls} value={scope} onChange={(e) => setScope(e.target.value)}>
+                <optgroup label={t('nav.projects')}>
+                  {activeProjects.map((p) => (
+                    <option key={p.id} value={`p:${p.id}`}>{p.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label={t('products.releasesLabel')}>
+                  {releases.map((r) => (
+                    <option key={r.id} value={`r:${r.id}`}>{r.name}</option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+          </div>
+          <div className="max-h-[46vh] overflow-y-auto rounded-lg border border-border">
+            {suite.length === 0 ? (
+              <div className="px-3 py-6 text-center text-[12.5px] text-fg-3">
+                {isLoading ? t('loading') : t('testruns.noSuite')}
+              </div>
+            ) : (
+              suite.map((tc) => {
+                const m = markOf(tc.id, tc.result);
+                return (
+                  <div key={tc.id} className="flex items-center gap-2 border-b border-border px-3 py-1.5 last:border-b-0">
+                    <span className="w-[52px] flex-none font-mono text-xs text-fg-3">{tc.id}</span>
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-fg-1" title={tc.title}>{tc.title}</span>
+                    {m.result === 'failed' && (
+                      <input
+                        value={m.note}
+                        onChange={(e) => setMarks((prev) => ({ ...prev, [tc.id]: { ...m, note: e.target.value } }))}
+                        placeholder={t('testruns.failNotePlaceholder')}
+                        className="w-[170px] flex-none rounded-[7px] border border-border-strong bg-surface px-2 py-1 text-[12px] text-fg-1 outline-none focus:border-brand-blue"
+                      />
+                    )}
+                    <TcResultMenu
+                      value={m.result}
+                      onPick={(result) => setMarks((prev) => ({ ...prev, [tc.id]: { ...markOf(tc.id, tc.result), result } }))}
+                    />
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('testruns.notePlaceholder')} className={inputCls} />
+          <label className="flex items-center gap-2 text-[12.5px] text-fg-2">
+            <input type="checkbox" checked={raiseBugs} onChange={(e) => setRaiseBugs(e.target.checked)} disabled={!hasFailed} />
+            {t('testruns.raiseBugs')}
+          </label>
+          {error && (
+            <p className="rounded-md px-2.5 py-1.5 text-[12px]" style={{ background: 'var(--danger-50)', color: '#8C1B28' }}>{error}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 border-t border-border px-[18px] py-3">
+          <div className="flex-1" />
+          <Button variant="ghost" size="md" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
+          <Button variant="primary" size="md" onClick={submit} disabled={!executable.length || record.isPending}>
+            {t('testruns.submit')}{executable.length > 0 ? ` (${executable.length})` : ''}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* The drawer is URL-driven (/testcases/<id>) by the page wrapper. */
 export function TestCasesView({
   project,
@@ -501,6 +747,8 @@ export function TestCasesView({
   });
   const create = useCreateTestCase();
   const [newOpen, setNewOpen] = React.useState(false);
+  const [runsOpen, setRunsOpen] = React.useState(false);
+  const [suiteOpen, setSuiteOpen] = React.useState(false);
 
   const targetProject = projectId || projects[0]?.id || '';
 
@@ -514,6 +762,9 @@ export function TestCasesView({
       {/* toolbar —— 与「全部 Issues」同款两行布局:标题行(标题/计数/新建) + 筛选行(项目筛选在最前)。 */}
       <div className="border-b border-border">
         <ViewHeader title={t('testcases.title')} count={cases.length} bordered={false}>
+          <Button variant="ghost" size="md" onClick={() => setRunsOpen(true)}>
+            <History size={14} /> {t('testruns.title')}
+          </Button>
           {canWrite && (
             <Button variant="primary" size="md" onClick={() => setNewOpen(true)}>
               <Plus size={14} /> {t('testcases.new')}
@@ -559,6 +810,18 @@ export function TestCasesView({
 
       {selected && <TestCaseDetail id={selected} onClose={() => onSelect(null)} />}
       <NewTestCaseModal open={newOpen} onOpenChange={setNewOpen} defaultProject={projectId || undefined} onCreated={onSelect} />
+      {runsOpen && (
+        <TestRunsPanel onClose={() => setRunsOpen(false)} canWrite={canWrite} onRunSuite={() => setSuiteOpen(true)} />
+      )}
+      {/* 条件挂载:套件清单查询只在弹窗打开时发起。 */}
+      {suiteOpen && (
+        <RunSuiteModal
+          open={suiteOpen}
+          onOpenChange={setSuiteOpen}
+          defaultProject={projectId || undefined}
+          defaultCategory={category || undefined}
+        />
+      )}
     </div>
   );
 }

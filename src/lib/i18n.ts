@@ -712,6 +712,19 @@ const zhCN: Dict = {
   'tcCategory.regression': '回归测试',
   'issue.testsGate': '还有 {n} 条关联用例未通过，关单将被门禁拦截',
 
+  // test runs (测试执行留痕)
+  'testruns.title': '执行记录',
+  'testruns.empty': '暂无执行记录',
+  'testruns.run': '执行套件',
+  'testruns.scope': '范围',
+  'testruns.note': '备注',
+  'testruns.notePlaceholder': '本次执行备注，如：v1.2.0 部署后冒烟…',
+  'testruns.raiseBugs': '失败用例自动建 BUG',
+  'testruns.noSuite': '该范围内暂无此类别的待执行用例',
+  'testruns.submit': '提交执行结果',
+  'testruns.failNotePlaceholder': '失败现象（可选）…',
+  'testruns.createdBugs': '已自动建 {n} 个 BUG',
+
   // inline create
   'inline.quickAdd': '快速新建',
   'inline.titlePlaceholder': '输入标题，回车创建…',
@@ -1389,6 +1402,19 @@ const en: Dict = {
   'tcCategory.regression': 'Regression',
   'issue.testsGate': '{n} linked test case(s) not passed — closing this issue will be blocked by the test gate',
 
+  // test runs
+  'testruns.title': 'Test runs',
+  'testruns.empty': 'No test runs yet',
+  'testruns.run': 'Run suite',
+  'testruns.scope': 'Scope',
+  'testruns.note': 'Note',
+  'testruns.notePlaceholder': 'Run note, e.g. smoke after v1.2.0 deploy…',
+  'testruns.raiseBugs': 'Auto-file bugs for failed cases',
+  'testruns.noSuite': 'No executable cases for this scope & category',
+  'testruns.submit': 'Record results',
+  'testruns.failNotePlaceholder': 'Failure note (optional)…',
+  'testruns.createdBugs': 'Auto-filed {n} bug(s)',
+
   'inline.quickAdd': 'Quick add',
   'inline.titlePlaceholder': 'Type a title, Enter to create…',
 
@@ -2063,6 +2089,19 @@ const zhTW: Dict = {
   'tcCategory.integration': '整合測試',
   'tcCategory.regression': '回歸測試',
   'issue.testsGate': '還有 {n} 條關聯用例未通過，關單將被門禁攔截',
+
+  // test runs (測試執行留痕)
+  'testruns.title': '執行記錄',
+  'testruns.empty': '暫無執行記錄',
+  'testruns.run': '執行套件',
+  'testruns.scope': '範圍',
+  'testruns.note': '備註',
+  'testruns.notePlaceholder': '本次執行備註，如：v1.2.0 部署後冒煙…',
+  'testruns.raiseBugs': '失敗用例自動建 BUG',
+  'testruns.noSuite': '該範圍內暫無此類別的待執行用例',
+  'testruns.submit': '提交執行結果',
+  'testruns.failNotePlaceholder': '失敗現象（可選）…',
+  'testruns.createdBugs': '已自動建 {n} 個 BUG',
 
   'inline.quickAdd': '快速新增',
   'inline.titlePlaceholder': '輸入標題，Enter 建立…',

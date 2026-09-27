@@ -36,6 +36,7 @@ import type {
   TestCaseStatus,
   TestResult,
   TestCaseCategory,
+  TestRun,
   Plan,
   PlanStatus,
   DailyReport,
@@ -136,6 +137,17 @@ export interface CreateTestCaseInput {
 }
 
 export type UpdateTestCaseInput = Partial<CreateTestCaseInput>;
+
+/* 记录一次套件执行:projectId 与 releaseId 二选一(服务端校验);
+   raiseBugs=true 时 failed 项自动生成 BUG。 */
+export interface RecordTestRunInput {
+  projectId?: string;
+  releaseId?: string;
+  category: TestCaseCategory;
+  results: { key: string; result: TestResult; note?: string }[];
+  note?: string;
+  raiseBugs?: boolean;
+}
 
 export interface CreatePlanInput {
   projectId: string;
@@ -423,6 +435,16 @@ export const api = {
   updateTestCase: (id: string, input: UpdateTestCaseInput) =>
     request<TestCase>(`/test-cases/${id}`, json('PATCH', input)),
   deleteTestCase: (id: string) => request<{ id: string }>(`/test-cases/${id}`, { method: 'DELETE' }),
+
+  /* ---- 测试执行 (test runs) ---- */
+  testRuns: (params?: { project?: string; category?: TestCaseCategory }) => {
+    const q = new URLSearchParams(
+      Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
+    ).toString();
+    return request<TestRun[]>(`/test-runs${q ? `?${q}` : ''}`);
+  },
+  recordTestRun: (input: RecordTestRunInput) =>
+    request<{ run: TestRun; bugs: { key: string; testCase: string }[] }>('/test-runs', json('POST', input)),
 
   /* ---- 开发计划 (dev plans) ---- */
   plans: (params?: { project?: string }) => {

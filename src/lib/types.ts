@@ -226,6 +226,28 @@ export interface TestCase {
   updatedAt: string;
 }
 
+// Test runs (测试执行留痕):一次套件执行的汇总 + 逐条明细。
+export interface TestRunItem {
+  testCase: string | null; // case display key ("TC-12")
+  result: TestResult;
+  note: string | null;
+}
+
+export interface TestRun {
+  id: string; // uuid
+  projectId: string | null; // null = 版本级执行(releaseId 跨版本下所有项目)
+  releaseId: string | null;
+  category: TestCaseCategory;
+  executorId: string | null;
+  total: number;
+  passed: number;
+  failed: number;
+  blocked: number;
+  note: string | null;
+  createdAt: string;
+  items?: TestRunItem[];
+}
+
 // Dev plans (开发计划).
 export type PlanStatus = 'draft' | 'generated';
 
