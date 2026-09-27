@@ -68,13 +68,14 @@ spms/
 │   │   ├── attachments.ts        # issue 图片附件（本公司存储后端；storage.assertMeta 校验注册 url/objectKey）
 │   │   ├── notionSync.ts         # Notion → Issues 同步（lastSyncedAt 水位增量 / ?full=1 全量，幂等靠 notion_issue_links）
 │   │   ├── platform.ts           # 平台管理（公司/成员/矩阵/MCP key）
+│   │   ├── workflow.ts           # 审查/关单工作流自动化（REST 与 MCP 共用）
 │   │   └── meta.ts             # bootstrap 聚合
 │   ├── server/crypto.ts          # AES-256-GCM 配置密钥加解密（CONFIG_CRYPTO_KEY；OAuth secret / 存储凭据密文落库）
 │   ├── server/storage/           # 公司级文件存储抽象（设置→文件存储；无配置=禁止上传，零平台兜底）
 │   │   ├── index.ts              # storageForCompany(companyId)：配置行 60s 缓存 + 解密构造后端
 │   │   ├── minio.ts              # MinIO/S3：presigned PUT 直传 / presigned GET / putObject / removeObject
 │   │   └── vercel.ts             # Vercel Blob：token 来自公司配置（密文），不再是平台 env
-│   ├── mcp/                    # server.ts（McpServer + 26 个 tools 注册）+ workflow.ts（审查/关单工作流自动化）
+│   ├── mcp/                    # server.ts（McpServer + 26 个 tools 注册的薄适配层）
 │   ├── app/
 │   │   ├── (auth)/login/       # 登录页（密码 + 飞书/Lark/GitHub OAuth）
 │   │   ├── (app)/              # 主应用（Header + Sidebar 布局 + AuthGate）

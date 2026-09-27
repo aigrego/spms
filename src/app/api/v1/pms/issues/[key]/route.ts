@@ -1,6 +1,6 @@
 import { ok } from '@/lib/envelope';
 import { deleteIssue, getIssue } from '@/server/services/issues';
-import { updateIssueWithWorkflow } from '@/mcp/workflow';
+import { updateIssueWithWorkflow } from '@/server/services/workflow';
 import { requireActor, route } from '@/server/http';
 import { issueUpdateSchema, jsonBodyWith } from '@/server/validate';
 

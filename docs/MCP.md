@@ -101,7 +101,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## 工作流自动化（内置，无需显式提示词）
 
-实现于 `src/mcp/workflow.ts`，状态/评论落库全部走 service 层，活动流记录与 REST/UI 一致。
+实现于 `src/server/services/workflow.ts`（REST 与 MCP 共用的 service 层），状态/评论落库全部走 service 层，活动流记录与 REST/UI 一致。
 
 - **处理前审查**：处理任何 issue/需求前必须先调 `spms_review_issue`——工单审查是否已实现，BUG 审查是否可复现。
   - issue（TKT/BUG/BLG key）：`passed` → 自动置 `in_progress`；`already_done` → 自动置 `testing` 并自动指派测试人员；`failed` → 只写评论、状态不变，返回 `suggestion` 给出后续建议。

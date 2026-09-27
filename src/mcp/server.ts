@@ -1,12 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { and, asc, eq, inArray, or } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { companies, companyMemberships, issueAttachments, labels, members, productLines, products, projects, releases, sprints, sprintProjects, teams, users } from '@/db/schema';
 import { ApiException, type ErrorCode } from '@/lib/envelope';
 import { ensureAgents, ensureCurrentMember } from '@/lib/identity';
 import { computeRollups } from '@/lib/rollup';
-import { formatReportContent } from '@/lib/reportMarkdown';
 import { clampAllowed, visibleSetsFor } from '@/lib/visibility';
 import * as issueSvc from '@/server/services/issues';
 import * as attachmentSvc from '@/server/services/attachments';
@@ -20,8 +19,8 @@ import * as sprintSvc from '@/server/services/sprints';
 import * as testCaseSvc from '@/server/services/testcases';
 import * as testRunSvc from '@/server/services/testruns';
 import type { Actor } from '@/server/services/types';
+import { reviewWithWorkflow, updateIssueWithWorkflow } from '@/server/services/workflow';
 import { newObjectKey, storageForCompany } from '@/server/storage';
-import { reviewWithWorkflow, updateIssueWithWorkflow } from './workflow';
 
 /* MCP server (Phase D) — a thin adapter over src/server/services/*. Tools share
    the exact business rules of the REST API; this file only does zod validation,
@@ -1240,83 +1239,8 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
     async (args) =>
       run(async () => {
         const actor = await actorFor(args.companyId);
-        // 项目解析：公司内先按 id 再按 name 精确匹配（projects 表无 key 列）。
-        const wanted = [...new Set(args.entries.map((e) => e.project))];
-        const projRows = await db
-          .select({ id: projects.id, name: projects.name, releaseId: projects.releaseId })
-          .from(projects)
-          .where(and(eq(projects.companyId, actor.companyId), or(inArray(projects.id, wanted), inArray(projects.name, wanted))));
-        const byId = new Map(projRows.map((r) => [r.id, r]));
-        const byName = new Map(projRows.map((r) => [r.name, r]));
-        const resolved = args.entries.map((e) => {
-          const proj = byId.get(e.project) ?? byName.get(e.project);
-          if (!proj) throw new ApiException('PROJECT_NOT_FOUND', `项目 ${e.project} 不存在`);
-          return { proj, content: e.content };
-        });
-        // 令牌项目白名单强制收窄（与 issue 写操作同规则）。
-        if (actor.allowedProjectIds) {
-          for (const { proj } of resolved) {
-            if (!actor.allowedProjectIds.includes(proj.id)) {
-              throw new ApiException('FORBIDDEN', `项目 ${proj.name} 不在令牌的项目白名单内`, 403);
-            }
-          }
-        }
-        // 产品推导：项目 → releaseId → releases.productId。
-        const releaseIds = [...new Set(resolved.map((r) => r.proj.releaseId).filter((x): x is string => x != null))];
-        const releaseRows = releaseIds.length
-          ? await db
-              .select({ id: releases.id, productId: releases.productId })
-              .from(releases)
-              .where(and(eq(releases.companyId, actor.companyId), inArray(releases.id, releaseIds)))
-          : [];
-        const productIdByRelease = new Map(releaseRows.map((r) => [r.id, r.productId]));
-        const productIdByProject = new Map<string, string>();
-        for (const { proj } of resolved) {
-          if (!proj.releaseId) {
-            throw new ApiException('VALIDATION_FAILED', `项目 ${proj.name} 未关联版本，无法推导产品`);
-          }
-          const productId = productIdByRelease.get(proj.releaseId);
-          if (!productId) throw new ApiException('VALIDATION_FAILED', `项目 ${proj.name} 关联的版本不存在，无法推导产品`);
-          productIdByProject.set(proj.id, productId);
-        }
-        // 一次调用内两个项目推导到同一产品 → 要求调用方先合并内容。
-        const firstProjectByProduct = new Map<string, string>();
-        for (const { proj } of resolved) {
-          const productId = productIdByProject.get(proj.id)!;
-          const first = firstProjectByProduct.get(productId);
-          if (first) {
-            throw new ApiException(
-              'VALIDATION_FAILED',
-              `项目 ${first} 与项目 ${proj.name} 推导到同一产品，请先合并内容再提交（同一产品一次提交只能出现一次）`,
-            );
-          }
-          firstProjectByProduct.set(productId, proj.name);
-        }
-        const entries = resolved.map((r) => ({
-          productId: productIdByProject.get(r.proj.id)!,
-          // 上报内容规整为简单 Markdown（普通行 → `- ` 列表项），汇总视图按 Markdown 渲染。
-          content: formatReportContent(r.content),
-        }));
-        const { report, created, updated } = await reportSvc.mergeMyReportEntries(actor, args.date, entries, { mode: args.mode });
-        // created/updated 以产品 key/name 标注，便于调用方确认推导结果。
-        const productIds = [...created, ...updated];
-        const prodRows = productIds.length
-          ? await db
-              .select({ id: products.id, key: products.key, name: products.name })
-              .from(products)
-              .where(and(eq(products.companyId, actor.companyId), inArray(products.id, productIds)))
-          : [];
-        const prodById = new Map(prodRows.map((r) => [r.id, r]));
-        const label = (id: string) => {
-          const p = prodById.get(id);
-          return p ? `${p.key}（${p.name}）` : id;
-        };
-        return {
-          ...report,
-          created: created.map(label),
-          updated: updated.map(label),
-          note: '合并提交：同日重复提交同一产品会更新该产品条目，不影响其他产品',
-        };
+        const { companyId: _companyId, ...input } = args;
+        return reportSvc.submitMyReportByProjects(actor, input);
       }),
   );
 

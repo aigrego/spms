@@ -2,13 +2,14 @@ import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { companyMemberships, members, resourceAssignments } from '@/db/schema';
 import { ApiException } from '@/lib/envelope';
-import * as issueSvc from '@/server/services/issues';
-import * as requirementSvc from '@/server/services/requirements';
-import { blockingCasesForIssue, testsNotPassedError } from '@/server/services/testruns';
-import type { Actor } from '@/server/services/types';
+import * as issueSvc from './issues';
+import * as requirementSvc from './requirements';
+import { blockingCasesForIssue, testsNotPassedError } from './testruns';
+import type { Actor } from './types';
 
-/* MCP 工作流驱动（TKT-6）：把「功能审查 → 状态流转 → 自动化指派」内置进 MCP
-   工具处理，无需调用方显式提示词。状态/评论落库一律走现有 service 层
+/* 工作流驱动（TKT-6）：「功能审查 → 状态流转 → 自动化指派」业务规则的唯一出处，
+   REST（PATCH /issues/:key）与 MCP tools（spms_review_issue / spms_update_issue）
+   均为薄调用方。状态/评论落库一律走现有 service 层
    （issues.ts / requirements.ts），保证活动流记录与 REST/UI 一致。
 
    规则：
