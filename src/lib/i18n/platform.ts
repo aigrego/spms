@@ -1,8 +1,60 @@
 import type { Locale } from '@/lib/i18n';
+import type { ModuleKey } from '@/lib/api';
 
 // 平台管理控制台文案(Agent 接入 / 成员 / 席位 / 公司 / 权限矩阵)
 // (TKT-27 抽取自 src/components/platform/{KeysPanel,CreateKeyModal,MembersPanel,SeatsDrawer,
 //  AddMemberModal,CompaniesPanel,CompanyModal,MatrixPanel,CreateUserModal,common}.tsx)
+
+/* 权限矩阵模块名标签:key 集合与 RBAC 模块清单编译期对齐(ModuleKey 派生自
+   permissions.ts 的 MODULES + COMPANY_ONLY_MODULES),漏配/多配即报错;
+   词条仍按模块分文件的组织方式保留在本文件。 */
+type ModuleLabels = Record<`platform.module.${ModuleKey}`, string>;
+
+const moduleLabelsZhCN: ModuleLabels = {
+  'platform.module.issues': 'Issues',
+  'platform.module.products': '产品',
+  'platform.module.requirements': '需求池',
+  'platform.module.testcases': '测试用例',
+  'platform.module.projects': '项目',
+  'platform.module.resources': '研发资源',
+  'platform.module.roadmap': '路线图',
+  'platform.module.backlog': '产品待办',
+  'platform.module.sprints': '迭代',
+  'platform.module.agents': 'AI Agents',
+  'platform.module.reports': '总结与日报',
+  'platform.module.notion': 'Notion 集成',
+};
+
+const moduleLabelsEn: ModuleLabels = {
+  'platform.module.issues': 'Issues',
+  'platform.module.products': 'Products',
+  'platform.module.requirements': 'Requirements',
+  'platform.module.testcases': 'Test cases',
+  'platform.module.projects': 'Projects',
+  'platform.module.resources': 'Resources',
+  'platform.module.roadmap': 'Roadmap',
+  'platform.module.backlog': 'Backlog',
+  'platform.module.sprints': 'Sprints',
+  'platform.module.agents': 'AI Agents',
+  'platform.module.reports': 'Summary & reports',
+  'platform.module.notion': 'Notion integration',
+};
+
+const moduleLabelsZhTW: ModuleLabels = {
+  'platform.module.issues': 'Issues',
+  'platform.module.products': '產品',
+  'platform.module.requirements': '需求池',
+  'platform.module.testcases': '測試用例',
+  'platform.module.projects': '專案',
+  'platform.module.resources': '研發資源',
+  'platform.module.roadmap': '路線圖',
+  'platform.module.backlog': '產品待辦',
+  'platform.module.sprints': '迭代',
+  'platform.module.agents': 'AI Agents',
+  'platform.module.reports': '總結與日報',
+  'platform.module.notion': 'Notion 整合',
+};
+
 export const dict: Record<Locale, Record<string, string>> = {
   'zh-CN': {
     'platform.common.retry': '请稍后重试。',
@@ -12,18 +64,8 @@ export const dict: Record<Locale, Record<string, string>> = {
     'platform.common.close': '关闭',
     'platform.common.edit': '编辑',
 
-    // 权限矩阵模块名 / 权限级别(镜像 platformApi 的 MODULE_LABELS / PERM_LEVEL_LABELS)
-    'platform.module.issues': 'Issues',
-    'platform.module.products': '产品',
-    'platform.module.requirements': '需求池',
-    'platform.module.testcases': '测试用例',
-    'platform.module.projects': '项目',
-    'platform.module.resources': '研发资源',
-    'platform.module.roadmap': '路线图',
-    'platform.module.backlog': '产品待办',
-    'platform.module.sprints': '迭代',
-    'platform.module.agents': 'AI Agents',
-    'platform.module.notion': 'Notion 集成',
+    // 权限矩阵模块名(镜像 platformApi 的 MODULE_LABELS,key 集合见上方 ModuleLabels 约束) / 权限级别
+    ...moduleLabelsZhCN,
     'platform.permLevel.none': '不可见',
     'platform.permLevel.read': '只读',
     'platform.permLevel.write': '读写',
@@ -166,17 +208,7 @@ export const dict: Record<Locale, Record<string, string>> = {
     'platform.common.close': 'Close',
     'platform.common.edit': 'Edit',
 
-    'platform.module.issues': 'Issues',
-    'platform.module.products': 'Products',
-    'platform.module.requirements': 'Requirements',
-    'platform.module.testcases': 'Test cases',
-    'platform.module.projects': 'Projects',
-    'platform.module.resources': 'Resources',
-    'platform.module.roadmap': 'Roadmap',
-    'platform.module.backlog': 'Backlog',
-    'platform.module.sprints': 'Sprints',
-    'platform.module.agents': 'AI Agents',
-    'platform.module.notion': 'Notion integration',
+    ...moduleLabelsEn,
     'platform.permLevel.none': 'Hidden',
     'platform.permLevel.read': 'Read-only',
     'platform.permLevel.write': 'Read-write',
@@ -315,17 +347,7 @@ export const dict: Record<Locale, Record<string, string>> = {
     'platform.common.close': '關閉',
     'platform.common.edit': '編輯',
 
-    'platform.module.issues': 'Issues',
-    'platform.module.products': '產品',
-    'platform.module.requirements': '需求池',
-    'platform.module.testcases': '測試用例',
-    'platform.module.projects': '專案',
-    'platform.module.resources': '研發資源',
-    'platform.module.roadmap': '路線圖',
-    'platform.module.backlog': '產品待辦',
-    'platform.module.sprints': '迭代',
-    'platform.module.agents': 'AI Agents',
-    'platform.module.notion': 'Notion 整合',
+    ...moduleLabelsZhTW,
     'platform.permLevel.none': '不可見',
     'platform.permLevel.read': '唯讀',
     'platform.permLevel.write': '讀寫',

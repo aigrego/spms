@@ -1,4 +1,4 @@
-import { ApiError } from './api';
+import { ApiError, type ModuleKey } from './api';
 
 /* Platform admin API (/api/v1/platform/**) — multi-company sandbox + RBAC.
    Kept in its own module (not api.ts) because the pms client is owned by
@@ -117,7 +117,9 @@ export const ROLE_LABELS: Record<CompanyRole, string> = {
   viewer: '访客',
 };
 
-export const MODULE_LABELS: Record<string, string> = {
+/* 穷举约束:key 集合必须与 ModuleKey(permissions.ts 的 MODULES + 公司专属模块)
+   完全一致,漏配/多配编译期即报错。 */
+export const MODULE_LABELS: Record<ModuleKey, string> = {
   issues: 'Issues',
   products: '产品',
   requirements: '需求池',
@@ -128,6 +130,7 @@ export const MODULE_LABELS: Record<string, string> = {
   backlog: '产品待办',
   sprints: '迭代',
   agents: 'AI Agents',
+  reports: '总结与日报',
   notion: 'Notion 集成',
 };
 

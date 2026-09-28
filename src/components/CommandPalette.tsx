@@ -8,6 +8,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { StatusIcon } from '@/components/glyphs/StatusIcon';
 import { AISlaBadge } from '@/components/glyphs/misc';
 import { useT } from '@/lib/i18n';
+import { useAppData } from '@/store/AppData';
 import { useAllIssues } from '@/store/issues';
 import { useAllRequirements } from '@/store/requirements';
 import { useTestCases } from '@/store/testcases';
@@ -30,6 +31,7 @@ export function CommandPalette({
   onNewIssue: () => void;
 }) {
   const t = useT();
+  const { can } = useAppData();
   const { data: issues = [] } = useAllIssues();
   const { data: requirements = [] } = useAllRequirements();
   const { data: testCases = [] } = useTestCases();
@@ -40,13 +42,16 @@ export function CommandPalette({
     fn();
   };
 
+  /* 导航入口按模块 RBAC 过滤(can() 与 AuthGate / Sidebar 同一套门禁):
+     无权限的入口直接不展示,而不是搜到后被 AuthGate 弹走。
+     新建 Issue 是写操作,与 IssuesView 的新建按钮同按 issues write 门。 */
   const navItems = [
-    { icon: Plus, label: t('cmd.new'), kbd: 'C', act: () => onNewIssue() },
-    { icon: LayoutGrid, label: t('cmd.openMyIssues'), act: () => onNavigate('/my-issues') },
-    { icon: Layers, label: t('cmd.openProducts'), act: () => onNavigate('/products') },
-    { icon: FileText, label: t('cmd.openRequirements'), act: () => onNavigate('/requirements') },
-    { icon: Box, label: t('cmd.openProjects'), act: () => onNavigate('/projects') },
-    { icon: Map, label: t('cmd.openRoadmap'), act: () => onNavigate('/roadmap') },
+    { icon: Plus, label: t('cmd.new'), kbd: 'C', act: () => onNewIssue(), show: can('issues', 'write') },
+    { icon: LayoutGrid, label: t('cmd.openMyIssues'), act: () => onNavigate('/my-issues'), show: can('issues', 'read') },
+    { icon: Layers, label: t('cmd.openProducts'), act: () => onNavigate('/products'), show: can('products', 'read') },
+    { icon: FileText, label: t('cmd.openRequirements'), act: () => onNavigate('/requirements'), show: can('requirements', 'read') },
+    { icon: Box, label: t('cmd.openProjects'), act: () => onNavigate('/projects'), show: can('projects', 'read') },
+    { icon: Map, label: t('cmd.openRoadmap'), act: () => onNavigate('/roadmap'), show: can('roadmap', 'read') },
   ];
 
   return (
@@ -78,7 +83,7 @@ export function CommandPalette({
               </Command.Empty>
               <Command.Group heading={t('cmd.commands')} className={GROUP_HEADING_CLS}>
                 {navItems
-                  .filter((n) => !q || n.label.toLowerCase().includes(q.toLowerCase()))
+                  .filter((n) => n.show && (!q || n.label.toLowerCase().includes(q.toLowerCase())))
                   .map((n) => (
                     <Command.Item
                       key={n.label}

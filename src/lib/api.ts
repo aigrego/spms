@@ -46,6 +46,7 @@ import type {
 } from './types';
 import type { NotionStatusRule } from './notionStatusMap';
 import type { PermissionsMatrix } from './platformApi';
+import type { CompanyModule } from './permissions';
 
 // Standalone Next.js rewrite: every business call hits the app's own API routes
 // at /api/v1/pms/** (cookie session auth — the browser attaches the cookie).
@@ -617,19 +618,9 @@ export interface SaveStorageConfigInput {
 export type CompanyRole = 'company_admin' | 'product_manager' | 'developer' | 'tester' | 'viewer';
 export type PermLevel = 'none' | 'read' | 'write';
 // RBAC modules (notion 仅公司作用域,不进全局矩阵); values are 'none' | 'read' | 'write'.
-export type ModuleKey =
-  | 'issues'
-  | 'products'
-  | 'requirements'
-  | 'testcases'
-  | 'projects'
-  | 'resources'
-  | 'roadmap'
-  | 'backlog'
-  | 'sprints'
-  | 'agents'
-  | 'reports'
-  | 'notion';
+// 单一来源:permissions.ts 的 MODULES + COMPANY_ONLY_MODULES,这里只派生类型,
+// 新增模块只需改 permissions.ts,下游(ModuleKey/MODULE_LABELS/i18n)编译期跟随。
+export type ModuleKey = CompanyModule;
 
 export interface SessionCompany {
   id: string;
