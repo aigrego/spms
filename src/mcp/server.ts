@@ -206,6 +206,7 @@ const lifecyclePhase = z.enum(['concept', 'development', 'release', 'maintenance
 const productStatus = z.enum(['active', 'maintenance', 'archived']);
 const projectStatus = z.enum(['backlog', 'planned', 'in_progress', 'completed']);
 const planStatus = z.enum(['draft', 'generated']);
+const sprintStatus = z.enum(['planned', 'active', 'completed']);
 
 /* Company selector attached to every tool: only meaningful for platform-level
    keys; company-level keys and browser sessions ignore it. */
@@ -958,6 +959,72 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         const actor = await actorFor(args.companyId);
         const { companyId: _companyId, key, ...input } = args;
         return testCaseSvc.updateTestCase(actor, key, input);
+      }),
+  );
+
+  reg(
+    'spms_create_sprint',
+    {
+      description:
+        `创建迭代（初始 status=planned）。startDate/endDate 传可解析日期（如 2026-09-28）；` +
+        `capacity 为容量（故事点，可选）；projectIds 传关联项目 id 数组（可多项目，spms_get_bootstrap 的 projects 可查），` +
+        `未传 projectIds 时创建无项目迭代。返回创建后的迭代（含 projectIds）。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        name: z.string().describe('迭代名称（必填）'),
+        goal: z.string().optional().describe('迭代目标（可选）'),
+        startDate: z.string().describe('开始日期（必填），如 2026-09-28'),
+        endDate: z.string().describe('结束日期（必填），不早于开始日期'),
+        capacity: z.number().nullable().optional().describe('容量（故事点，可选）'),
+        projectIds: z.array(z.string()).optional().describe('关联项目 id 数组（可多项目）'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return sprintSvc.createSprint(actor, {
+          name: args.name,
+          goal: args.goal,
+          startDate: args.startDate,
+          endDate: args.endDate,
+          capacity: args.capacity,
+          projectIds: args.projectIds,
+        });
+      }),
+  );
+
+  reg(
+    'spms_update_sprint',
+    {
+      description:
+        `更新迭代（按 uuid id，spms_list_sprints 可查）：可改 name/goal/startDate/endDate/capacity/projectIds（全量替换关联）。` +
+        `只传要改的字段；goal/capacity 显式传 null 可清空。` +
+        `状态流转收口：status 仅支持 planned→active / active→completed 两种流转（分别等同 spms_start_sprint / spms_complete_sprint，含退回未完成 issue 等完整流程），` +
+        `其余流转报 VALIDATION_FAILED。${CONCEPTS}`,
+      inputSchema: {
+        companyId: companyIdParam,
+        id: z.string().describe('迭代 id（uuid）'),
+        name: z.string().optional(),
+        goal: z.string().nullable().optional().describe('迭代目标；null 清空'),
+        status: sprintStatus.optional().describe('仅 planned→active / active→completed 两种流转'),
+        startDate: z.string().optional(),
+        endDate: z.string().optional().describe('不早于（生效的）开始日期'),
+        capacity: z.number().nullable().optional().describe('容量（故事点）；null 清空'),
+        projectIds: z.array(z.string()).optional().describe('关联项目 id 数组；传了即全量替换'),
+      },
+    },
+    async (args) =>
+      run(async () => {
+        const actor = await actorFor(args.companyId);
+        return sprintSvc.updateSprint(actor, args.id, {
+          name: args.name,
+          goal: args.goal,
+          status: args.status,
+          startDate: args.startDate,
+          endDate: args.endDate,
+          capacity: args.capacity,
+          projectIds: args.projectIds,
+        });
       }),
   );
 

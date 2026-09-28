@@ -127,6 +127,7 @@ export function SprintModal({
   const [status, setStatus] = React.useState<SprintStatus>('planned');
   const [startDate, setStartDate] = React.useState('');
   const [endDate, setEndDate] = React.useState('');
+  const [capacity, setCapacity] = React.useState('');
   const [statusOpen, setStatusOpen] = React.useState(false);
   const [confirmDel, setConfirmDel] = React.useState(false);
 
@@ -139,6 +140,7 @@ export function SprintModal({
       // API 返回 ISO 时间戳,date input 需要 yyyy-MM-dd
       setStartDate(sprint?.startDate?.slice(0, 10) ?? '');
       setEndDate(sprint?.endDate?.slice(0, 10) ?? '');
+      setCapacity(sprint?.capacity != null ? String(sprint.capacity) : '');
       setStatusOpen(false);
       setConfirmDel(false);
     }
@@ -147,7 +149,10 @@ export function SprintModal({
   const toggleProject = (id: string) =>
     setProjectIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
   const dateErr = !!startDate && !!endDate && endDate < startDate;
-  const valid = !!name.trim() && projectIds.length > 0 && !!startDate && !!endDate && !dateErr;
+  // 空串 = 不设置容量(null);非空时须为有限非负数。
+  const capacityVal = capacity.trim() === '' ? null : Number(capacity);
+  const capacityErr = capacityVal !== null && (!Number.isFinite(capacityVal) || capacityVal < 0);
+  const valid = !!name.trim() && projectIds.length > 0 && !!startDate && !!endDate && !dateErr && !capacityErr;
   const busy = create.isPending || update.isPending;
 
   const submit = async () => {
@@ -162,6 +167,7 @@ export function SprintModal({
           status,
           startDate,
           endDate,
+          capacity: capacityVal,
         },
       });
       onOpenChange(false);
@@ -172,6 +178,7 @@ export function SprintModal({
         projectIds,
         startDate,
         endDate,
+        capacity: capacityVal,
       });
       onOpenChange(false);
       onCreated?.(created.id);
@@ -276,7 +283,7 @@ export function SprintModal({
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3.5">
+            <div className="grid grid-cols-3 gap-3.5">
               <Field label={t('sprintModal.start')}>
                 <input
                   type="date"
@@ -291,6 +298,17 @@ export function SprintModal({
                   value={endDate}
                   min={startDate || undefined}
                   onChange={(e) => setEndDate(e.target.value)}
+                  className={inputCls}
+                />
+              </Field>
+              <Field label={t('sprintModal.capacity')}>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={capacity}
+                  onChange={(e) => setCapacity(e.target.value)}
+                  placeholder={t('sprintModal.capacityPh')}
                   className={inputCls}
                 />
               </Field>
