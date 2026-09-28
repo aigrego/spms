@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api';
 import { useAddMember } from '@/store/platform';
 import { useT } from '@/lib/i18n';
-import { ROLE_LABELS } from '@/lib/platformApi';
+import { COMPANY_ROLES } from '@/lib/platformApi';
 import type { CompanyRole } from '@/lib/platformApi';
 import { fieldLabel, inputCls } from './common';
 
@@ -79,7 +79,7 @@ export function AddMemberModal({
             <div className="w-[140px]">
               <span className={fieldLabel}>{t('settings.role')}</span>
               <select className={inputCls} value={role} onChange={(e) => setRole(e.target.value as CompanyRole)}>
-                {(Object.keys(ROLE_LABELS) as CompanyRole[]).map((r) => (
+                {COMPANY_ROLES.map((r) => (
                   <option key={r} value={r}>
                     {t(`role.${r}`)}
                   </option>

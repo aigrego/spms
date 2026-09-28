@@ -108,14 +108,15 @@ export interface AddMemberInput {
   email?: string;
 }
 
-/* 角色 / 模块中文映射（权限矩阵 + 成员页共用）。 */
-export const ROLE_LABELS: Record<CompanyRole, string> = {
-  company_admin: '公司管理员',
-  product_manager: '产品',
-  developer: '开发',
-  tester: '测试',
-  viewer: '访客',
-};
+/* 角色 / 权限级别的值清单(下拉迭代用;标签统一走 i18n role.* / platform.permLevel.*,
+   TKT-253 删除原中文 label 表)。 */
+export const COMPANY_ROLES: readonly CompanyRole[] = [
+  'company_admin',
+  'product_manager',
+  'developer',
+  'tester',
+  'viewer',
+];
 
 /* 穷举约束:key 集合必须与 ModuleKey(permissions.ts 的 MODULES + 公司专属模块)
    完全一致,漏配/多配编译期即报错。 */
@@ -134,11 +135,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   notion: 'Notion 集成',
 };
 
-export const PERM_LEVEL_LABELS: Record<PermLevel, string> = {
-  none: '不可见',
-  read: '只读',
-  write: '读写',
-};
+export const PERM_LEVELS: readonly PermLevel[] = ['none', 'read', 'write'];
 
 const PREFIX = '/api/v1/platform';
 

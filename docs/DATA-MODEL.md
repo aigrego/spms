@@ -115,7 +115,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 `companyId` PK → companies cascade · `backend` NN（minio / vercel_blob）· MinIO 字段：`endpoint` / `port` / `useSsl` NN 默认 true / `accessKeyEnc` / `secretKeyEnc` / `bucket` / `publicBaseUrl`（浏览器可达公网基址，预签名 URL 按它签发；NULL = 按内网 endpoint 直签）· Vercel 字段：`tokenEnc` · `createdAt` / `updatedAt` NN —— 密钥全部 AES-256-GCM 密文；**无行 = 该公司禁止上传附件**（无平台兜底）；资源按公司隔离（对象 key 前缀 `issues/{companyId}/` + 代理读取校验）。
 
 ### activities（issue 动态/评论流）
-`id` PK · `issueId` NN → issues cascade · `whoId` → members · `kind` NN 默认 comment · `body` NN · `createdAt` NN
+`id` PK · `issueId` NN → issues cascade · `whoId` → members · `kind` NN 默认 comment · `body` NN · `createdAt` NN。body 两种格式（TKT-253）：系统事件（kind = created/status/assign）存 JSON `{"k":…,"p":{…}}`（src/lib/activity.ts 的 `systemActivity` 统一生成，渲染端按 k 走 i18n）；评论（comment）/AI 剧本（ai）为原文文本。存量中文模板行（"状态变更为 …" 等）不迁移，渲染端正则兜底。
 
 ### issue_status_transitions（issue 状态流转，TKT-33 团队总结的统计依据）
 `id` PK · `companyId` NN → companies cascade · `issueId` NN → issues cascade · `fromStatus`（NULL = 起始状态未知）· `toStatus` NN · `whoId` → members set null（行为人）· `createdAt` NN · 索引 `(companyId, createdAt)`、`(issueId)`。唯一写入点是 updateIssue（UI/REST/MCP 同路），与 kind='status' 的 activity 并列落库；迁移 0022 把历史 status 活动回放回填（旧值 `in_review` 映射为 `testing`，枚举外旧值丢弃）。Notion 同步直接改行、不写流转（验收侧由 `issues.completedAt` 兜底）。

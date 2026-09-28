@@ -6,6 +6,7 @@ import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
 import { assertProjectWritable, clampAllowed, issueVisible, visibleSetsFor } from '@/lib/visibility';
 import { onAgentAssigned } from '@/lib/agents';
+import { systemActivity } from '@/lib/activity';
 import { requirePerm } from '@/lib/permissions';
 import { recordSprintSnapshot } from './sprintSnapshots';
 import type { Actor } from './types';
@@ -299,8 +300,7 @@ export async function createIssue(actor: Actor, input: CreateIssueInput, opts?: 
       companyId,
       issueId: id,
       whoId: actor.memberId,
-      kind: 'created',
-      body: '创建了该 Issue',
+      ...systemActivity({ k: 'created' }),
     });
   });
 
@@ -428,8 +428,7 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
       companyId,
       issueId: existing.id,
       whoId: actor.memberId,
-      kind: 'status',
-      body: `状态变更为 ${input.status}`,
+      ...systemActivity({ k: 'statusChanged', p: { status: input.status } }),
     });
     // 结构化流转记录:团队总结的交付/验收/打回/周期时长统计都读这张表。
     await db.insert(issueStatusTransitions).values({
@@ -466,8 +465,7 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
       companyId,
       issueId: existing.id,
       whoId: actor.memberId,
-      kind: 'assign',
-      body: `指派给 ${newHumanName}`,
+      ...systemActivity({ k: 'assigned', p: { name: newHumanName } }),
     });
   }
 
@@ -507,8 +505,7 @@ export async function archiveIssue(actor: Actor, key: string, archived: boolean)
     companyId: actor.companyId,
     issueId: existing.id,
     whoId: actor.memberId,
-    kind: 'status',
-    body: archived ? '归档了该 Issue' : '取消了归档',
+    ...systemActivity(archived ? { k: 'archived' } : { k: 'unarchived' }),
   });
   return { id: key, archived };
 }

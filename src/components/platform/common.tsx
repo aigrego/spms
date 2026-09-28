@@ -83,14 +83,6 @@ export function PopoverConfirm({
   );
 }
 
-/* zh absolute date: 2026/7/21 */
-export function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
-}
-
 export const thCls =
   'px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-3 first:pl-6 last:pr-6';
 export const tdCls = 'px-3 py-2.5 text-[13px] text-fg-1 first:pl-6 last:pr-6';

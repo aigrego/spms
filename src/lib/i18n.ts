@@ -279,10 +279,12 @@ const zhCN: Dict = {
   'status.testing': '待测试',
   'status.done': '已完成',
   'status.canceled': '已取消',
-  // BUG-16: 动态（activity）文案 —— 状态流转/归档记录走语言包。
+  // BUG-16/TKT-253: 动态（activity）文案 —— 创建/状态流转/归档/指派记录走语言包。
+  'activity.created': '创建了该 Issue',
   'activity.statusChanged': '状态变更为 {status}',
   'activity.archived': '归档了该 Issue',
   'activity.unarchived': '取消了归档',
+  'activity.assigned': '指派给 {name}',
   'priority.urgent': '紧急',
   'priority.high': '高',
   'priority.medium': '中',
@@ -995,10 +997,12 @@ const en: Dict = {
   'status.testing': 'Ready for Testing',
   'status.done': 'Done',
   'status.canceled': 'Canceled',
-  // BUG-16: activity feed wording — status/archive entries go through the locale dict.
+  // BUG-16/TKT-253: activity feed wording — create/status/archive/assign entries go through the locale dict.
+  'activity.created': 'created the issue',
   'activity.statusChanged': 'changed status to {status}',
   'activity.archived': 'archived the issue',
   'activity.unarchived': 'unarchived the issue',
+  'activity.assigned': 'assigned to {name}',
   'priority.urgent': 'Urgent',
   'priority.high': 'High',
   'priority.medium': 'Medium',
@@ -1683,10 +1687,12 @@ const zhTW: Dict = {
   'status.testing': '待測試',
   'status.done': '已完成',
   'status.canceled': '已取消',
-  // BUG-16: 動態（activity）文案 —— 狀態流轉/封存記錄走語言包。
+  // BUG-16/TKT-253: 動態（activity）文案 —— 建立/狀態流轉/封存/指派記錄走語言包。
+  'activity.created': '建立了該 Issue',
   'activity.statusChanged': '狀態變更為 {status}',
   'activity.archived': '封存了該 Issue',
   'activity.unarchived': '取消了封存',
+  'activity.assigned': '指派給 {name}',
   'priority.urgent': '緊急',
   'priority.high': '高',
   'priority.medium': '中',

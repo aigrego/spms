@@ -18,6 +18,7 @@ import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, ScopedAssigneeMenu,
 import { DetailDrawer } from '@/components/DetailDrawer';
 import { useT, useLocale } from '@/lib/i18n';
 import { formatActivityTime, formatDate } from '@/lib/time';
+import { parseActivityEvent } from '@/lib/activity';
 import { TEST_RESULT, TEST_CATEGORY } from '@/lib/constants';
 import { useAppData } from '@/store/AppData';
 import { useIssue, useUpdateIssue, useAddComment, useToggleSub, useDeleteIssue, useArchiveIssue, useRegisterAttachment, useDeleteAttachment } from '@/store/issues';
@@ -35,10 +36,22 @@ function ActivityItem({ ev }: { ev: Activity }) {
   const who = memberById(ev.whoId);
   const isAI = ev.kind === 'ai';
   const isComment = ev.kind === 'comment';
-  // BUG-16: 状态/归档类动态的 body 落库时是中文模板 + 英文枚举（如
-  // "状态变更为 in_progress"），渲染时按当前语言重组；其余 body 原样展示。
+  // 系统动态优先按结构化事件(TKT-253:body = JSON {k,p?})走 i18n;存量中文
+  // 模板行(BUG-16 前落库,如 "状态变更为 in_progress")走正则兜底,不迁移数据。
   let body = ev.body;
-  if (ev.kind === 'status') {
+  const evt = parseActivityEvent(ev.body);
+  if (evt) {
+    if (evt.k === 'created') body = t('activity.created');
+    else if (evt.k === 'statusChanged') body = t('activity.statusChanged', { status: t(`status.${evt.p.status}`) });
+    else if (evt.k === 'assigned') body = t('activity.assigned', { name: evt.p.name });
+    else if (evt.k === 'archived') body = t('activity.archived');
+    else if (evt.k === 'unarchived') body = t('activity.unarchived');
+  } else if (ev.kind === 'created' && body === '创建了该 Issue') {
+    body = t('activity.created');
+  } else if (ev.kind === 'assign') {
+    const m = body.match(/^指派给 (.+)$/);
+    if (m) body = t('activity.assigned', { name: m[1] });
+  } else if (ev.kind === 'status') {
     const m = body.match(/^状态变更为 (\S+)$/);
     if (m) body = t('activity.statusChanged', { status: t(`status.${m[1]}`) });
     else if (body === '归档了该 Issue') body = t('activity.archived');

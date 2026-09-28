@@ -9,13 +9,14 @@ import { useCompanies, useEnterCompany } from '@/store/platform';
 import type { PlatformCompany } from '@/lib/platformApi';
 import { CompanyModal } from '@/components/platform/CompanyModal';
 import { SeatsDrawer } from '@/components/platform/SeatsDrawer';
-import { fmtDate } from '@/components/platform/common';
 import { ViewHeader } from '@/components/common';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
+import { formatDate } from '@/lib/time';
 
 export function CompaniesPanel() {
   const router = useRouter();
   const t = useT();
+  const locale = useLocale();
   const { data: companies, isLoading, isError } = useCompanies();
   const enter = useEnterCompany();
   const [modalOpen, setModalOpen] = React.useState(false);
@@ -83,7 +84,7 @@ export function CompaniesPanel() {
                     <Users size={13} />
                     {t('companies.memberCount', { n: c.memberCount })}
                   </span>
-                  <span>{t('companies.createdAt', { date: fmtDate(c.createdAt) })}</span>
+                  <span>{t('companies.createdAt', { date: formatDate(c.createdAt, locale) })}</span>
                   <div className="flex-1" />
                   <Button variant="secondary" size="sm" onClick={() => setSeatsCompany(c)}>
                     {t('seats.seat')}

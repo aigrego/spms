@@ -11,8 +11,7 @@ import { ViewHeader } from '@/components/common';
 import { useT } from '@/lib/i18n';
 import { useAppData } from '@/store/AppData';
 import { useRemoveSeat, useRevokeResource, useSeats, useUpdateSeatRole } from '@/store/resources';
-import { ROLE_LABELS } from '@/lib/platformApi';
-import type { CompanyRole } from '@/lib/platformApi';
+import { COMPANY_ROLES } from '@/lib/platformApi';
 import type { Seat } from '@/lib/api';
 import type { Member, MemberStatus } from '@/lib/types';
 
@@ -55,9 +54,9 @@ function SeatRow({ seat, you, canAdmin }: { seat: Seat; you: boolean; canAdmin: 
         onChange={(e) => setRole.mutate({ id: seat.membershipId, role: e.target.value })}
         disabled={!canAdmin || (setRole.isPending && setRole.variables?.id === seat.membershipId)}
       >
-        {(Object.keys(ROLE_LABELS) as CompanyRole[]).map((r) => (
+        {COMPANY_ROLES.map((r) => (
           <option key={r} value={r}>
-            {ROLE_LABELS[r]}
+            {t(`role.${r}`)}
           </option>
         ))}
       </select>

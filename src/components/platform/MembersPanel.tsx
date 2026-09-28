@@ -9,10 +9,11 @@ import { ConfirmDestructive } from '@/components/ConfirmDestructive';
 import { useDeleteUser, usePlatformUsers } from '@/store/platform';
 import { useAppData } from '@/store/AppData';
 import { ApiError } from '@/lib/api';
-import { useT } from '@/lib/i18n';
+import { useT, useLocale } from '@/lib/i18n';
+import { formatDate } from '@/lib/time';
 import type { PlatformUser } from '@/lib/platformApi';
 import { CreateUserModal } from '@/components/platform/CreateUserModal';
-import { LetterAvatar, fmtDate, tdCls, thCls } from '@/components/platform/common';
+import { LetterAvatar, tdCls, thCls } from '@/components/platform/common';
 import { ViewHeader } from '@/components/common';
 
 /* 成员管理 = 平台成员目录:系统全部用户及其公司席位。
@@ -21,6 +22,7 @@ import { ViewHeader } from '@/components/common';
    快照),再删 users 行;不能删除当前登录账号。 */
 export function MembersPanel() {
   const t = useT();
+  const locale = useLocale();
   const { data: users, isLoading, isError } = usePlatformUsers();
   const { session } = useAppData();
   const del = useDeleteUser();
@@ -102,7 +104,7 @@ export function MembersPanel() {
                     )}
                   </td>
                   <td className={tdCls}>
-                    <span className="text-fg-3">{fmtDate(u.createdAt)}</span>
+                    <span className="text-fg-3">{formatDate(u.createdAt, locale)}</span>
                   </td>
                   <td className={tdCls}>
                     {u.userId !== session?.user.id && (

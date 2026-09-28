@@ -5,8 +5,8 @@ import { Save, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton, StateBlock } from '@/components/StateBlock';
 import { useCompanyMatrix, usePermissionsMatrix, useSaveCompanyMatrix, useSavePermissionsMatrix } from '@/store/platform';
-import { MODULE_LABELS, PERM_LEVEL_LABELS, ROLE_LABELS } from '@/lib/platformApi';
-import type { CompanyRole, PermLevel } from '@/lib/platformApi';
+import { COMPANY_ROLES, MODULE_LABELS, PERM_LEVELS } from '@/lib/platformApi';
+import type { PermLevel } from '@/lib/platformApi';
 import { tdCls, thCls } from '@/components/platform/common';
 import { ViewHeader } from '@/components/common';
 import { useT } from '@/lib/i18n';
@@ -84,7 +84,7 @@ export function MatrixPanel({ scope = 'global' }: { scope?: 'global' | 'company'
                   <th className={thCls} style={{ paddingLeft: 16 }}>{t('matrix.module')}</th>
                   {data.roles.map((r) => (
                     <th key={r} className={thCls} style={{ textAlign: 'center' }}>
-                      {r in ROLE_LABELS ? t(`role.${r}`) : r}
+                      {(COMPANY_ROLES as readonly string[]).includes(r) ? t(`role.${r}`) : r}
                     </th>
                   ))}
                 </tr>
@@ -105,7 +105,7 @@ export function MatrixPanel({ scope = 'global' }: { scope?: 'global' | 'company'
                             value={level}
                             onChange={(e) => setCell(r, mod, e.target.value as PermLevel)}
                           >
-                            {(Object.keys(PERM_LEVEL_LABELS) as PermLevel[]).map((lv) => (
+                            {PERM_LEVELS.map((lv) => (
                               <option key={lv} value={lv} style={{ color: 'var(--fg-1)' }}>
                                 {t(`platform.permLevel.${lv}`)}
                               </option>

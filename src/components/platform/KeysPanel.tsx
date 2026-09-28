@@ -8,14 +8,14 @@ import { TabBtn } from '@/components/ui/segmented';
 import { Skeleton, StateBlock } from '@/components/StateBlock';
 import { useMcpKeys, useRevokeMcpKey, useDeleteMcpKey, useUpdateMcpKey } from '@/store/platform';
 import { CreateKeyModal, KeyRevealDialog, useOwnerCandidates } from '@/components/platform/CreateKeyModal';
-import { PopoverConfirm, fmtDate, tdCls, thCls, fieldLabel, inputCls } from '@/components/platform/common';
+import { PopoverConfirm, tdCls, thCls, fieldLabel, inputCls } from '@/components/platform/common';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { ApiError } from '@/lib/api';
 import { ProjectCheckList } from '@/components/ProjectCheckList';
 import { useAppData } from '@/store/AppData';
-import { useT } from '@/lib/i18n';
-import { relativeTime } from '@/lib/time';
+import { useT, useLocale } from '@/lib/i18n';
+import { formatDate, relativeTime } from '@/lib/time';
 import type { McpKey } from '@/lib/platformApi';
 
 const CAP_TONE: Record<string, 'blue' | 'orange' | 'danger'> = {
@@ -64,6 +64,7 @@ function CodeBox({ text, children }: { text: string; children: React.ReactNode }
    与平台级 scope 仅平台管理员可见。 */
 export function KeysPanel() {
   const t = useT();
+  const locale = useLocale();
   const { data: keys, isLoading, isError } = useMcpKeys();
   const revoke = useRevokeMcpKey();
   const remove = useDeleteMcpKey();
@@ -188,7 +189,7 @@ export function KeysPanel() {
                       )}
                     </td>
                     <td className={`${tdCls} whitespace-nowrap`}>
-                      <span className="text-fg-2">{k.expiresAt ? fmtDate(k.expiresAt) : t('keys.forever')}</span>
+                      <span className="text-fg-2">{k.expiresAt ? formatDate(k.expiresAt, locale) : t('keys.forever')}</span>
                     </td>
                     <td className={`${tdCls} whitespace-nowrap`}>
                       <span className="text-fg-3">{k.lastUsedAt ? relativeTime(k.lastUsedAt, t) : '—'}</span>
