@@ -44,7 +44,7 @@ spms/
 ├── scripts/seed.ts             # 初始数据（admin/agent/演示数据）
 ├── src/
 │   ├── db/
-│   │   ├── schema.ts           # 29 张表 + 21 个枚举 + relations
+│   │   ├── schema.ts           # 全部表 + 枚举 + relations（计数权威文档：docs/DATA-MODEL.md）
 │   │   └── index.ts            # postgres-js 连接（DATABASE_URL）
 │   ├── lib/                    # 服务端基础库
 │   │   ├── env.ts              # 环境变量集中读取
@@ -63,6 +63,7 @@ spms/
 │   ├── server/services/        # 业务服务层（API 与 MCP 共用）
 │   │   ├── issues.ts  requirements.ts  projects.ts  sprints.ts
 │   │   ├── catalog.ts resources.ts assignments.ts testcases.ts
+│   │   ├── labels.ts  plans.ts  testruns.ts  sprintSnapshots.ts  # 自定义标签 / 开发计划 / 测试执行 / 燃尽快照
 │   │   ├── reports.ts            # 日报（每人每天一份,按产品拆 entries,产品/人员/负责人三维度汇总）
 │   │   ├── summary.ts            # 团队总结（周期吞吐/周期时长/验收积压/流动健康/按成员分列,读 issue_status_transitions）
 │   │   ├── attachments.ts        # issue 图片附件（本公司存储后端；storage.assertMeta 校验注册 url/objectKey；attachmentReadTarget 统一解析读取目标——objectKey/旧行公网 url，REST 代理与 MCP 图片内联共用）
@@ -71,7 +72,8 @@ spms/
 │   │   ├── storage.ts            # 公司文件存储配置（设置→文件存储；读/存/测/删，敏感字段加密落库）
 │   │   ├── oauth.ts              # 三方登录提供方配置 + OAuth callback 账号编排（绑定/邮箱匹配/建号/邀请认领）
 │   │   ├── workflow.ts           # 审查/关单工作流自动化（REST 与 MCP 共用）
-│   │   └── meta.ts             # bootstrap 聚合（REST 与 MCP 共用的单一查询实现；MCP 侧只裁剪字段 + 叠加令牌白名单）
+│   │   ├── meta.ts             # bootstrap 聚合（REST 与 MCP 共用的单一查询实现；MCP 侧只裁剪字段 + 叠加令牌白名单）
+│   │   └── shared.ts           # service 层共享小工具（LIST_LIMIT/withRelations/key 解析；Actor 类型在 types.ts）
 │   ├── server/http.ts            # 路由底座（route 包装 / requireActor / jsonBody / 平台管理员门）
 │   ├── server/validate.ts        # zod 校验层（REST 写端点入口 schema 按域集中；jsonBodyWith → VALIDATION_FAILED）
 │   ├── server/crypto.ts          # AES-256-GCM 配置密钥加解密（CONFIG_CRYPTO_KEY；OAuth secret / 存储凭据密文落库）
@@ -79,7 +81,7 @@ spms/
 │   │   ├── index.ts              # storageForCompany(companyId)：配置行 60s 缓存 + 解密构造后端
 │   │   ├── minio.ts              # MinIO/S3：presigned PUT 直传 / presigned GET / putObject / removeObject
 │   │   └── vercel.ts             # Vercel Blob：token 来自公司配置（密文），不再是平台 env
-│   ├── mcp/                    # server.ts（McpServer + 26 个 tools 注册的薄适配层）
+│   ├── mcp/                    # server.ts（McpServer + tools 注册的薄适配层；工具清单见 docs/MCP.md）
 │   ├── app/
 │   │   ├── (auth)/login/       # 登录页（密码 + 飞书/Lark/GitHub OAuth）
 │   │   ├── (app)/              # 主应用（Header + Sidebar 布局 + AuthGate）

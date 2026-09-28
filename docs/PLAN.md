@@ -47,13 +47,13 @@
 
 ### Phase C2/C3：其余视图 ✅ 已完成
 - Sprints（迭代选择器/燃尽图/速度图/四列看板）、Backlog（拖入迭代）、Roadmap（占位甘特）
-- Projects 列表 + ProjectHub 6 tab、Requirements、TestCases、Catalog（产品线三级）、Resources + ResourcePanel
+- Projects 列表 + ProjectHub 7 tab、Requirements、TestCases、Catalog（产品线三级）、Resources + ResourcePanel
 - Sprint 创建/编辑弹窗（后端能力本次补齐）
 
 ### Phase D：MCP 服务 ✅ 已完成
 - `/mcp` 路由（POST/GET/DELETE，Streamable HTTP）
 - DB key 鉴权（`mcp_api_keys` 表存 sha256，不存明文：公司级钉死沙箱、平台级跨公司；env `MCP_API_KEY` 仅作平台级兜底；浏览器 session 用户也放行）
-- 26 个 `spms_*` tools（读 11 + 写 15），内部复用 services
+- `spms_*` tools（读/写分组，内部复用 services；工具清单与数量以 [MCP.md](./MCP.md) / `src/mcp/server.ts` 注册为准）
 
 ### Phase E：验证 + 文档 ✅ 已完成
 - `npm run build` 绿；dev 冒烟（登录 → bootstrap → 建 issue → 拖拽 → MCP 调用）
@@ -92,7 +92,7 @@
 - **P2：Actor 与权限门** ✅ —— `requireActor()`（session cid → 公司 + 角色）；`src/lib/permissions.ts` 矩阵读取/60s 缓存/`requirePerm`；services 全量接入
 - **P3：认证扩展** ✅ —— session payload 加 `cid`；`/api/auth/switch-company`、`/api/auth/change-password`；session/bootstrap 返回 companies/currentCompany/companyRole/permissions
 - **P4：平台管理 API** ✅ —— `/api/v1/platform/**`：companies（GET/POST/PATCH + enter + members CRUD）、permissions-matrix（GET/PUT）、mcp-keys（GET/POST/DELETE）
-- **P5：MCP 改造** ✅ —— DB key 鉴权（sha256）+ env 平台级兜底；公司级 key 自动隔离；平台级 key 工具带 `companyId` 参数；新增 `spms_list_companies`（现共 26 个工具）；MCP actor = DB key 所属人（ownerId，companyRole 取真实 membership 角色），env 兜底 key 保留遗留行为（目标公司内置 scribe agent，company_admin）
+- **P5：MCP 改造** ✅ —— DB key 鉴权（sha256）+ env 平台级兜底；公司级 key 自动隔离；平台级 key 工具带 `companyId` 参数；新增 `spms_list_companies`（工具清单与数量以 [MCP.md](./MCP.md) 为准）；MCP actor = DB key 所属人（ownerId，companyRole 取真实 membership 角色），env 兜底 key 保留遗留行为（目标公司内置 scribe agent，company_admin）
 - **P6：前端 Header 与平台管理页** ✅ —— 52px 全局 Header（公司切换器/角色 Badge/⌘K 全局搜索/用户下拉）；SettingsModal（资料 + 改密码）；`/platform` 四子页（companies/members/matrix/keys，仅平台管理员）；侧边栏与按钮按 permissions 过滤
 - **P7：验证 + 文档** ✅ —— build 绿、多公司隔离与 RBAC 冒烟；docs 与 README 更新
 

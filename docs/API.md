@@ -2,11 +2,12 @@
 
 业务前缀 `/api/v1/pms`；平台管理前缀 `/api/v1/platform`（仅平台管理员）。认证：cookie session（`POST /api/auth/login` 获取）。
 响应信封：业务结果一律 HTTP 200 + `{ ok:true, data } | { ok:false, error:{ code, message } }`；详情不存在返回 `ok(null)`。
+健康检查：`GET /api/health` → `ok({ status:'ok' })`（无需登录，不在 `/api/v1` 前缀下，middleware 不拦截）。
 
 ## 权限门（RBAC）
 
 - 每个 service 入口按「路由 → 模块」映射做 `requirePerm(actor, module, read|write)`，不足 → **403 FORBIDDEN**（真实状态码）。
-- 模块映射：`/issues*`→issues · `/requirements*`→requirements · `/plans*`→requirements（复用，不新增模块）· `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases · `/reports*|/summary`→reports。
+- 模块映射：`/issues*`→issues · `/labels*`→issues（自定义标签复用 issues 模块）· `/requirements*`→requirements · `/plans*`→requirements（复用，不新增模块）· `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases · `/reports*|/summary`→reports。
 - `company_admin` 与平台管理员恒过；`viewer` 类只读角色调写接口同样 403。
 - **项目创建/删除**额外要求 `company_admin` 或平台管理员（矩阵 projects=write 不够）。
 - bootstrap 无模块门（登录即可），返回里的 `permissions` 供前端过滤 UI。
@@ -42,6 +43,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/bootstrap` | 启动参考数据：`{ me, role, companyRole, companies, currentCompany, permissions, members, teams, labels, projects, myProjectIds, sprints, productLines, products, releases }`；均为**当前公司**沙箱内数据；projects/releases 的 progress 为派生值；`myProjectIds` 为「我参与的」项目集（本人 direct 指派的项目及其指派迭代关联的项目，口径同指派可见性），供项目列表「全部/我参与的」筛选 |
+| POST | `/labels` | `{ name, color }`（color 为 `#RRGGBB`）现场自定义标签（issues=write）；同名 → CONFLICT；`key` 自动生成 `custom_<8hex>`。标签列表随 bootstrap 下发，无独立 GET |
 
 ## Issues（缺陷 = type='bug'）
 
@@ -64,6 +66,7 @@
 | GET | `/requirements/:key` | 不存在 → `ok(null)` |
 | POST | `/requirements` | projectId/title 必填；key 按 type 分配 FR-N / NFR-N；functional 强制 category=null；可带 assigneeId |
 | PATCH | `/requirements/:key` | 部分更新；type 改 functional 清 category；assigneeId 传 null 解除 |
+| POST | `/requirements/:key/decompose` | 拆解为工单：按验收标准逐行（为空回退 PRD 描述逐行，剥离列表符号、标题截 120 字）批量创建 TKT 并关联回该需求，继承项目/紧急度/重要度，一次最多 20 条；两者均空 → VALIDATION_FAILED。需求不存在 → REQUIREMENT_NOT_FOUND |
 | DELETE | `/requirements/:key` | 硬删（引用 set null） |
 
 ## Projects
@@ -177,6 +180,17 @@
 
 口径：新建 = 实体 `createdAt` 落入周期；交付 = `issue_status_transitions` to `testing`；验收完成 = 流转 to `done` ∪ `completedAt` 兜底（Notion 同步只回写 completedAt），按 issue 去重；验收打回 = 从 `testing` 回 todo/in_progress/backlog；重开 = 从 `done` 离开。成员过滤对流量指标按行为人（流转/创建活动/作者 whoId），对存量指标（在办/待验收/积压/状态分布）按当前负责人。返回卡片（本期+上期值）、吞吐分桶（每日=14 天；每周=周 7 天 + 12 周趋势）、周期时长三段（建单→首次可测试 / 首次可测试→首次验收 / 端到端，avg/P90/max+maxKey）、验收积压、当前流动健康、按成员分列（全部 active 成员）。
 
+## File Storage 文件存储（设置 → 文件存储）
+
+公司自助配置附件存储后端（MinIO / Vercel Blob），`company_storage_configs` 表每公司一行；**无配置 = 禁止上传**（零平台兜底，上传报 `STORAGE_NOT_CONFIGURED`）。权限门槛：平台管理员或本公司 `company_admin`（不走模块矩阵）。敏感字段（accessKey/secretKey/token）AES-256-GCM 密文落库，读取只回 `hasXxx` 标志。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/storage-config` | 本公司配置状态：`{ configured:false }` 或 `{ configured:true, backend, minio:{endpoint,port,useSsl,bucket,publicBaseUrl,hasAccessKey,hasSecretKey}\|null, hasToken }` |
+| PUT | `/storage-config` | `{ backend:'minio'\|'vercel_blob', minio?{endpoint,port?,useSsl?,accessKey?,secretKey?,bucket?,publicBaseUrl?}, token? }` 保存（新建或整行替换；敏感字段不传 = 保留旧值，首次保存必填；`publicBaseUrl` 传 `''`/null 清除） |
+| POST | `/storage-config` | `{ action:'test', backend?, minio?, token? }` 连通性测试（缺省字段回落已存配置；后端连接失败 → `STORAGE_TEST_FAILED`） |
+| DELETE | `/storage-config` | 删除本公司配置，回到「未配置 = 禁止上传」 |
+
 ## Integrations 集成（Notion，均需 issues=write）
 
 | 方法 | 路径 | 说明 |
@@ -206,11 +220,14 @@
 | DELETE | `/users/:userId` | 删除系统账号（不能删自己）：先 revoke 其在各家公司的 member 投影（移出指派、置 revoked，行保留姓名快照），再删 users 行（`members.user_id` FK set null 兜底；company_memberships/user_emails 随 cascade） |
 | GET | `/permissions-matrix` | 全量 4 角色 × 11 模块矩阵 |
 | PUT | `/permissions-matrix` | `{ matrix }` 整表替换（逐格校验后 upsert + 缓存失效） |
+| GET | `/oauth-providers` | 三方登录（飞书/Lark/GitHub）配置状态列表：`{ configSource, providers:[{ provider, configured, source(db/env/null), enabled, appId, redirectUri, derivedRedirectUri, hasSecret }] }`（secret 永不回显；生效来源受 env `OAUTH_CONFIG_SOURCE` 开关约束：auto=DB 优先 env 兜底 / db / env） |
+| PUT | `/oauth-providers` | `{ provider, appId, appSecret?, redirectUri?, enabled? }` 保存 DB 配置（appSecret 不传 = 保留旧值，AES-256-GCM 密文落库；redirectUri 只存路径部分，host 由 PUBLIC_ORIGIN/请求 origin 拼接） |
+| DELETE | `/oauth-providers?provider=` | 删除该 provider 的 DB 配置行（回退 env 兜底；未知 provider → VALIDATION_FAILED） |
 | GET | `/mcp-keys` | MCP key 列表（不返回 keyHash/明文；含 ownerId/ownerName）；管理员见全部，member 只见自己创建的 |
-| POST | `/mcp-keys` | `{ name, companyId?, ownerId?, capabilities?, expiresInDays? }` 签发 key（管理员：companyId 省略=平台级；member 自助：companyId 省略=当前公司，且必须是其所属公司，显式 null/他人公司 → 403；ownerId=所属人，省略=创建人，公司级 key 的所属人必须是该公司成员或平台管理员；capabilities ⊆ read/write/delete，默认 `['read','write']`；expiresInDays 省略=永不过期）；**明文仅本次返回** |
+| POST | `/mcp-keys` | `{ name, companyId?, ownerId?, capabilities?, expiresInDays?, projectIds? }` 签发 key（管理员：companyId 省略=平台级；member 自助：companyId 省略=当前公司，且必须是其所属公司，显式 null/他人公司 → 403；ownerId=所属人，省略=创建人，公司级 key 的所属人必须是该公司成员或平台管理员；capabilities ⊆ read/write，默认 `['read','write']`（delete 预留，不可新签发）；expiresInDays 省略=永不过期；projectIds=项目白名单，省略/null=不限项目，公司级 key 要求项目属该公司）；**明文仅本次返回** |
 | PATCH | `/mcp-keys/:id` | `{ ownerId }` 修改所属人（MCP 调用的第一人称身份）；member 只能改自己的 key，否则 403 |
 | DELETE | `/mcp-keys/:id` | 吊销（写 revokedAt，行保留审计）；带 `?permanent=1` 时硬删除该 key 行；member 只能操作自己的 key，否则 403 |
 
 ## 错误码（主要）
 
-`UNAUTHORIZED` `FORBIDDEN` `NO_COMPANY`（用户无公司归属）`VALIDATION_FAILED` `NOT_FOUND` `REQUIREMENT_NOT_FOUND` `LIFECYCLE_MISMATCH` `INVITE_FAILED` `RESOURCE_REVOKED`
+`UNAUTHORIZED` `FORBIDDEN` `NO_COMPANY`（用户无公司归属）`VALIDATION_FAILED` `NOT_FOUND` `REQUIREMENT_NOT_FOUND` `LIFECYCLE_MISMATCH` `INVITE_FAILED` `RESOURCE_REVOKED` `STORAGE_NOT_CONFIGURED`（公司未配置存储，禁止上传）`STORAGE_TEST_FAILED`（存储连通性测试失败）

@@ -12,16 +12,16 @@
 - **平台管理**：`/settings` 设置页 Tab——公司管理（含席位）、成员管理（平台成员目录）、权限矩阵·全局、Agent 接入（仅平台管理员可见，旧 `/platform` 路由重定向至此）
 - **Issue 统一工作项**：缺陷（bug）/ 工单（ticket）/ 备忘（backlog）三合一；列表/看板双视图、分组（状态/优先级/重要度/负责人）、看板拖拽、行内编辑、详情抽屉（子任务/评论/@提及/活动流/AI 工作区）
 - **需求池**：功能/非功能需求（FR-N / NFR-N），PRD 描述 + 验收标准，关联 Issue 完成度
-- **项目**：卡片网格（进度环、PLC 阶段步进条）+ 项目枢纽 6 tab（基本信息/研发资源/需求/用例/迭代/Issue）；创建/删除需 company_admin 或平台管理员
+- **项目**：卡片网格（进度环、PLC 阶段步进条）+ 项目枢纽 7 tab（基本信息/研发资源/需求/开发计划/测试用例/迭代/Issue）；创建/删除需 company_admin 或平台管理员
 - **敏捷**：Backlog 拖拽规划、迭代看板、燃尽图、速度图；迭代 CRUD
 - **产品目录**：产品线 → 产品 → 版本三级生命周期管理（级联删除确认）
 - **研发资源池**：内部成员 / 外部挂名资源 / 4 个内置 AI Agent；虚拟团队指派沿生命周期传播（direct/propagated）
 - **日报系统**：每人每天一份、按产品拆条目（按 项目→版本→产品 推导归属）；产品/人员/负责人三维度汇总 + 提交统计与未提交名单；MCP 可按项目上报
-- **图片附件**：issue 图片附件存 Vercel Blob（jpeg/png/gif/webp/avif，≤10MB）；MCP 可 base64 上传，`spms_get_issue` 把图片以 image 内容块内联返回给 Agent 识别
+- **图片附件**：issue 图片附件存**本公司自助配置的存储后端**（设置 → 文件存储，公司管理员自助维护 MinIO / Vercel Blob，凭据加密落库；无配置 = 禁止上传，零平台兜底），jpeg/png/gif/webp/avif ≤10MB；MCP 可 base64 上传，`spms_get_issue` 把图片以 image 内容块内联返回给 Agent 识别
 - **Notion 集成**：`/integrations` 页公共 OAuth 连接（每公司一条，token 仅服务端保存），同步数据库/目标项目/状态映射可配；手动增量同步（`lastSyncedAt` 水位）或全量重同步（`?full=1`），单向 Notion → Issues
 - **登录认证**：账号密码（用户名可填任一邮箱）+ 飞书 / Lark / GitHub OAuth 登录（对应 env 未配置时入口自动隐藏）；`/profile` 支持绑定/解绑第三方身份与改密
 - **全局**：52px 全局 Header（公司切换器 + 角色 Badge + 全局搜索 ⌘K + 用户下拉[个人资料/浅色模式/退出登录]）、侧边栏底部「设置 / 个人资料」入口、快速新建（`c`）、浅色主题（可在设置页切深色/跟随系统）、中文界面；`/profile` 个人资料页（资料/安全/已授权应用三 Tab）支持改名与改密码
-- **MCP**：26 个 `spms_*` tools（11 读 + 15 写），DB key 鉴权（公司级自动隔离 / 平台级跨公司），见 [docs/MCP.md](docs/MCP.md)
+- **MCP**：`spms_*` tools（读/写分组与完整清单见 [docs/MCP.md](docs/MCP.md)，数量以 `src/mcp/server.ts` 注册为准），DB key 鉴权（公司级自动隔离 / 平台级跨公司）
 
 ## 快速开始
 
@@ -49,13 +49,15 @@ npm run dev
 | `DATABASE_URL` | PostgreSQL 连接串（如 `postgres://postgres:postgres@localhost:5432/spms`） |
 | `SESSION_SECRET` | session cookie 签名密钥（随机长串） |
 | `MCP_API_KEY` | MCP 鉴权 key 的**平台级兜底**（逗号分隔多个，均视为平台级）；seed 时已迁移为 DB 平台级 key。**推荐使用 DB key**（见下） |
+| `CONFIG_CRYPTO_KEY` | 敏感 DB 配置的 AES-256-GCM 加密密钥（64 hex，`openssl rand -hex 32` 生成）：设置→三方登录 的 OAuth app secret 与 设置→文件存储 的存储凭据密文落库都靠它；变更后旧密文无法解密（按未配置处理，需重填覆盖） |
 | `PUBLIC_ORIGIN` | 部署的公网地址（不带尾斜杠，如 `https://spms.innev.cn`）。**反代部署时必填**：OAuth 回调地址（飞书/Lark/GitHub/Notion）与登录后落地跳转都基于它生成；不填则回退为请求来源地址（standalone 下是容器内监听地址，反代后会错） |
+| `OAUTH_CONFIG_SOURCE` | 三方登录配置来源开关：`auto`（默认，DB 配置优先、下方 env 兜底）/ `db`（只用数据库，忽略 FEISHU/LARK/GITHUB env）/ `env`（只用环境变量，设置页改动不生效） |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_REDIRECT_URI` | 可选，飞书扫码登录；未配置时登录页不显示飞书入口。`*_REDIRECT_URI` 只填路径部分（如 `/api/auth/feishu/callback`），host 由 `PUBLIC_ORIGIN` 拼接以适配不同部署环境 |
 | `LARK_APP_ID` / `LARK_APP_SECRET` / `LARK_REDIRECT_URI` | 可选，Lark（国际版）扫码登录；未配置时登录页不显示 Lark 入口。`*_REDIRECT_URI` 同样只填路径 |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `GITHUB_REDIRECT_URI` | 可选，GitHub OAuth 登录；未配置时登录页不显示 GitHub 入口。`*_REDIRECT_URI` 同样只填路径 |
 | `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` / `NOTION_REDIRECT_URI` | 可选，Notion 集成（公共 OAuth）；未配置时 `/integrations` 页连接按钮禁用。`*_REDIRECT_URI` 同样只填路径 |
 | `SEED_ADMIN_PASSWORD` | 可选，覆盖种子 admin 密码（默认 admin123） |
-| `BLOB_READ_WRITE_TOKEN` | issue 图片附件的 Vercel Blob token（Vercel 控制台 → Storage → Blob 获取） |
+| `BLOB_READ_WRITE_TOKEN` | **已废弃（运行时不读）**：附件存储改为公司自助配置（设置 → 文件存储）。仅供 `scripts/reconcile-attachments.ts` 对账平台级 Vercel Blob 时代的存量旧行 |
 
 ## Docker 部署
 
@@ -104,7 +106,7 @@ Next.js 16（App Router）· TypeScript · Tailwind v4 · React Query · Drizzle
 
 - [docs/PLAN.md](docs/PLAN.md) — 项目规划与实施阶段（一期 + 二期多公司沙箱/RBAC/Header）
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 架构设计（分层 / 认证与 RBAC / 多公司沙箱 / 指派传播 / 进度派生）
-- [docs/DATA-MODEL.md](docs/DATA-MODEL.md) — 数据模型（29 表 + 枚举 + 级联）
+- [docs/DATA-MODEL.md](docs/DATA-MODEL.md) — 数据模型（表/枚举/级联；表与枚举计数的权威文档）
 - [docs/API.md](docs/API.md) — REST API 清单（业务 + 平台管理）
 - [docs/MCP.md](docs/MCP.md) — MCP 服务与 tools
 

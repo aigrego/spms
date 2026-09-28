@@ -5,7 +5,9 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 
 二期「多公司沙箱」变更：新增 `companies`、`company_memberships`、`role_permissions`、`mcp_api_keys` 4 张表；
 **全部业务表加 `companyId` NN（→ companies cascade）**，原 `key` 类唯一约束改为 `(companyId, key)` 复合唯一；
-`counters` 主键改为 `(companyId, name)` —— 编号按公司独立。共 31 张表 + 22 个枚举。
+`counters` 主键改为 `(companyId, name)` —— 编号按公司独立。
+
+**当前共 36 张表 + 23 个枚举**（本文档是表/枚举计数的权威文档；数字以 `src/db/schema.ts` 的 `pgTable`/`pgEnum` 定义实测为准，其他文档一律引用此处、不硬写数字）。
 
 ## 枚举
 
@@ -56,7 +58,7 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 —— `company_admin` 与平台管理员恒全权限，不入此表；缺失行按 `none` 处理。
 
 ### mcp_api_keys（新增，MCP 接入密钥）
-`id` PK · `keyHash` unique NN（sha256 hex，不存明文）· `prefix` NN（前 8 位，仅展示）· `name` NN · `companyId` → companies cascade（**NULL = 平台级 key**，否则公司级）· `createdBy` → users set null · `ownerId` → users set null（**所属人**：MCP 调用的第一人称身份，默认=创建人，可改）· `capabilities` NN 默认 `'read,write'`（能力上限，逗号分隔 read/write/delete；delete 预留，当前无删除类工具）· `projectIds` text[]（项目白名单，NULL = 不限项目）· `expiresAt`（NULL = 永久，到期即 401，无需吊销）· `lastUsedAt`（最近一次通过 MCP 鉴权的时间，60s 节流写入）· `revokedAt`（吊销标记，行保留审计）· `createdAt` NN
+`id` PK · `keyHash` unique NN（sha256 hex，不存明文）· `prefix` NN（前 8 位，仅展示）· `name` NN · `companyId` → companies cascade（**NULL = 平台级 key**，否则公司级）· `createdBy` → users set null · `ownerId` → users set null（**所属人**：MCP 调用的第一人称身份，默认=创建人，可改）· `capabilities` NN 默认 `'read,write'`（能力上限，逗号分隔；可签发的只有 read/write，delete 为预留——存量带 delete 的令牌行为不变，MCP 能力门只查 read/write）· `projectIds` text[]（项目白名单，NULL = 不限项目）· `expiresAt`（NULL = 永久，到期即 401，无需吊销）· `lastUsedAt`（最近一次通过 MCP 鉴权的时间，60s 节流写入）· `revokedAt`（吊销标记，行保留审计）· `createdAt` NN
 
 ### counters（编号序列，二期改为按公司独立）
 复合 PK `(companyId, name)` · `companyId` NN → companies cascade · `name` NN · `value` int NN 默认 0 —— `INSERT ... ON CONFLICT DO UPDATE SET value = counters.value + 1 RETURNING value`；同一前缀（如 BUG）在不同公司各自从 1 起编。
