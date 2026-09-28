@@ -11,7 +11,7 @@ import type { McpCapability } from '@/lib/platformApi';
 import { ProjectCheckList } from '@/components/ProjectCheckList';
 import { useCompanies, useCompanyMembers, useCreateMcpKey, usePlatformUsers } from '@/store/platform';
 import { useAppData } from '@/store/AppData';
-import { fieldLabel, inputCls } from './common';
+import { fieldLabel, inputCls, selectCls } from './common';
 import { cn } from '@/lib/utils';
 
 /* 可勾选的能力。delete 预留（当前无删除类工具），已从面板隐藏、不再能新勾选；
@@ -113,7 +113,7 @@ export function CreateKeyModal({
     setCaps(['read', 'write']);
     setCompanyId('');
     setOwnerId('');
-    setProjectSel(projects.map((p) => p.id));
+    setProjectSel([]);
     setExpiresInDays(30);
     setError(null);
   }, [open, projects]);
@@ -199,7 +199,7 @@ export function CreateKeyModal({
           {platformAdmin && (
             <div>
               <span className={fieldLabel}>{t('keys.scope')}</span>
-              <select className={inputCls} value={companyId} onChange={(e) => changeCompany(e.target.value)}>
+              <select className={selectCls} value={companyId} onChange={(e) => changeCompany(e.target.value)}>
                 <option value="">{t('keys.scopeAll')}</option>
                 {companies.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -211,7 +211,7 @@ export function CreateKeyModal({
           )}
           <div>
             <span className={fieldLabel}>{t('keys.ownerLabel')}</span>
-            <select className={inputCls} value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+            <select className={selectCls} value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
               <option value="">{t('keys.ownerSelf')}</option>
               {ownerOptions.map((o) => (
                 <option key={o.id} value={o.id}>
@@ -223,7 +223,7 @@ export function CreateKeyModal({
           <div>
             <span className={fieldLabel}>{t('keys.expiry')}</span>
             <select
-              className={inputCls}
+              className={selectCls}
               value={expiresInDays === null ? 'never' : String(expiresInDays)}
               onChange={(e) => setExpiresInDays(e.target.value === 'never' ? null : Number(e.target.value))}
             >

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { CreateRequirementInput, UpdateRequirementInput } from '@/lib/api';
+import type { AttachmentMeta, CreateRequirementInput, UpdateRequirementInput } from '@/lib/api';
 import type { Requirement } from '@/lib/types';
 import { createEntityHooks } from './createEntityHooks';
 
@@ -63,5 +63,23 @@ export function useDecomposeRequirement() {
       // Decomposed issues are todo + sprint-less → they join the product backlog.
       qc.invalidateQueries({ queryKey: ['backlog'] });
     },
+  });
+}
+
+/* Requirement attachments (PRD 原型稿等)走需求详情失效,与 issue 附件同构。 */
+export function useRegisterAttachment() {
+  const invalidate = requirementHooks.useInvalidate();
+  return useMutation({
+    mutationFn: ({ id, meta }: { id: string; meta: AttachmentMeta }) => api.registerRequirementAttachment(id, meta),
+    onSuccess: (_d, vars) => invalidate(vars.id),
+  });
+}
+
+export function useDeleteAttachment() {
+  const invalidate = requirementHooks.useInvalidate();
+  return useMutation({
+    mutationFn: ({ attachmentId }: { id: string; attachmentId: string }) =>
+      api.deleteAttachment(attachmentId),
+    onSuccess: (_d, vars) => invalidate(vars.id),
   });
 }

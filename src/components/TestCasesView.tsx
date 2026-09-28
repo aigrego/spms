@@ -15,13 +15,15 @@ import { ProjectFilterMenu, useProjectFilter } from '@/components/ProjectFilterM
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
 import { DetailDrawer } from '@/components/DetailDrawer';
 import { ViewHeader, fieldLabel, inputCls } from '@/components/common';
+import { AttachmentSection } from '@/components/AttachmentSection';
 import { TEST_CASE_STATUS, TEST_CASE_STATUS_ORDER, TEST_RESULT, TEST_RESULT_ORDER, TEST_CATEGORY, TEST_CATEGORY_ORDER, PRIORITY_ORDER } from '@/lib/constants';
 import { useT, useLocale } from '@/lib/i18n';
 import { formatActivityTime } from '@/lib/time';
 import { usePersistentState } from '@/lib/prefs';
 import { useAppData } from '@/store/AppData';
 import { useAllRequirements } from '@/store/requirements';
-import { useTestCases, useTestCase, useCreateTestCase, useUpdateTestCase, useDeleteTestCase, useTestRuns, useRecordTestRun } from '@/store/testcases';
+import { useTestCases, useTestCase, useCreateTestCase, useUpdateTestCase, useDeleteTestCase, useTestRuns, useRecordTestRun, useRegisterAttachment, useDeleteAttachment } from '@/store/testcases';
+import { uploadAttachment } from '@/lib/upload';
 import { ApiError } from '@/lib/api';
 import type { RecordTestRunInput } from '@/lib/api';
 import type { TestCase, TestResult, TestCaseStatus, TestCaseCategory, IssuePriority, TestRun } from '@/lib/types';
@@ -31,6 +33,8 @@ const isCategoryFilter = (v: unknown): v is TestCaseCategory | '' =>
 const isResultFilter = (v: unknown): v is TestResult | '' =>
   v === '' || (TEST_RESULT_ORDER as readonly string[]).includes(v as string);
 
+/* 原生 select 的样式化 chevron(gitea/main 移植):基于共享 inputCls。 */
+const selectCls = `${inputCls} select-chevron`;
 const selCls =
   'w-full rounded-[7px] border border-transparent bg-transparent px-2 py-1 text-[13px] text-fg-1 hover:bg-surface-2 focus:border-brand-blue focus:bg-surface outline-none';
 
@@ -121,6 +125,10 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const { data: reqs = [] } = useAllRequirements();
   const update = useUpdateTestCase();
   const del = useDeleteTestCase();
+  const registerAttachment = useRegisterAttachment();
+  const deleteAttachment = useDeleteAttachment();
+  // 附件 lightbox 开闭(AttachmentSection 回调同步):开着时 Escape 只关 lightbox。
+  const [previewOpen, setPreviewOpen] = React.useState(false);
 
   const [steps, setSteps] = React.useState('');
   const [expected, setExpected] = React.useState('');
@@ -133,6 +141,17 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
     }
   }, [tc?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  React.useEffect(() => {
+    // Capture 阶段(照 IssueDetail):先于 lightbox Dialog 的 Escape 处理执行,
+    // 此时 previewOpen 仍为 true——lightbox 开着时 Escape 只关 lightbox 不关抽屉。
+    const k = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !previewOpen) onClose();
+    };
+    window.addEventListener('keydown', k, true);
+    return () => window.removeEventListener('keydown', k, true);
+  }, [onClose, previewOpen]);
+
+
   if (!tc) return null;
   const patch = (input: Parameters<typeof update.mutate>[0]['input']) => update.mutate({ id, input });
   const project = projectById(tc.projectId);
@@ -140,11 +159,16 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
     const orig = (tc[field] ?? '') as string;
     if (value.trim() !== orig.trim()) patch({ [field]: value.trim() || null } as never);
   };
+  // 附件上传链路:直传(category 恒 cases)→ 注册到本用例;key 各段服务端铸造。
+  // mutateAsync 逐调用独立结算(多文件并发不丢回调)。
+  const uploadOne = (file: File) =>
+    uploadAttachment(file, 'cases').then((meta) => registerAttachment.mutateAsync({ id, meta }).then(() => undefined));
 
   return (
     <DetailDrawer
       onClose={onClose}
       width={720}
+      closeOnEscape={false}
       header={
         <>
           <FlaskConical size={15} className="text-fg-3" />
@@ -193,6 +217,15 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
               placeholder={t('testcases.noExpected')}
               className="w-full resize-none rounded-[9px] border border-transparent bg-transparent text-sm leading-relaxed text-fg-1 outline-none placeholder:text-fg-3 hover:border-border focus:border-brand-blue focus:px-2.5 focus:py-2"
             />
+            <div className="mt-[22px]">
+              <AttachmentSection
+                items={tc.attachments}
+                onUpload={uploadOne}
+                onDelete={(attachmentId) => deleteAttachment.mutate({ id, attachmentId })}
+                busy={registerAttachment.isPending || deleteAttachment.isPending}
+                onPreviewOpenChange={setPreviewOpen}
+              />
+            </div>
           </div>
 
           <div className="w-[238px] flex-none overflow-y-auto border-l border-border bg-surface px-4 py-5">
@@ -205,7 +238,7 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
                 <TcStatusMenu value={tc.status} onPick={(status) => patch({ status })} />
               </PropRow>
               <PropRow label={t('testcases.category')}>
-                <select className={selCls} value={tc.category} onChange={(e) => patch({ category: e.target.value as TestCaseCategory })}>
+                <select className={`${selCls} select-chevron`} value={tc.category} onChange={(e) => patch({ category: e.target.value as TestCaseCategory })}>
                   {TEST_CATEGORY_ORDER.map((c) => (
                     <option key={c} value={c}>{t(`tcCategory.${c}`)}</option>
                   ))}
@@ -221,7 +254,7 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
             </div>
             <div className="my-4 h-px bg-border" />
             <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-fg-3">{t('testcases.requirement')}</div>
-            <select className={selCls} value={tc.requirementId ?? ''} onChange={(e) => patch({ requirementId: e.target.value || null })}>
+            <select className={`${selCls} select-chevron`} value={tc.requirementId ?? ''} onChange={(e) => patch({ requirementId: e.target.value || null })}>
               <option value="">{t('testcases.noRequirement')}</option>
               {reqs.map((r) => (
                 <option key={r.id} value={r.id}>{r.id} · {r.title}</option>
@@ -246,7 +279,7 @@ function TestCaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
               <span className="truncate text-[13px] text-fg-1">{project?.name ?? '—'}</span>
             </PropRow>
             <PropRow label={t('detail.assignee')}>
-              <select className={selCls} value={tc.assigneeId ?? ''} onChange={(e) => patch({ assigneeId: e.target.value || null })}>
+              <select className={`${selCls} select-chevron`} value={tc.assigneeId ?? ''} onChange={(e) => patch({ assigneeId: e.target.value || null })}>
                 <option value="">{t('common.unassigned')}</option>
                 {[...humans, ...agents].map((m) => (
                   <option key={m.id} value={m.id}>{m.name}</option>
@@ -402,7 +435,7 @@ function NewTestCaseModal({
           <div className="flex gap-3">
             <div className="flex-1">
               <span className={fieldLabel}>{t('detail.belong')}</span>
-              <select className={inputCls} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <select className={selectCls} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
@@ -410,7 +443,7 @@ function NewTestCaseModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('testcases.requirement')}</span>
-              <select className={inputCls} value={requirementId} onChange={(e) => setRequirementId(e.target.value)}>
+              <select className={selectCls} value={requirementId} onChange={(e) => setRequirementId(e.target.value)}>
                 <option value="">{t('testcases.noRequirement')}</option>
                 {reqs.map((r) => (
                   <option key={r.id} value={r.id}>{r.id} · {r.title}</option>
@@ -425,7 +458,7 @@ function NewTestCaseModal({
           <div className="flex gap-3">
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.priority')}</span>
-              <select className={inputCls} value={priority} onChange={(e) => setPriority(e.target.value as IssuePriority)}>
+              <select className={selectCls} value={priority} onChange={(e) => setPriority(e.target.value as IssuePriority)}>
                 {PRIORITY_ORDER.map((p) => (
                   <option key={p} value={p}>{t(`priority.${p}`)}</option>
                 ))}
@@ -433,7 +466,7 @@ function NewTestCaseModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('testcases.status')}</span>
-              <select className={inputCls} value={status} onChange={(e) => setStatus(e.target.value as TestCaseStatus)}>
+              <select className={selectCls} value={status} onChange={(e) => setStatus(e.target.value as TestCaseStatus)}>
                 {TEST_CASE_STATUS_ORDER.map((s) => (
                   <option key={s} value={s}>{t(`tcStatus.${s}`)}</option>
                 ))}
@@ -441,7 +474,7 @@ function NewTestCaseModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('testcases.result')}</span>
-              <select className={inputCls} value={result} onChange={(e) => setResult(e.target.value as TestResult)}>
+              <select className={selectCls} value={result} onChange={(e) => setResult(e.target.value as TestResult)}>
                 {TEST_RESULT_ORDER.map((r) => (
                   <option key={r} value={r}>{t(`tcResult.${r}`)}</option>
                 ))}
@@ -449,7 +482,7 @@ function NewTestCaseModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('testcases.category')}</span>
-              <select className={inputCls} value={category} onChange={(e) => setCategory(e.target.value as TestCaseCategory)}>
+              <select className={selectCls} value={category} onChange={(e) => setCategory(e.target.value as TestCaseCategory)}>
                 {TEST_CATEGORY_ORDER.map((c) => (
                   <option key={c} value={c}>{t(`tcCategory.${c}`)}</option>
                 ))}

@@ -1,34 +1,21 @@
-# Next.js standalone 多阶段构建：deps 装依赖 → build 编译 → runtime 只带 .next/standalone 产物。
-# BASE_IMAGE 可指向 Docker Hub 加速地址，如
-#   docker build --build-arg BASE_IMAGE=docker.m.daocloud.io/library/node:22-alpine .
-ARG BASE_IMAGE=node:22-alpine
-# npm 镜像（corepack + pnpm 用），网络可直连 registry.npmjs.org 时无需改。
-ARG NPM_REGISTRY=https://registry.npmjs.org
-FROM ${BASE_IMAGE} AS base
-# 每个阶段重新声明：FROM 之后全局 ARG 不在作用域内。
-ARG NPM_REGISTRY
-ENV COREPACK_NPM_REGISTRY=${NPM_REGISTRY} \
-    npm_config_registry=${NPM_REGISTRY}
-RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
-WORKDIR /app
+# Next.js（Node 单进程 SSR）—— runtime-node 单段模式：镜像只携带源码，
+# 容器启动时 pnpm install --frozen-lockfile → pnpm build → exec node $APP_ENTRY
+# （entrypoint 语义见镜像内 /usr/local/bin/runtime-entry.sh）。
+# 运行参数经 docker run -e 注入、不落镜像层（部署接线见 .gitea/workflows/docker-deploy.yaml）：
+#   APP_ENTRY=.next/standalone/server.js   PORT=5175   HOSTNAME=0.0.0.0
+#   可选：NPM_REGISTRY / NPM_TOKEN_FILE（私有 npm 源）
+# 注意：latest 每周一随上游滚动重建（上周能跑不代表下次能跑）；registry 现有
+# 唯一版本 tag v0.3.1 缺 runtime-entry.sh 不可用，待 runtime-base 出新版本 tag 后锁死。
+FROM livebook:8418/images/runtime-node:latest
 
-FROM base AS deps
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-
-FROM deps AS build
+# .dockerignore 已排除 node_modules / .next / data / .env（启动时重装重建）。
 COPY . .
-RUN pnpm build
 
-FROM ${BASE_IMAGE} AS runtime
-WORKDIR /app
-ENV NODE_ENV=production \
-    HOSTNAME=0.0.0.0 \
-    PORT=5175
-# standalone 不含 public / .next/static，需手动拷入（server.js 会自动伺服）。
-COPY --from=build --chown=node:node /app/.next/standalone ./
-COPY --from=build --chown=node:node /app/.next/static ./.next/static
-COPY --from=build --chown=node:node /app/public ./public
-USER node
+# MinIO Client（mc）：公司存储开通（admin user/policy）依赖 mc CLI，admin 操作
+# 无 JS SDK（见 src/server/storage/mc.ts）。官方已停发预编译二进制
+# （dl.min.io 410 Gone，仅源码分发），由 scripts/build-mc.sh 用一次性 golang
+# 容器从源码构建（产物 .ci-assets/mc，gitignored，CI 自动执行，MC_REF 钉版本）。
+# 缺该产物时镜像照常构建运行，仅「公司管理 → 开通存储」报"未安装 mc"。
+RUN if [ -f .ci-assets/mc ]; then install -m 0755 .ci-assets/mc /usr/local/bin/mc; fi
+
 EXPOSE 5175
-CMD ["node", "server.js"]

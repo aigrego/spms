@@ -32,6 +32,11 @@ export interface NodeRef {
   nodeId: string;
 }
 
+/* drizzle 事务句柄(db.transaction 回调参数)。须与调用方其他写入同生同灭的
+   调用点(如 createProject 的 lead 双写、删席位+revoke 投影)传入;读写都走该
+   句柄才能看到事务内未提交的节点行(如新建的项目)。缺省走全局 db,行为不变。 */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /* 一组多态节点引用 → resourceAssignments 的 or(...) 谓词(按 nodeType 分组成
    inArray,一条 SQL 覆盖全部节点,替代逐节点查询/删除的 N+1)。refs 为空时
    返回 undefined,调用方需自行兜底(inArray 不接受空数组)。 */
@@ -51,16 +56,18 @@ export async function parentsOf(
   companyId: string,
   nodeType: AssignmentNodeType,
   nodeId: string,
+  tx?: Tx,
 ): Promise<NodeRef[]> {
+  const dbh = tx ?? db;
   if (nodeType === 'sprint') {
-    const rows = await db
+    const rows = await dbh
       .select({ projectId: sprintProjects.projectId })
       .from(sprintProjects)
       .where(and(eq(sprintProjects.sprintId, nodeId), eq(sprintProjects.companyId, companyId)));
     return rows.map((r): NodeRef => ({ nodeType: 'project', nodeId: r.projectId }));
   }
   if (nodeType === 'project') {
-    const [p] = await db
+    const [p] = await dbh
       .select({ releaseId: projects.releaseId })
       .from(projects)
       .where(and(eq(projects.id, nodeId), eq(projects.companyId, companyId)))
@@ -68,7 +75,7 @@ export async function parentsOf(
     return p?.releaseId ? [{ nodeType: 'release', nodeId: p.releaseId }] : [];
   }
   if (nodeType === 'release') {
-    const [r] = await db
+    const [r] = await dbh
       .select({ productId: releases.productId })
       .from(releases)
       .where(and(eq(releases.id, nodeId), eq(releases.companyId, companyId)))
@@ -78,27 +85,17 @@ export async function parentsOf(
   return []; // product → pool root (implicit, no parent node)
 }
 
-/* The immediate lifecycle parent of a node (null at the product root).
-   For a multi-project sprint this returns the FIRST parent — use parentsOf
-   when all parents matter (propagation walks). */
-export async function parentOf(
-  companyId: string,
-  nodeType: AssignmentNodeType,
-  nodeId: string,
-): Promise<NodeRef | null> {
-  return (await parentsOf(companyId, nodeType, nodeId))[0] ?? null;
-}
-
 /* Ancestor set, nearest parents first, up to (and including) the product.
    BFS over parentsOf (a sprint may have several project parents), de-duped. */
 export async function ancestorsOf(
   companyId: string,
   nodeType: AssignmentNodeType,
   nodeId: string,
+  tx?: Tx,
 ): Promise<NodeRef[]> {
   const chain: NodeRef[] = [];
   const seen = new Set<string>();
-  let frontier = await parentsOf(companyId, nodeType, nodeId);
+  let frontier = await parentsOf(companyId, nodeType, nodeId, tx);
   while (frontier.length) {
     const next: NodeRef[] = [];
     for (const cur of frontier) {
@@ -106,7 +103,7 @@ export async function ancestorsOf(
       if (seen.has(key)) continue;
       seen.add(key);
       chain.push(cur);
-      next.push(...(await parentsOf(companyId, cur.nodeType, cur.nodeId)));
+      next.push(...(await parentsOf(companyId, cur.nodeType, cur.nodeId, tx)));
     }
     frontier = next;
   }
@@ -206,8 +203,10 @@ export async function assignMember(
   memberId: string,
   role: 'lead' | 'member' = 'member',
   addedById: string | null = null,
+  tx?: Tx,
 ): Promise<void> {
-  await db
+  const dbh = tx ?? db;
+  await dbh
     .insert(resourceAssignments)
     .values({ id: crypto.randomUUID(), companyId, nodeType, nodeId, memberId, role, source: 'direct', addedById })
     .onConflictDoUpdate({
@@ -215,11 +214,11 @@ export async function assignMember(
       set: { source: 'direct', role },
     });
 
-  const ancestors = await ancestorsOf(companyId, nodeType, nodeId);
+  const ancestors = await ancestorsOf(companyId, nodeType, nodeId, tx);
   // 祖先链 propagated 行合并为一条多行 INSERT(各祖先互不影响,onConflict 幂等,
   // 与逐条插入等价;原为逐祖先一次往返)。
   if (ancestors.length) {
-    await db
+    await dbh
       .insert(resourceAssignments)
       .values(
         ancestors.map((a) => ({
@@ -310,8 +309,8 @@ export async function unassignMember(
 
 /* Remove a member from EVERY node in the company (revoke / delete from pool).
    Since they vanish from all nodes at once, no ancestor GC pass is needed. */
-export async function unassignMemberEverywhere(companyId: string, memberId: string): Promise<void> {
-  await db
+export async function unassignMemberEverywhere(companyId: string, memberId: string, tx?: Tx): Promise<void> {
+  await (tx ?? db)
     .delete(resourceAssignments)
     .where(and(eq(resourceAssignments.companyId, companyId), eq(resourceAssignments.memberId, memberId)));
   invalidateVisibilityCache(companyId);

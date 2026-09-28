@@ -13,13 +13,6 @@ import { dict as plansDict } from './i18n/plans';
 
 export type Locale = 'zh-CN' | 'en' | 'zh-TW';
 
-export function normLocale(raw: string | null | undefined): Locale {
-  const l = (raw ?? 'zh-CN').toLowerCase();
-  if (l.startsWith('en')) return 'en';
-  if (l === 'zh-tw' || l === 'zh-hant' || l.includes('tw') || l.includes('hant')) return 'zh-TW';
-  return 'zh-CN';
-}
-
 type Dict = Record<string, string>;
 
 const zhCN: Dict = {
@@ -138,7 +131,20 @@ const zhCN: Dict = {
   'settingsPage.tab.matrix': '平台权限',
   'settingsPage.tab.companyMatrix': '权限矩阵',
   'settingsPage.tab.oauth': '三方登录',
-  'settingsPage.tab.storage': '文件存储',
+  'settingsPage.tab.platformStorage': '平台存储',
+  'settingsPage.tab.attachments': '附件',
+
+  // 设置 → 附件（公司附件总表）
+  'attachmentsPanel.empty': '暂无附件',
+  'attachmentsPanel.emptyDesc': '上传到工单、测试用例或需求的附件会集中显示在这里',
+  'attachmentsPanel.file': '文件',
+  'attachmentsPanel.owner': '所属',
+  'attachmentsPanel.size': '大小',
+  'attachmentsPanel.uploader': '上传者',
+  'attachmentsPanel.uploadedAt': '上传时间',
+  'attachmentsPanel.pageInfo': '第 {page} / {pages} 页 · 共 {total} 个',
+  'common.prev': '上一页',
+  'common.next': '下一页',
 
   // 三方登录（平台管理员）
   'oauth.desc': '配置第三方登录提供方（飞书 / Lark / GitHub）。数据库配置优先；无数据库配置时回退到环境变量。密钥使用 AES-256-GCM 加密存储，保存后不可回显。',
@@ -153,11 +159,11 @@ const zhCN: Dict = {
   'oauth.resetDb': '删除数据库配置',
   'oauth.resetDbBody': '删除后该提供方回退到环境变量配置（如已配置）。',
 
-  // 文件存储（公司管理员）
-  'storage.desc': '配置本公司的附件文件存储。资源按公司隔离：其他公司无法访问本公司上传的文件。未配置时全公司禁止上传附件。',
-  'storage.backend': '存储后端',
-  'storage.minio': 'MinIO（自托管）',
-  'storage.vercelBlob': 'Vercel Blob',
+  // 平台存储（平台管理员；公司存储由平台管理员在公司管理开通，公司侧只读）
+  'storage.platformDesc': '平台默认的附件文件存储（MinIO），凭据必须具备管理员权限（root 或 consoleAdmin 用户）。平台管理员需在公司管理页为每个公司手动开通按前缀隔离的独立账号（共享 bucket，MinIO 服务端强制隔离）；未开通的公司禁止上传附件。',
+  'storage.enabled': '已启用',
+  'storage.disabled': '已停用',
+  'storage.enableHint': '请先保存 MinIO 配置，再启用平台存储',
   'storage.endpoint': 'Endpoint',
   'storage.endpointHint': '主机名或 IP，不含协议与端口。如 livebook（内网，S3 API 端口 9000，关闭 HTTPS；9001 是控制台端口）或 s3.innev.cn（外网，端口 443，开启 HTTPS）。',
   'storage.port': '端口',
@@ -168,15 +174,29 @@ const zhCN: Dict = {
   'storage.bucketHint': '建议私有 bucket（读取由应用代理并做公司隔离）；浏览器直传需在该 bucket 上配置 CORS 允许本站来源的 PUT。',
   'storage.publicBaseUrl': '公网访问地址（可选）',
   'storage.publicBaseUrlHint': '浏览器可达的完整基址，如 https://s3.innev.cn。站点经域名/反代访问时必填：上传/读取的预签名 URL 按它签发（签名绑定 host）；留空则按上面的内网 Endpoint 签发，仅纯内网使用。',
-  'storage.token': 'Blob Token（vercel_blob_rw_…）',
   'storage.secretKeep': '已保存，留空则不修改',
   'storage.test': '测试连接',
   'storage.testOk': '连接成功',
   'storage.testFailed': '连接失败',
   'storage.clear': '删除配置',
-  'storage.clearBody': '删除后本公司将禁止上传附件（已上传的附件仍可读取）。',
+  'storage.clearBodyPlatform': '删除后，未配置本公司存储的公司将禁止上传附件（已上传的附件仍可读取，公司为自动开通生成的 MinIO 账号保留待手工回收）。',
   'storage.notConfigured': '未配置',
-  'storage.configuredAs': '当前生效',
+
+  // 本公司存储状态卡（设置 → 偏好，只读）
+  'storageCard.title': '文件存储',
+  'storageCard.status': '状态',
+  'storageCard.backend': '后端',
+  'storageCard.bucket': 'Bucket',
+  'storageCard.endpoint': '访问地址',
+  'storageCard.prefix': '隔离前缀',
+  'storageCard.account': '存储账号',
+  'storageCard.perms': '权限说明',
+  'storageCard.permsDesc': '仅可读写本公司前缀下的对象（含 ListBucket 限定前缀）',
+  'storageCard.notProvisioned': '未开通',
+  'storageCard.provision': '开通存储',
+  'storageCard.updatedAt': '开通时间',
+  'storageCard.hintNotConfigured': '本公司尚未开通附件存储，且平台存储未配置，请联系平台管理员。',
+  'storageCard.hintDisabled': '平台存储已停用，请联系平台管理员。',
   'settingsPage.general': '通用',
   'settingsPage.language': '语言',
   'settingsPage.timezone': '时区',
@@ -241,7 +261,6 @@ const zhCN: Dict = {
   'nav.section.scrum': '敏捷 Scrum',
   'nav.backlog': '产品待办',
   'nav.sprints': '迭代 Sprint',
-  'nav.section.teams': '团队',
   'nav.section.agents': 'AI Agents',
   'nav.issues': 'Issues',
 
@@ -249,7 +268,6 @@ const zhCN: Dict = {
   'view.inbox': '收件箱',
   'view.myIssues': '我的 Issues',
   'view.myIssuesSub': '指派给你或你创建的 Issue',
-  'view.teamSub': '{team} 团队',
   'view.issues': 'Issues',
 
   // issues view
@@ -584,7 +602,6 @@ const zhCN: Dict = {
 
   // project create / edit
   'projects.edit': '编辑项目',
-  'project.team': '团队',
   'project.status': '状态',
   'project.phase': '生命周期阶段',
   'project.target': '目标',
@@ -860,7 +877,20 @@ const en: Dict = {
   'settingsPage.tab.matrix': 'Platform permissions',
   'settingsPage.tab.companyMatrix': 'Permission matrix',
   'settingsPage.tab.oauth': 'Third-party login',
-  'settingsPage.tab.storage': 'File storage',
+  'settingsPage.tab.platformStorage': 'Platform storage',
+  'settingsPage.tab.attachments': 'Attachments',
+
+  // Settings → Attachments (company-wide attachment list)
+  'attachmentsPanel.empty': 'No attachments yet',
+  'attachmentsPanel.emptyDesc': 'Files uploaded to issues, test cases or requirements show up here',
+  'attachmentsPanel.file': 'File',
+  'attachmentsPanel.owner': 'Owner',
+  'attachmentsPanel.size': 'Size',
+  'attachmentsPanel.uploader': 'Uploaded by',
+  'attachmentsPanel.uploadedAt': 'Uploaded at',
+  'attachmentsPanel.pageInfo': 'Page {page} of {pages} · {total} files',
+  'common.prev': 'Prev',
+  'common.next': 'Next',
 
   // Third-party login (platform admin)
   'oauth.desc': 'Configure third-party login providers (Feishu / Lark / GitHub). The database config wins; env vars are the fallback when no DB row exists. Secrets are stored AES-256-GCM encrypted and are never shown again.',
@@ -875,11 +905,11 @@ const en: Dict = {
   'oauth.resetDb': 'Remove DB config',
   'oauth.resetDbBody': 'After removal this provider falls back to the env-var config (if any).',
 
-  // File storage (company admin)
-  'storage.desc': 'Configure where this company’s attachments are stored. Files are isolated per company — other companies cannot access them. Uploads are disabled until a backend is configured.',
-  'storage.backend': 'Storage backend',
-  'storage.minio': 'MinIO (self-hosted)',
-  'storage.vercelBlob': 'Vercel Blob',
+  // Platform storage (platform admin; company storage is provisioned by platform admins from Companies, read-only on the company side)
+  'storage.platformDesc': 'The platform-wide attachment storage (MinIO). The credentials must have admin privileges (root or a consoleAdmin user). Platform admins provision an isolated per-company account manually from the Companies page (shared bucket, prefix isolation enforced server-side by MinIO); companies without provisioned storage cannot upload attachments.',
+  'storage.enabled': 'Enabled',
+  'storage.disabled': 'Disabled',
+  'storage.enableHint': 'Save the MinIO configuration first, then enable platform storage',
   'storage.endpoint': 'Endpoint',
   'storage.endpointHint': 'Hostname or IP, without protocol or port. E.g. livebook (LAN, S3 API port 9000, HTTPS off — 9001 is the console port) or s3.innev.cn (WAN, port 443, HTTPS on).',
   'storage.port': 'Port',
@@ -890,15 +920,29 @@ const en: Dict = {
   'storage.bucketHint': 'A private bucket is recommended (reads are proxied by the app with company isolation). Browser direct-upload requires a CORS rule on the bucket allowing PUT from this site’s origin.',
   'storage.publicBaseUrl': 'Public base URL (optional)',
   'storage.publicBaseUrlHint': 'Browser-reachable base URL, e.g. https://s3.innev.cn. Required when the site is reached via a domain/reverse proxy: presigned upload/read URLs are minted against it (the signature binds the host). Leave empty to sign with the internal Endpoint above — LAN-only use.',
-  'storage.token': 'Blob Token (vercel_blob_rw_…)',
   'storage.secretKeep': 'Saved — leave empty to keep unchanged',
   'storage.test': 'Test connection',
   'storage.testOk': 'Connection OK',
   'storage.testFailed': 'Connection failed',
   'storage.clear': 'Remove config',
-  'storage.clearBody': 'After removal this company can no longer upload attachments (existing ones stay readable).',
+  'storage.clearBodyPlatform': 'After removal, companies without their own storage can no longer upload attachments (existing ones stay readable; auto-provisioned MinIO accounts are kept for manual cleanup).',
   'storage.notConfigured': 'Not configured',
-  'storage.configuredAs': 'Active backend',
+
+  // Company storage status card (Settings → Preferences, read-only)
+  'storageCard.title': 'File storage',
+  'storageCard.status': 'Status',
+  'storageCard.backend': 'Backend',
+  'storageCard.bucket': 'Bucket',
+  'storageCard.endpoint': 'Endpoint',
+  'storageCard.prefix': 'Isolation prefix',
+  'storageCard.account': 'Storage account',
+  'storageCard.perms': 'Permissions',
+  'storageCard.permsDesc': 'Read/write access is limited to objects under this company’s prefix (ListBucket is scoped to the prefix as well)',
+  'storageCard.notProvisioned': 'Not provisioned',
+  'storageCard.provision': 'Provision storage',
+  'storageCard.updatedAt': 'Provisioned at',
+  'storageCard.hintNotConfigured': 'Attachment storage is not provisioned for this company and platform storage is not configured — contact a platform admin.',
+  'storageCard.hintDisabled': 'Platform storage is disabled — contact a platform admin.',
   'settingsPage.general': 'General',
   'settingsPage.language': 'Language',
   'settingsPage.timezone': 'Time zone',
@@ -962,14 +1006,12 @@ const en: Dict = {
   'nav.section.scrum': 'Agile Scrum',
   'nav.backlog': 'Backlog',
   'nav.sprints': 'Sprints',
-  'nav.section.teams': 'Teams',
   'nav.section.agents': 'AI Agents',
   'nav.issues': 'Issues',
 
   'view.inbox': 'Inbox',
   'view.myIssues': 'My Issues',
   'view.myIssuesSub': 'Issues assigned to or created by you',
-  'view.teamSub': 'Team {team}',
   'view.issues': 'Issues',
 
   'issues.new': 'New Issue',
@@ -1283,7 +1325,6 @@ const en: Dict = {
   'common.save': 'Save',
 
   'projects.edit': 'Edit project',
-  'project.team': 'Team',
   'project.status': 'Status',
   'project.phase': 'Lifecycle phase',
   'project.target': 'Target',
@@ -1550,7 +1591,20 @@ const zhTW: Dict = {
   'settingsPage.tab.matrix': '平台權限',
   'settingsPage.tab.companyMatrix': '權限矩陣',
   'settingsPage.tab.oauth': '三方登入',
-  'settingsPage.tab.storage': '檔案儲存',
+  'settingsPage.tab.platformStorage': '平台儲存',
+  'settingsPage.tab.attachments': '附件',
+
+  // 設定 → 附件（公司附件總表）
+  'attachmentsPanel.empty': '暫無附件',
+  'attachmentsPanel.emptyDesc': '上傳到工單、測試用例或需求的附件會集中顯示在這裡',
+  'attachmentsPanel.file': '檔案',
+  'attachmentsPanel.owner': '所屬',
+  'attachmentsPanel.size': '大小',
+  'attachmentsPanel.uploader': '上傳者',
+  'attachmentsPanel.uploadedAt': '上傳時間',
+  'attachmentsPanel.pageInfo': '第 {page} / {pages} 頁 · 共 {total} 個',
+  'common.prev': '上一頁',
+  'common.next': '下一頁',
 
   // 三方登入（平台管理員）
   'oauth.desc': '設定第三方登入提供方（飛書 / Lark / GitHub）。資料庫設定優先；無資料庫設定時回退到環境變數。金鑰使用 AES-256-GCM 加密儲存，儲存後不可回顯。',
@@ -1565,11 +1619,11 @@ const zhTW: Dict = {
   'oauth.resetDb': '刪除資料庫設定',
   'oauth.resetDbBody': '刪除後該提供方回退到環境變數設定（如已設定）。',
 
-  // 檔案儲存（公司管理員）
-  'storage.desc': '設定本公司的附件檔案儲存。資源按公司隔離：其他公司無法存取本公司上傳的檔案。未設定時全公司禁止上傳附件。',
-  'storage.backend': '儲存後端',
-  'storage.minio': 'MinIO（自託管）',
-  'storage.vercelBlob': 'Vercel Blob',
+  // 平台儲存（平台管理員；公司儲存由平台管理員在公司管理開通，公司側唯讀）
+  'storage.platformDesc': '平台預設的附件檔案儲存（MinIO），憑據必須具備管理員權限（root 或 consoleAdmin 使用者）。平台管理員需在公司管理頁為每個公司手動開通按前綴隔離的獨立帳號（共享 bucket，由 MinIO 伺服器端強制隔離）；未開通的公司禁止上傳附件。',
+  'storage.enabled': '已啟用',
+  'storage.disabled': '已停用',
+  'storage.enableHint': '請先儲存 MinIO 設定，再啟用平台儲存',
   'storage.endpoint': 'Endpoint',
   'storage.endpointHint': '主機名或 IP，不含協定與連接埠。如 livebook（內網，S3 API 連接埠 9000，關閉 HTTPS；9001 是控制台連接埠）或 s3.innev.cn（外網，連接埠 443，開啟 HTTPS）。',
   'storage.port': '連接埠',
@@ -1580,15 +1634,29 @@ const zhTW: Dict = {
   'storage.bucketHint': '建議私有 bucket（讀取由應用代理並做公司隔離）；瀏覽器直傳需在該 bucket 上設定 CORS 允許本站來源的 PUT。',
   'storage.publicBaseUrl': '公網訪問地址（可選）',
   'storage.publicBaseUrlHint': '瀏覽器可達的完整基址，如 https://s3.innev.cn。站點經域名/反代訪問時必填：上傳/讀取的預簽名 URL 按它簽發（簽名綁定 host）；留空則按上面的內網 Endpoint 簽發，僅純內網使用。',
-  'storage.token': 'Blob Token（vercel_blob_rw_…）',
   'storage.secretKeep': '已儲存，留空則不修改',
   'storage.test': '測試連線',
   'storage.testOk': '連線成功',
   'storage.testFailed': '連線失敗',
   'storage.clear': '刪除設定',
-  'storage.clearBody': '刪除後本公司將禁止上傳附件（已上傳的附件仍可讀取）。',
+  'storage.clearBodyPlatform': '刪除後，未設定本公司儲存的公司將禁止上傳附件（已上傳的附件仍可讀取，為公司自動開通產生的 MinIO 帳號保留待手工回收）。',
   'storage.notConfigured': '未設定',
-  'storage.configuredAs': '目前生效',
+
+  // 本公司儲存狀態卡（設定 → 偏好，唯讀）
+  'storageCard.title': '檔案儲存',
+  'storageCard.status': '狀態',
+  'storageCard.backend': '後端',
+  'storageCard.bucket': 'Bucket',
+  'storageCard.endpoint': '訪問地址',
+  'storageCard.prefix': '隔離前綴',
+  'storageCard.account': '儲存帳號',
+  'storageCard.perms': '權限說明',
+  'storageCard.permsDesc': '僅可讀寫本公司前綴下的物件（含 ListBucket 限定前綴）',
+  'storageCard.notProvisioned': '未開通',
+  'storageCard.provision': '開通儲存',
+  'storageCard.updatedAt': '開通時間',
+  'storageCard.hintNotConfigured': '本公司尚未開通附件儲存，且平台儲存未設定，請聯絡平台管理員。',
+  'storageCard.hintDisabled': '平台儲存已停用，請聯絡平台管理員。',
   'settingsPage.general': '通用',
   'settingsPage.language': '語言',
   'settingsPage.timezone': '時區',
@@ -1652,14 +1720,12 @@ const zhTW: Dict = {
   'nav.section.scrum': '敏捷 Scrum',
   'nav.backlog': '產品待辦',
   'nav.sprints': '迭代 Sprint',
-  'nav.section.teams': '團隊',
   'nav.section.agents': 'AI Agents',
   'nav.issues': 'Issues',
 
   'view.inbox': '收件匣',
   'view.myIssues': '我的 Issues',
   'view.myIssuesSub': '指派給你或你建立的 Issue',
-  'view.teamSub': '{team} 團隊',
   'view.issues': 'Issues',
 
   'issues.new': '新增 Issue',
@@ -1973,7 +2039,6 @@ const zhTW: Dict = {
   'common.save': '儲存',
 
   'projects.edit': '編輯專案',
-  'project.team': '團隊',
   'project.status': '狀態',
   'project.phase': '生命週期階段',
   'project.target': '目標',

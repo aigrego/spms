@@ -2,7 +2,6 @@ import {
   pgTable,
   text,
   integer,
-  real,
   boolean,
   timestamp,
   date,
@@ -11,6 +10,7 @@ import {
   uniqueIndex,
   index,
   jsonb,
+  check,
 } from 'drizzle-orm/pg-core';
 import type { NotionStatusRule } from '@/lib/notionStatusMap';
 import { relations, sql } from 'drizzle-orm';
@@ -314,21 +314,6 @@ export const members = pgTable(
   ],
 );
 
-/* Teams — `key` is the issue-number prefix ("AGT"), unique per company. */
-export const teams = pgTable(
-  'teams',
-  {
-    id: text('id').primaryKey(),
-    companyId: text('company_id')
-      .references(() => companies.id, { onDelete: 'cascade' })
-      .notNull(),
-    key: text('key').notNull(),
-    name: text('name').notNull(),
-    color: text('color').notNull(),
-  },
-  (t) => [uniqueIndex('teams_key_uidx').on(t.companyId, t.key)],
-);
-
 /* Labels — `key` is a stable handle ("ai" finds the AI-生成 label),
    unique per company. */
 export const labels = pgTable(
@@ -348,13 +333,12 @@ export const labels = pgTable(
 /* Sprints (Scrum) — real dates + committed points.
    A sprint spans ONE OR MORE projects (sprint_projects join): a product split
    into module-projects runs one iteration cycle across them. release/product
-   lineage derives through the projects. teamId kept for compat. */
+   lineage derives through the projects. */
 export const sprints = pgTable('sprints', {
   id: text('id').primaryKey(),
   companyId: text('company_id')
     .references(() => companies.id, { onDelete: 'cascade' })
     .notNull(),
-  teamId: text('team_id').references(() => teams.id),
   name: text('name').notNull(),
   goal: text('goal'),
   status: sprintStatusEnum('status').notNull().default('planned'),
@@ -465,7 +449,6 @@ export const releases = pgTable(
     // the product lifecycle phase lives on the version.
     phase: lifecyclePhaseEnum('phase').notNull().default('concept'),
     targetDate: timestamp('target_date', { withTimezone: true }),
-    progress: real('progress').notNull().default(0),
     position: integer('position').notNull().default(0),
   },
   (t) => [
@@ -481,7 +464,6 @@ export const projects = pgTable('projects', {
     .references(() => companies.id, { onDelete: 'cascade' })
     .notNull(),
   name: text('name').notNull(),
-  teamId: text('team_id').references(() => teams.id),
   // the release this project delivers (nullable). Deleting the release
   // cascade-deletes its projects (cascade-down rule).
   releaseId: text('release_id').references((): any => releases.id, { onDelete: 'cascade' }),
@@ -491,7 +473,6 @@ export const projects = pgTable('projects', {
   icon: text('icon').notNull().default('box'),
   color: text('color').notNull().default('#0063D3'),
   target: text('target'),
-  progress: real('progress').notNull().default(0),
   description: text('description'),
   // 基本信息 / PRD basics surfaced on the project hub's 基本信息 tab.
   summary: text('summary'), // Executive Summary (概述)
@@ -550,9 +531,6 @@ export const issues = pgTable(
       .references(() => companies.id, { onDelete: 'cascade' })
       .notNull(),
     key: text('key').notNull(),
-    // Team concept retired from the UI: an Issue is now project-driven. teamId is
-    // kept (nullable) only for legacy sprint/team filtering, derived from the project.
-    teamId: text('team_id').references(() => teams.id),
     title: text('title').notNull(),
     description: text('description'),
     type: issueTypeEnum('type').notNull().default('ticket'),
@@ -592,7 +570,6 @@ export const issues = pgTable(
   },
   (t) => [
     uniqueIndex('issues_key_uidx').on(t.companyId, t.key),
-    index('issues_team_idx').on(t.teamId),
     index('issues_sprint_idx').on(t.sprintId),
     index('issues_project_idx').on(t.projectId),
     index('issues_assignee_idx').on(t.assigneeId),
@@ -636,23 +613,27 @@ export const subIssues = pgTable(
   (t) => [index('sub_issues_issue_idx').on(t.issueId)],
 );
 
-/* Image attachments on an issue. The storage backend is configured per
-   company (company_storage_configs): browser client-direct upload, then
-   registerAttachment persists the row. Objects are private — reads go
-   through the /attachments/object proxy (company-isolated). */
-export const issueAttachments = pgTable(
-  'issue_attachments',
+/* Attachments on issues / test cases / requirements — exactly one owner FK is
+   set per row (attachments_one_owner_chk below). The storage backend is
+   configured per company (company_storage_configs): browser client-direct
+   upload, then registerAttachment persists the row. Objects are private —
+   reads go through the /attachments/object proxy (company-isolated). */
+export const attachments = pgTable(
+  'attachments',
   {
     id: text('id').primaryKey(),
     companyId: text('company_id')
       .references(() => companies.id, { onDelete: 'cascade' })
       .notNull(),
-    issueId: text('issue_id')
-      .references(() => issues.id, { onDelete: 'cascade' })
-      .notNull(),
+    // Exactly one of the three owner FKs (CHECK below). issueId dropped its
+    // NOT NULL when the table was generalized (renamed from issue_attachments).
+    issueId: text('issue_id').references(() => issues.id, { onDelete: 'cascade' }),
+    testCaseId: text('test_case_id').references(() => testCases.id, { onDelete: 'cascade' }),
+    requirementId: text('requirement_id').references(() => requirements.id, { onDelete: 'cascade' }),
     url: text('url').notNull(),
-    pathname: text('pathname').notNull(),
-    // Object key inside the company's storage backend (issues/{companyId}/…).
+    // Object key inside the company's storage backend
+    // ({companyId}/{category}/{userSegment}/{fileType}/{uuid}-{safeName};
+    // pre-rekey objects keep the legacy issues/{companyId}/… shape).
     // Null on legacy rows uploaded to the platform-level Vercel Blob store —
     // the read-proxy falls back to their public `url` for those.
     objectKey: text('object_key'),
@@ -662,7 +643,12 @@ export const issueAttachments = pgTable(
     uploadedById: text('uploaded_by_id').references(() => members.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('issue_attachments_issue_idx').on(t.issueId)],
+  (t) => [
+    index('attachments_issue_idx').on(t.issueId),
+    index('attachments_test_case_idx').on(t.testCaseId),
+    index('attachments_requirement_idx').on(t.requirementId),
+    check('attachments_one_owner_chk', sql`num_nonnulls(${t.issueId}, ${t.testCaseId}, ${t.requirementId}) = 1`),
+  ],
 );
 
 /* Activity / comments feed on an issue */
@@ -963,16 +949,44 @@ export const oauthProviderConfigs = pgTable('oauth_provider_configs', {
 });
 
 /* ------------------------------------------------------------------ */
-/* Per-company file storage config (设置 → 文件存储, company admin).     */
-/* One row per company; NO row = uploads are forbidden for that         */
-/* company (no platform-level fallback). Credentials are AES-256-GCM    */
-/* ciphertext — never serialize them out.                               */
+/* Platform default file storage config (设置 → 平台存储, platform      */
+/* admin). Single row (id = 'default'). MinIO is the only backend; the */
+/* credentials here MUST have admin privileges (root or a              */
+/* consoleAdmin-ish user) because per-company IAM users are            */
+/* provisioned from them. Company accounts are provisioned manually by */
+/* a platform admin from 公司管理 (开通存储) — never lazily on first    */
+/* upload. enabled = false disables storage reads AND writes           */
+/* platform-wide (STORAGE_DISABLED). AES-256-GCM ciphertext — never    */
+/* serialize them out.                                                 */
+/* ------------------------------------------------------------------ */
+export const platformStorageConfigs = pgTable('platform_storage_configs', {
+  id: text('id').primaryKey(), // constant 'default'
+  backend: text('backend').notNull(), // 'minio'
+  endpoint: text('endpoint'),
+  port: integer('port'),
+  useSsl: boolean('use_ssl').notNull().default(true),
+  accessKeyEnc: text('access_key_enc'),
+  secretKeyEnc: text('secret_key_enc'),
+  bucket: text('bucket'),
+  publicBaseUrl: text('public_base_url'),
+  enabled: boolean('enabled').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/* ------------------------------------------------------------------ */
+/* Per-company file storage config. One row per company. There is no   */
+/* company-level self-service configuration anymore: rows are          */
+/* materialized by the platform admin's 开通存储 action (公司管理页);   */
+/* legacy manually-configured rows (provisioned IS NULL) keep working  */
+/* at runtime until overwritten by a provisioning run. Credentials are */
+/* AES-256-GCM ciphertext — never serialize them out.                  */
 /* ------------------------------------------------------------------ */
 export const companyStorageConfigs = pgTable('company_storage_configs', {
   companyId: text('company_id')
     .primaryKey()
     .references(() => companies.id, { onDelete: 'cascade' }),
-  backend: text('backend').notNull(), // 'minio' | 'vercel_blob'
+  backend: text('backend').notNull(), // 'minio'（vercel_blob 已随 TKT-213 移除）
   // MinIO (S3-compatible) fields — required when backend = 'minio'.
   endpoint: text('endpoint'),
   port: integer('port'),
@@ -984,8 +998,9 @@ export const companyStorageConfigs = pgTable('company_storage_configs', {
      无路径无尾斜杠）。预签名 URL 用它签发（签名覆盖 host 头，浏览器必须按
      公网 host 请求）；null = 用上面的 endpoint 直签（纯内网部署）。 */
   publicBaseUrl: text('public_base_url'),
-  // Vercel Blob token (vercel_blob_rw_…) when backend = 'vercel_blob'.
-  tokenEnc: text('token_enc'),
+  /* 'auto' = 由平台默认存储自动开通（MinIO 按前缀隔离的独立 IAM 用户，
+     凭据由 provisioning 生成）；NULL = 管理员手动配置。 */
+  provisioned: text('provisioned'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1048,7 +1063,6 @@ export const dailyReportEntries = pgTable(
 /* Relations                                                           */
 /* ------------------------------------------------------------------ */
 export const issuesRelations = relations(issues, ({ one, many }) => ({
-  team: one(teams, { fields: [issues.teamId], references: [teams.id] }),
   assignee: one(members, { fields: [issues.assigneeId], references: [members.id] }),
   project: one(projects, { fields: [issues.projectId], references: [projects.id] }),
   requirement: one(requirements, { fields: [issues.requirementId], references: [requirements.id] }),
@@ -1056,7 +1070,7 @@ export const issuesRelations = relations(issues, ({ one, many }) => ({
   issueLabels: many(issueLabels),
   subIssues: many(subIssues),
   activities: many(activities),
-  attachments: many(issueAttachments),
+  attachments: many(attachments),
 }));
 
 export const productLinesRelations = relations(productLines, ({ many }) => ({
@@ -1085,6 +1099,7 @@ export const requirementsRelations = relations(requirements, ({ one, many }) => 
   author: one(members, { fields: [requirements.authorId], references: [members.id] }),
   aiOwner: one(members, { fields: [requirements.aiOwnerId], references: [members.id] }),
   issues: many(issues),
+  attachments: many(attachments),
 }));
 
 export const issueLabelsRelations = relations(issueLabels, ({ one }) => ({
@@ -1096,9 +1111,11 @@ export const subIssuesRelations = relations(subIssues, ({ one }) => ({
   issue: one(issues, { fields: [subIssues.issueId], references: [issues.id] }),
 }));
 
-export const issueAttachmentsRelations = relations(issueAttachments, ({ one }) => ({
-  issue: one(issues, { fields: [issueAttachments.issueId], references: [issues.id] }),
-  uploadedBy: one(members, { fields: [issueAttachments.uploadedById], references: [members.id] }),
+export const attachmentsRelations = relations(attachments, ({ one }) => ({
+  issue: one(issues, { fields: [attachments.issueId], references: [issues.id] }),
+  testCase: one(testCases, { fields: [attachments.testCaseId], references: [testCases.id] }),
+  requirement: one(requirements, { fields: [attachments.requirementId], references: [requirements.id] }),
+  uploadedBy: one(members, { fields: [attachments.uploadedById], references: [members.id] }),
 }));
 
 export const activitiesRelations = relations(activities, ({ one }) => ({
@@ -1107,7 +1124,6 @@ export const activitiesRelations = relations(activities, ({ one }) => ({
 }));
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
-  team: one(teams, { fields: [projects.teamId], references: [teams.id] }),
   release: one(releases, { fields: [projects.releaseId], references: [releases.id] }),
   lead: one(members, { fields: [projects.leadId], references: [members.id] }),
   aiLead: one(members, { fields: [projects.aiLeadId], references: [members.id] }),
@@ -1116,8 +1132,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   sprintProjects: many(sprintProjects),
 }));
 
-export const sprintsRelations = relations(sprints, ({ one, many }) => ({
-  team: one(teams, { fields: [sprints.teamId], references: [teams.id] }),
+export const sprintsRelations = relations(sprints, ({ many }) => ({
   issues: many(issues),
   snapshots: many(sprintSnapshots),
   sprintProjects: many(sprintProjects),
@@ -1136,10 +1151,11 @@ export const resourceAssignmentsRelations = relations(resourceAssignments, ({ on
   member: one(members, { fields: [resourceAssignments.memberId], references: [members.id] }),
 }));
 
-export const testCasesRelations = relations(testCases, ({ one }) => ({
+export const testCasesRelations = relations(testCases, ({ one, many }) => ({
   project: one(projects, { fields: [testCases.projectId], references: [projects.id] }),
   requirement: one(requirements, { fields: [testCases.requirementId], references: [requirements.id] }),
   issue: one(issues, { fields: [testCases.issueId], references: [issues.id] }),
+  attachments: many(attachments),
 }));
 
 export const testRunsRelations = relations(testRuns, ({ one, many }) => ({

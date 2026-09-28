@@ -13,6 +13,7 @@ import { ProjectFilterMenu, useProjectFilter } from '@/components/ProjectFilterM
 import { InlineCreateRow, EditableTitle } from '@/components/inline';
 import { DetailDrawer } from '@/components/DetailDrawer';
 import { ViewHeader, fieldLabel, inputCls } from '@/components/common';
+import { AttachmentSection } from '@/components/AttachmentSection';
 import { StatusIcon } from '@/components/glyphs/StatusIcon';
 import { PriorityIcon } from '@/components/glyphs/PriorityIcon';
 import { ImportanceIcon } from '@/components/glyphs/ImportanceIcon';
@@ -40,7 +41,10 @@ import {
   useUpdateRequirement,
   useDeleteRequirement,
   useDecomposeRequirement,
+  useRegisterAttachment,
+  useDeleteAttachment,
 } from '@/store/requirements';
+import { uploadAttachment } from '@/lib/upload';
 import { ApiError } from '@/lib/api';
 import { usePersistentState } from '@/lib/prefs';
 import { decompositionItemsFor } from '@/lib/decompose';
@@ -61,6 +65,9 @@ type StatusFilter = RequirementStatus | '';
 const isTypeTab = (v: unknown): v is RequirementType => TYPE_ORDER.includes(v as RequirementType);
 const isStatusFilter = (v: unknown): v is StatusFilter =>
   v === '' || (REQUIREMENT_STATUS_ORDER as RequirementStatus[]).includes(v as RequirementStatus);
+
+/* 原生 select 的样式化 chevron(gitea/main 移植):基于共享 inputCls。 */
+const selectCls = `${inputCls} select-chevron`;
 
 function TypeTag({ type }: { type: RequirementType }) {
   const t = useT();
@@ -201,7 +208,7 @@ function NewRequirementModal({
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.project')}</span>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={projectId}
                 onChange={(e) => {
                   setProjectId(e.target.value);
@@ -219,7 +226,7 @@ function NewRequirementModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.release')}</span>
-              <select className={inputCls} value={releaseId} onChange={(e) => setReleaseId(e.target.value)}>
+              <select className={selectCls} value={releaseId} onChange={(e) => setReleaseId(e.target.value)}>
                 <option value="">{t('requirements.noRelease')}</option>
                 {releaseOptions.map((r) => (
                   <option key={r.id} value={r.id}>
@@ -230,7 +237,7 @@ function NewRequirementModal({
             </div>
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.type')}</span>
-              <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as RequirementType)}>
+              <select className={selectCls} value={type} onChange={(e) => setType(e.target.value as RequirementType)}>
                 {TYPE_ORDER.map((ty) => (
                   <option key={ty} value={ty}>
                     {t(`reqType.${ty}`)}
@@ -244,7 +251,7 @@ function NewRequirementModal({
               <div className="flex-1">
                 <span className={fieldLabel}>{t('requirements.category')}</span>
                 <select
-                  className={inputCls}
+                  className={selectCls}
                   value={category}
                   onChange={(e) => setCategory(e.target.value as RequirementCategory)}
                 >
@@ -259,7 +266,7 @@ function NewRequirementModal({
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.status')}</span>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={status}
                 onChange={(e) => setStatus(e.target.value as RequirementStatus)}
               >
@@ -275,7 +282,7 @@ function NewRequirementModal({
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.priority')}</span>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as IssuePriority)}
               >
@@ -289,7 +296,7 @@ function NewRequirementModal({
             <div className="flex-1">
               <span className={fieldLabel}>{t('requirements.importance')}</span>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={importance}
                 onChange={(e) => setImportance(e.target.value as Importance)}
               >
@@ -366,7 +373,7 @@ function PropRow({ label, children }: { label: string; children: React.ReactNode
 const propBtn =
   'inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-[7px] px-2 py-1 text-[13px] text-fg-1 hover:bg-surface-2';
 const selCls =
-  'w-full rounded-[7px] border border-transparent bg-transparent px-2 py-1 text-[13px] text-fg-1 hover:bg-surface-2 focus:border-brand-blue focus:bg-surface outline-none';
+  'w-full rounded-[7px] border border-transparent bg-transparent px-2 py-1 text-[13px] text-fg-1 hover:bg-surface-2 focus:border-brand-blue focus:bg-surface outline-none select-chevron';
 
 /* Confirm + result dialog for "decompose into issues". The preview mirrors the
    server-side split (src/lib/decompose.ts); on success the created issue keys
@@ -491,7 +498,11 @@ function RequirementDetail({
   const { data: testCases = [] } = useTestCases({ requirement: id });
   const update = useUpdateRequirement();
   const del = useDeleteRequirement();
+  const registerAttachment = useRegisterAttachment();
+  const deleteAttachment = useDeleteAttachment();
   const [decompOpen, setDecompOpen] = React.useState(false);
+  // 附件 lightbox 开闭(AttachmentSection 回调同步):开着时 Escape 只关 lightbox。
+  const [previewOpen, setPreviewOpen] = React.useState(false);
 
   // 负责人候选池:项目资源池 + AI agents,
   // 与 IssueDetail 的 issueCandidates 口径一致(客户端组法同 NewIssueModal)。
@@ -508,6 +519,17 @@ function RequirementDetail({
     }
   }, [req?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  React.useEffect(() => {
+    // Capture 阶段(照 IssueDetail):先于 lightbox Dialog 的 Escape 处理执行,
+    // 此时 previewOpen 仍为 true——lightbox 开着时 Escape 只关 lightbox 不关抽屉。
+    const k = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !previewOpen) onClose();
+    };
+    window.addEventListener('keydown', k, true);
+    return () => window.removeEventListener('keydown', k, true);
+  }, [onClose, previewOpen]);
+
+
   if (!req) return null;
   const patch = (input: Parameters<typeof update.mutate>[0]['input']) => update.mutate({ id, input });
   const project = projectById(req.projectId);
@@ -516,6 +538,10 @@ function RequirementDetail({
   const aiOwner = memberById(req.aiOwnerId);
   const linked = req.issues.map((k) => allIssues.find((i) => i.id === k)).filter(Boolean) as typeof allIssues;
   const acceptanceLines = (req.acceptanceCriteria ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
+  // 附件上传链路:直传(category 恒 requirements)→ 注册到本需求;key 各段服务端铸造。
+  // mutateAsync 逐调用独立结算(多文件并发不丢回调)。
+  const uploadOne = (file: File) =>
+    uploadAttachment(file, 'requirements').then((meta) => registerAttachment.mutateAsync({ id, meta }).then(() => undefined));
 
   const saveIf = (field: 'title' | 'description' | 'acceptanceCriteria', value: string) => {
     const orig = field === 'title' ? req.title : field === 'description' ? req.description ?? '' : req.acceptanceCriteria ?? '';
@@ -528,6 +554,7 @@ function RequirementDetail({
     <>
       <DetailDrawer
         onClose={onClose}
+        closeOnEscape={false}
         header={
           <>
             <FileText size={15} className="text-fg-3" />
@@ -612,6 +639,14 @@ function RequirementDetail({
               rows={2}
               placeholder={t('requirements.noAcceptance')}
               className="mb-[22px] w-full resize-none rounded-[9px] border border-transparent bg-transparent text-[12.5px] leading-relaxed text-fg-3 outline-none placeholder:text-fg-3 hover:border-border focus:border-brand-blue focus:px-2.5 focus:py-2 focus:text-fg-1"
+            />
+
+            <AttachmentSection
+              items={req.attachments}
+              onUpload={uploadOne}
+              onDelete={(attachmentId) => deleteAttachment.mutate({ id, attachmentId })}
+              busy={registerAttachment.isPending || deleteAttachment.isPending}
+              onPreviewOpenChange={setPreviewOpen}
             />
 
             {/* Linked issues */}

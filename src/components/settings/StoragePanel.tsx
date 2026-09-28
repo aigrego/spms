@@ -3,18 +3,25 @@
 import * as React from 'react';
 import { Check, Plug, Save, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Toggle } from '@/components/ui/toggle';
 import { Skeleton, StateBlock } from '@/components/StateBlock';
 import { PopoverConfirm, fieldLabel, inputCls } from '@/components/platform/common';
 import { ViewHeader } from '@/components/common';
-import { useDeleteStorageConfig, useSaveStorageConfig, useStorageConfig } from '@/store/platform';
-import { api, type SaveStorageConfigInput, type StorageConfigState } from '@/lib/api';
+import {
+  useDeletePlatformStorageConfig,
+  usePlatformStorageConfig,
+  useSavePlatformStorageConfig,
+} from '@/store/platform';
+import { platformApi, type PlatformStorageConfigState, type SavePlatformStorageInput } from '@/lib/platformApi';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
-/* 设置 → 文件存储（公司管理员）：本公司附件的存储后端（MinIO / Vercel Blob）。
-   无配置 = 禁止上传（零平台兜底）；密钥加密落库、永不回显（留空 = 保留旧值）。 */
+/* 设置 → 平台存储（平台管理员）：全局默认附件存储，仅 MinIO 后端。
+   凭据需管理员权限（root / consoleAdmin）；公司存储不再自助配置，由平台
+   管理员在 公司管理 页为每个公司手动开通按前缀隔离的独立账号。
+   密钥加密落库、永不回显（留空 = 保留旧值）。enabled 是平台级总开关。 */
 
-interface MinioDraft {
+interface Draft {
   endpoint: string;
   port: string; // 输入框用字符串,提交时转 number
   useSsl: boolean;
@@ -24,13 +31,7 @@ interface MinioDraft {
   publicBaseUrl: string;
 }
 
-interface Draft {
-  backend: 'minio' | 'vercel_blob';
-  minio: MinioDraft;
-  token: string;
-}
-
-const emptyMinio: MinioDraft = {
+const emptyDraft: Draft = {
   endpoint: '',
   port: '',
   useSsl: true,
@@ -40,31 +41,24 @@ const emptyMinio: MinioDraft = {
   publicBaseUrl: '',
 };
 
-function draftOf(data: StorageConfigState | undefined): Draft {
-  if (!data?.configured) return { backend: 'minio', minio: emptyMinio, token: '' };
+function draftOf(data: PlatformStorageConfigState | undefined): Draft {
+  if (!data?.configured) return emptyDraft;
   return {
-    backend: data.backend,
-    minio:
-      data.backend === 'minio' && data.minio
-        ? {
-            endpoint: data.minio.endpoint ?? '',
-            port: data.minio.port != null ? String(data.minio.port) : '',
-            useSsl: data.minio.useSsl,
-            accessKey: '',
-            secretKey: '',
-            bucket: data.minio.bucket ?? '',
-            publicBaseUrl: data.minio.publicBaseUrl ?? '',
-          }
-        : emptyMinio,
-    token: '',
+    endpoint: data.minio.endpoint ?? '',
+    port: data.minio.port != null ? String(data.minio.port) : '',
+    useSsl: data.minio.useSsl,
+    accessKey: '',
+    secretKey: '',
+    bucket: data.minio.bucket ?? '',
+    publicBaseUrl: data.minio.publicBaseUrl ?? '',
   };
 }
 
 export function StoragePanel() {
   const t = useT();
-  const { data, isLoading, isError } = useStorageConfig();
-  const save = useSaveStorageConfig();
-  const del = useDeleteStorageConfig();
+  const { data, isLoading, isError } = usePlatformStorageConfig();
+  const save = useSavePlatformStorageConfig();
+  const del = useDeletePlatformStorageConfig();
   const [draft, setDraft] = React.useState<Draft | null>(null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [testing, setTesting] = React.useState(false);
@@ -76,7 +70,7 @@ export function StoragePanel() {
   if (isLoading || !draft) {
     return (
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <ViewHeader title={t('settingsPage.tab.storage')} />
+        <ViewHeader title={t('settingsPage.tab.platformStorage')} />
         <div className="p-6">
           <Skeleton rows={5} />
         </div>
@@ -86,7 +80,7 @@ export function StoragePanel() {
   if (isError || !data) {
     return (
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <ViewHeader title={t('settingsPage.tab.storage')} />
+        <ViewHeader title={t('settingsPage.tab.platformStorage')} />
         <div className="p-6">
           <StateBlock icon="alert" tone="danger" title={t('matrix.loadFailed')} body={t('platform.common.retry')} />
         </div>
@@ -95,33 +89,28 @@ export function StoragePanel() {
   }
 
   const configured = data.configured;
-  const hasMinioKeys = configured && data.backend === 'minio' && !!data.minio?.hasAccessKey && !!data.minio?.hasSecretKey;
-  const hasToken = configured && data.backend === 'vercel_blob' && data.hasToken;
+  const enabled = configured && data.enabled;
+  const hasMinioKeys = configured && data.minio.hasAccessKey && data.minio.hasSecretKey;
 
-  const buildInput = (): SaveStorageConfigInput | string => {
-    if (draft.backend === 'minio') {
-      const m = draft.minio;
-      if (!m.endpoint.trim() || !m.bucket.trim()) return t('storage.testFailed') + ': endpoint / bucket';
-      if (!hasMinioKeys && (!m.accessKey.trim() || !m.secretKey.trim())) {
-        return t('storage.testFailed') + ': accessKey / secretKey';
-      }
-      const port = m.port.trim() ? Number(m.port.trim()) : null;
-      if (port !== null && (!Number.isInteger(port) || port < 1 || port > 65535)) return t('storage.testFailed') + ': port';
-      return {
-        backend: 'minio',
-        minio: {
-          endpoint: m.endpoint.trim(),
-          port,
-          useSsl: m.useSsl,
-          accessKey: m.accessKey.trim() || undefined,
-          secretKey: m.secretKey.trim() || undefined,
-          bucket: m.bucket.trim(),
-          publicBaseUrl: m.publicBaseUrl.trim() || null,
-        },
-      };
+  const buildInput = (): SavePlatformStorageInput | string => {
+    const m = draft;
+    if (!m.endpoint.trim() || !m.bucket.trim()) return t('storage.testFailed') + ': endpoint / bucket';
+    if (!hasMinioKeys && (!m.accessKey.trim() || !m.secretKey.trim())) {
+      return t('storage.testFailed') + ': accessKey / secretKey';
     }
-    if (!hasToken && !draft.token.trim()) return t('storage.testFailed') + ': token';
-    return { backend: 'vercel_blob', token: draft.token.trim() || undefined };
+    const port = m.port.trim() ? Number(m.port.trim()) : null;
+    if (port !== null && (!Number.isInteger(port) || port < 1 || port > 65535)) return t('storage.testFailed') + ': port';
+    return {
+      minio: {
+        endpoint: m.endpoint.trim(),
+        port,
+        useSsl: m.useSsl,
+        accessKey: m.accessKey.trim() || undefined,
+        secretKey: m.secretKey.trim() || undefined,
+        bucket: m.bucket.trim(),
+        publicBaseUrl: m.publicBaseUrl.trim() || null,
+      },
+    };
   };
 
   const flash = (ok: boolean, text: string) => {
@@ -142,150 +131,118 @@ export function StoragePanel() {
     const input = buildInput();
     if (typeof input === 'string') return flash(false, input);
     setTesting(true);
-    api
+    platformApi
       .testStorageConfig(input)
       .then(() => flash(true, t('storage.testOk')))
       .catch((e) => flash(false, e.message))
       .finally(() => setTesting(false));
   };
 
-  const backendBtn = (key: Draft['backend'], label: string) => (
-    <button
-      type="button"
-      onClick={() => setDraft((d) => d && { ...d, backend: key })}
-      className={cn(
-        'rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors',
-        draft.backend === key
-          ? 'border-brand-blue bg-brand-blue/10 text-brand-blue'
-          : 'border-border-strong bg-surface text-fg-2 hover:bg-surface-2',
-      )}
-    >
-      {label}
-    </button>
-  );
-
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <ViewHeader title={t('settingsPage.tab.storage')}>
+      <ViewHeader title={t('settingsPage.tab.platformStorage')}>
         <span
           className={cn(
             'rounded-full px-2.5 py-px text-[12px] font-semibold',
-            configured ? 'bg-brand-blue/10 text-brand-blue' : 'bg-surface-2 text-fg-3',
+            enabled ? 'bg-brand-blue/10 text-brand-blue' : 'bg-surface-2 text-fg-3',
           )}
         >
-          {configured
-            ? `${t('storage.configuredAs')}: ${data.backend === 'minio' ? 'MinIO' : 'Vercel Blob'}`
-            : t('storage.notConfigured')}
+          {configured ? (enabled ? `${t('storage.enabled')}: MinIO` : t('storage.disabled')) : t('storage.notConfigured')}
         </span>
+        <Toggle
+          on={enabled}
+          disabledTitle={configured ? undefined : t('storage.enableHint')}
+          onToggle={configured ? () => save.mutate({ enabled: !enabled }) : undefined}
+        />
       </ViewHeader>
       <div className="flex-1 overflow-y-auto p-6">
         <div className="flex max-w-[860px] flex-col gap-4">
           <p className="m-0 rounded-lg bg-surface-2 px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">
-            {t('storage.desc')}
+            {t('storage.platformDesc')}
           </p>
 
           <section className="rounded-[14px] border border-border bg-surface px-5 py-4 shadow-1">
-            <label className={fieldLabel}>{t('storage.backend')}</label>
-            <div className="flex gap-2">
-              {backendBtn('minio', t('storage.minio'))}
-              {backendBtn('vercel_blob', t('storage.vercelBlob'))}
-            </div>
-
-            {draft.backend === 'minio' ? (
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className={fieldLabel}>{t('storage.endpoint')}</label>
+                <input
+                  className={inputCls}
+                  value={draft.endpoint}
+                  onChange={(e) => setDraft((d) => d && { ...d, endpoint: e.target.value })}
+                  placeholder="s3.innev.cn"
+                  autoComplete="off"
+                />
+                <p className="mb-0 mt-1 text-[11.5px] text-fg-3">{t('storage.endpointHint')}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={fieldLabel}>{t('storage.endpoint')}</label>
+                  <label className={fieldLabel}>{t('storage.port')}</label>
                   <input
                     className={inputCls}
-                    value={draft.minio.endpoint}
-                    onChange={(e) => setDraft((d) => d && { ...d, minio: { ...d.minio, endpoint: e.target.value } })}
-                    placeholder="s3.innev.cn"
+                    value={draft.port}
+                    onChange={(e) => setDraft((d) => d && { ...d, port: e.target.value })}
+                    placeholder={draft.useSsl ? '443' : '9000'}
+                    inputMode="numeric"
                     autoComplete="off"
                   />
-                  <p className="mb-0 mt-1 text-[11.5px] text-fg-3">{t('storage.endpointHint')}</p>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={fieldLabel}>{t('storage.port')}</label>
+                <div>
+                  <label className={fieldLabel}>&nbsp;</label>
+                  <label className="flex h-9 items-center gap-1.5 text-[12.5px] text-fg-2">
                     <input
-                      className={inputCls}
-                      value={draft.minio.port}
-                      onChange={(e) => setDraft((d) => d && { ...d, minio: { ...d.minio, port: e.target.value } })}
-                      placeholder={draft.minio.useSsl ? '443' : '9000'}
-                      inputMode="numeric"
-                      autoComplete="off"
+                      type="checkbox"
+                      className="accent-[var(--brand-blue)]"
+                      checked={draft.useSsl}
+                      onChange={(e) => setDraft((d) => d && { ...d, useSsl: e.target.checked })}
                     />
-                  </div>
-                  <div>
-                    <label className={fieldLabel}>&nbsp;</label>
-                    <label className="flex h-9 items-center gap-1.5 text-[12.5px] text-fg-2">
-                      <input
-                        type="checkbox"
-                        className="accent-[var(--brand-blue)]"
-                        checked={draft.minio.useSsl}
-                        onChange={(e) => setDraft((d) => d && { ...d, minio: { ...d.minio, useSsl: e.target.checked } })}
-                      />
-                      {t('storage.useSsl')}
-                    </label>
-                  </div>
-                </div>
-                <div>
-                  <label className={fieldLabel}>{t('storage.accessKey')}</label>
-                  <input
-                    className={inputCls}
-                    value={draft.minio.accessKey}
-                    onChange={(e) => setDraft((d) => d && { ...d, minio: { ...d.minio, accessKey: e.target.value } })}
-                    placeholder={hasMinioKeys ? t('storage.secretKeep') : 'Access Key'}
-                    autoComplete="off"
-                  />
-                </div>
-                <div>
-                  <label className={fieldLabel}>{t('storage.secretKey')}</label>
-                  <input
-                    className={inputCls}
-                    type="password"
-                    value={draft.minio.secretKey}
-                    onChange={(e) => setDraft((d) => d && { ...d, minio: { ...d.minio, secretKey: e.target.value } })}
-                    placeholder={hasMinioKeys ? t('storage.secretKeep') : 'Secret Key'}
-                    autoComplete="new-password"
-                  />
-                </div>
-                <div>
-                  <label className={fieldLabel}>{t('storage.bucket')}</label>
-                  <input
-                    className={inputCls}
-                    value={draft.minio.bucket}
-                    onChange={(e) => setDraft((d) => d && { ...d, minio: { ...d.minio, bucket: e.target.value } })}
-                    placeholder="spms"
-                    autoComplete="off"
-                  />
-                  <p className="mb-0 mt-1 text-[11.5px] text-fg-3">{t('storage.bucketHint')}</p>
-                </div>
-                <div>
-                  <label className={fieldLabel}>{t('storage.publicBaseUrl')}</label>
-                  <input
-                    className={inputCls}
-                    value={draft.minio.publicBaseUrl}
-                    onChange={(e) => setDraft((d) => d && { ...d, minio: { ...d.minio, publicBaseUrl: e.target.value } })}
-                    placeholder="https://s3.innev.cn"
-                    autoComplete="off"
-                  />
-                  <p className="mb-0 mt-1 text-[11.5px] text-fg-3">{t('storage.publicBaseUrlHint')}</p>
+                    {t('storage.useSsl')}
+                  </label>
                 </div>
               </div>
-            ) : (
-              <div className="mt-4">
-                <label className={fieldLabel}>{t('storage.token')}</label>
+              <div>
+                <label className={fieldLabel}>{t('storage.accessKey')}</label>
+                <input
+                  className={inputCls}
+                  value={draft.accessKey}
+                  onChange={(e) => setDraft((d) => d && { ...d, accessKey: e.target.value })}
+                  placeholder={hasMinioKeys ? t('storage.secretKeep') : 'Access Key'}
+                  autoComplete="off"
+                />
+              </div>
+              <div>
+                <label className={fieldLabel}>{t('storage.secretKey')}</label>
                 <input
                   className={inputCls}
                   type="password"
-                  value={draft.token}
-                  onChange={(e) => setDraft((d) => d && { ...d, token: e.target.value })}
-                  placeholder={hasToken ? t('storage.secretKeep') : 'vercel_blob_rw_…'}
+                  value={draft.secretKey}
+                  onChange={(e) => setDraft((d) => d && { ...d, secretKey: e.target.value })}
+                  placeholder={hasMinioKeys ? t('storage.secretKeep') : 'Secret Key'}
                   autoComplete="new-password"
                 />
               </div>
-            )}
+              <div>
+                <label className={fieldLabel}>{t('storage.bucket')}</label>
+                <input
+                  className={inputCls}
+                  value={draft.bucket}
+                  onChange={(e) => setDraft((d) => d && { ...d, bucket: e.target.value })}
+                  placeholder="spms"
+                  autoComplete="off"
+                />
+                <p className="mb-0 mt-1 text-[11.5px] text-fg-3">{t('storage.bucketHint')}</p>
+              </div>
+              <div>
+                <label className={fieldLabel}>{t('storage.publicBaseUrl')}</label>
+                <input
+                  className={inputCls}
+                  value={draft.publicBaseUrl}
+                  onChange={(e) => setDraft((d) => d && { ...d, publicBaseUrl: e.target.value })}
+                  placeholder="https://s3.innev.cn"
+                  autoComplete="off"
+                />
+                <p className="mb-0 mt-1 text-[11.5px] text-fg-3">{t('storage.publicBaseUrlHint')}</p>
+              </div>
+            </div>
 
             <div className="mt-4 flex items-center gap-2.5">
               <Button variant="primary" size="sm" onClick={submit} disabled={save.isPending}>
@@ -302,7 +259,7 @@ export function StoragePanel() {
                     </Button>
                   }
                   title={t('storage.clear')}
-                  body={t('storage.clearBody')}
+                  body={t('storage.clearBodyPlatform')}
                   busy={del.isPending}
                   onConfirm={() => del.mutate()}
                 />

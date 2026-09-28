@@ -18,14 +18,10 @@ import type { AssignmentNodeType } from '@/lib/types';
 export function ResourcePanelCompact({
   nodeType,
   nodeId,
-  variant = 'compact',
-  mode,
   className,
 }: {
   nodeType: AssignmentNodeType;
   nodeId: string;
-  variant?: 'compact' | 'full';
-  mode?: 'compact' | 'full';
   className?: string;
 }) {
   const t = useT();
@@ -37,9 +33,6 @@ export function ResourcePanelCompact({
     () => [...rows].sort((a, b) => (a.role === b.role ? 0 : a.role === 'lead' ? -1 : 1)),
     [rows],
   );
-  // compact-only panel — `full` mode arrives with C3's ResourcePanel
-  void variant;
-  void mode;
 
   const [open, setOpen] = React.useState(false);
   const { data: candidates } = useAssignCandidates(nodeType, nodeId, open);

@@ -218,6 +218,48 @@
       "when": 1790582063768,
       "tag": "0030_magenta_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790229341747,
+      "tag": "0031_complete_blackheart",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790240592715,
+      "tag": "0032_moaning_zaran",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790351791782,
+      "tag": "0033_strange_firebrand",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790407809763,
+      "tag": "0034_certain_rawhide_kid",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790408218130,
+      "tag": "0035_skinny_richard_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790422321818,
+      "tag": "0036_opposite_ted_forrester",
+      "breakpoints": true
     }
   ]
 }

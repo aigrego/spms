@@ -115,11 +115,10 @@ const sumPoints = (rows: { storyPoints: number | null }[]) =>
 type SprintRow = typeof sprints.$inferSelect;
 export type SprintStatus = SprintRow['status'];
 
-/* ---- list sprints (optionally by team), startDate asc ---- */
-export async function listSprints(actor: Actor, filter?: { team?: string }) {
+/* ---- list sprints, startDate asc ---- */
+export async function listSprints(actor: Actor) {
   await requirePerm(actor, 'sprints', 'read');
   const conds = [eq(sprints.companyId, actor.companyId)];
-  if (filter?.team) conds.push(eq(sprints.teamId, filter.team));
   // 指派可见性(visibility.ts);null = 管理员不限制。
   const visible = await visibleSetsFor(actor);
   if (visible) conds.push(inArray(sprints.id, visible.sprintIds));
@@ -138,10 +137,9 @@ export async function listSprints(actor: Actor, filter?: { team?: string }) {
    展示顺序与 listIssues 一致(keyNum/key 倒序,走 issues_key_num_idx)。
    产品待办 = 敏捷 product backlog 概念:只放待规划进下一次
    迭代的待办工单,in_progress/testing/done/canceled/backlog 状态一律不进。 */
-export async function getBacklog(actor: Actor, filter?: { team?: string }) {
+export async function getBacklog(actor: Actor) {
   await requirePerm(actor, 'backlog', 'read');
   const conds = [eq(issues.companyId, actor.companyId), isNull(issues.sprintId), eq(issues.status, 'todo')];
-  if (filter?.team) conds.push(eq(issues.teamId, filter.team));
   // 与 listIssues 同款:白名单 + 指派可见性(无项目 issue 公司级放行)。
   if (actor.allowedProjectIds) conds.push(inArray(issues.projectId, actor.allowedProjectIds));
   const visibleProjectIds = clampAllowed(actor, (await visibleSetsFor(actor))?.projectIds ?? null);
@@ -159,10 +157,9 @@ export async function getBacklog(actor: Actor, filter?: { team?: string }) {
 }
 
 /* ---- velocity: completed points per sprint + avg over completed sprints ---- */
-export async function getVelocity(actor: Actor, filter?: { team?: string }) {
+export async function getVelocity(actor: Actor) {
   await requirePerm(actor, 'sprints', 'read');
   const conds = [eq(sprints.companyId, actor.companyId)];
-  if (filter?.team) conds.push(eq(sprints.teamId, filter.team));
   // 指派可见性;null = 管理员不限制。
   const visible = await visibleSetsFor(actor);
   if (visible) conds.push(inArray(sprints.id, visible.sprintIds));
@@ -346,17 +343,6 @@ export async function moveIssue(actor: Actor, sprintIdOrBacklog: string, issueKe
 /* Sprint CRUD — NEW (the blueprint had no sprint create/update/delete)  */
 /* ------------------------------------------------------------------ */
 
-/* The legacy team a sprint inherits — derived from its (single) project. */
-async function teamForProject(companyId: string, projectId: string | null | undefined) {
-  if (!projectId) return null;
-  const [p] = await db
-    .select({ teamId: projects.teamId })
-    .from(projects)
-    .where(and(eq(projects.companyId, companyId), eq(projects.id, projectId)))
-    .limit(1);
-  return p?.teamId ?? null;
-}
-
 async function assertProjectsExist(companyId: string, ids: string[]) {
   if (!ids.length) return;
   const rows = await db
@@ -387,7 +373,6 @@ export interface CreateSprintInput {
   endDate: Date | string;
   capacity?: number | null;
   projectIds?: string[];
-  teamId?: string | null; // legacy; derived from the (single) project when not given
 }
 
 /* ---- create ---- */
@@ -405,10 +390,6 @@ export async function createSprint(actor: Actor, input: CreateSprintInput) {
   // 只能在可见项目内建迭代:入参项目逐个过写门槛,范围外 403。
   for (const projectId of projectIds) await assertProjectWritable(actor, projectId);
 
-  const teamId =
-    input.teamId !== undefined
-      ? input.teamId
-      : await teamForProject(actor.companyId, projectIds.length === 1 ? projectIds[0] : null);
   const id = crypto.randomUUID();
   // 迭代行 + 项目关联同生同灭 → 一个事务。
   await db.transaction(async (tx) => {
@@ -421,7 +402,6 @@ export async function createSprint(actor: Actor, input: CreateSprintInput) {
       startDate,
       endDate,
       capacity: input.capacity ?? null,
-      teamId,
     });
     await setSprintProjects(tx, actor.companyId, id, projectIds);
   });
@@ -439,7 +419,6 @@ export interface UpdateSprintInput {
   endDate?: Date | string;
   capacity?: number | null;
   projectIds?: string[];
-  teamId?: string | null;
 }
 
 /* ---- update (partial) ----
@@ -492,13 +471,6 @@ export async function updateSprint(actor: Actor, id: string, input: UpdateSprint
   const effEnd = patch.endDate ?? existing.endDate;
   if (+effEnd < +effStart) throw new ApiException('VALIDATION_FAILED', '结束日期不能早于开始日期');
   if (input.capacity !== undefined) patch.capacity = input.capacity;
-  if (projectIds) {
-    // Keep the legacy teamId aligned unless explicitly overridden.
-    if (input.teamId === undefined) {
-      patch.teamId = await teamForProject(actor.companyId, projectIds.length === 1 ? projectIds[0] : null);
-    }
-  }
-  if (input.teamId !== undefined) patch.teamId = input.teamId;
 
   // 关联替换 / 状态流转 / 字段补丁收进一个事务,不再留下半截组合状态。
   await db.transaction(async (tx) => {

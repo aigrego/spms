@@ -12,7 +12,6 @@ import type {
 } from '@/lib/api';
 import type {
   Member,
-  Team,
   Label,
   Project,
   Sprint,
@@ -25,7 +24,6 @@ interface AppDataValue {
   loading: boolean;
   // PLAN-5: the current user's member id (from the server, resolved via TDT).
   meId: string | null;
-  role: string | null;
   /* Multi-company sandbox session (P5). */
   session: SessionInfo | null;
   sessionLoading: boolean;
@@ -39,7 +37,6 @@ interface AppDataValue {
      fail open so the UI does not go blank mid-rollout. */
   can: (module: ModuleKey, level: 'read' | 'write') => boolean;
   members: Member[];
-  teams: Team[];
   labels: Label[];
   projects: Project[];
   // 「我参与的」项目 id 集(bootstrap 下发,口径同 visibility.ts)。
@@ -50,10 +47,8 @@ interface AppDataValue {
   releases: Release[];
   humans: Member[];
   agents: Member[];
-  firstTeamId: string | null;
   me: Member | undefined;
   memberById: (id: string | null | undefined) => Member | undefined;
-  teamById: (id: string | null | undefined) => Team | undefined;
   labelById: (id: string | null | undefined) => Label | undefined;
   labelByKey: (key: string) => Label | undefined;
   projectById: (id: string | null | undefined) => Project | undefined;
@@ -81,7 +76,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AppDataValue>(() => {
     const members = data?.members ?? [];
-    const teams = data?.teams ?? [];
     const labels = data?.labels ?? [];
     const projects = data?.projects ?? [];
     const sprints = data?.sprints ?? [];
@@ -90,7 +84,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     const releases = data?.releases ?? [];
 
     const memberMap = new Map(members.map((m) => [m.id, m]));
-    const teamMap = new Map(teams.map((t) => [t.id, t]));
     const labelMap = new Map(labels.map((l) => [l.id, l]));
     const labelKeyMap = new Map(labels.filter((l) => l.key).map((l) => [l.key as string, l]));
     const projectMap = new Map(projects.map((p) => [p.id, p]));
@@ -120,7 +113,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     return {
       loading: isLoading,
       meId: data?.me ?? null,
-      role: data?.role ?? null,
       session: sessionInfo,
       sessionLoading,
       companies: sessionInfo?.companies ?? [],
@@ -130,7 +122,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       permissions,
       can,
       members,
-      teams,
       labels,
       projects,
       myProjectIds: data?.myProjectIds ?? [],
@@ -140,10 +131,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       releases,
       humans: members.filter((m) => m.type === 'human'),
       agents: members.filter((m) => m.type === 'agent'),
-      firstTeamId: teams[0]?.id ?? null,
       me: data?.me ? memberMap.get(data.me) : undefined,
       memberById: (id) => (id ? memberMap.get(id) : undefined),
-      teamById: (id) => (id ? teamMap.get(id) : undefined),
       labelById: (id) => (id ? labelMap.get(id) : undefined),
       labelByKey: (key) => labelKeyMap.get(key),
       projectById: (id) => (id ? projectMap.get(id) : undefined),

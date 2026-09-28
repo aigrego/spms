@@ -93,7 +93,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           open={newOpen}
           onOpenChange={setNewOpen}
           preset={newPreset}
-          presetProject={null}
           onCreated={openIssue}
         />
       </div>

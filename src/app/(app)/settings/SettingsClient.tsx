@@ -3,51 +3,39 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { SegBtn } from '@/components/ui/segmented';
+import { Toggle } from '@/components/ui/toggle';
 import { CompaniesPanel } from '@/components/platform/CompaniesPanel';
 import { MembersPanel } from '@/components/platform/MembersPanel';
 import { MatrixPanel } from '@/components/platform/MatrixPanel';
 import { OAuthProvidersPanel } from '@/components/platform/OAuthProvidersPanel';
 import { StoragePanel } from '@/components/settings/StoragePanel';
+import { StorageInfoCard } from '@/components/settings/StorageInfoCard';
+import { AttachmentsPanel } from '@/components/settings/AttachmentsPanel';
 import { Card, Row } from '@/components/settings/common';
 import { useAppData } from '@/store/AppData';
 import { useT, useLocale, useSetLocale, type Locale } from '@/lib/i18n';
 import { usePersistentState } from '@/lib/prefs';
 import { applyTheme, readThemePref, type ThemePref } from '@/lib/theme';
-import { cn } from '@/lib/utils';
 
-type TabKey = 'preferences' | 'companies' | 'members' | 'matrix' | 'oauth' | 'company-matrix' | 'storage';
+type TabKey =
+  | 'preferences'
+  | 'attachments'
+  | 'companies'
+  | 'members'
+  | 'matrix'
+  | 'oauth'
+  | 'company-matrix'
+  | 'platform-storage';
 
 const selectCls =
-  'h-8 rounded-md border border-border-strong bg-surface px-2 text-[13px] text-fg-1 outline-none focus:border-brand-blue disabled:opacity-60';
-
-/* 偏好开关:传了 onToggle 即可点击;否则为占位的禁用态("即将上线"
-   tooltip 由外层 span 提供 —— disabled 按钮不触发事件)。 */
-function Toggle({ on, disabledTitle, onToggle }: { on: boolean; disabledTitle?: string; onToggle?: () => void }) {
-  return (
-    <span title={disabledTitle} className="inline-flex">
-      <button
-        type="button"
-        disabled={!!disabledTitle}
-        onClick={onToggle}
-        className={cn(
-          'relative h-[22px] w-[40px] flex-none rounded-full transition-colors disabled:cursor-not-allowed',
-          on ? 'bg-brand-blue' : 'bg-surface-sunken',
-        )}
-        style={{ border: '1px solid var(--border-strong)' }}
-      >
-        <span
-          className="absolute top-[2px] h-[16px] w-[16px] rounded-full bg-white transition-all"
-          style={{ left: on ? 19 : 2, boxShadow: 'var(--shadow-1)' }}
-        />
-      </button>
-    </span>
-  );
-}
+  'h-8 rounded-md border border-border-strong bg-surface px-2 text-[13px] text-fg-1 outline-none focus:border-brand-blue disabled:opacity-60 select-chevron';
 
 function PreferencesPanel() {
   const t = useT();
   const locale = useLocale();
   const setLocale = useSetLocale();
+  // 存储状态卡与 GET /pms/storage-config 的 gate 一致:平台管理员或公司管理员可见。
+  const { isPlatformAdmin, companyRole } = useAppData();
   // 顶栏语言切换器的显隐属于浏览器记忆(TKT-27),随「重置浏览器记忆」一起清。
   const [showLangSwitcher, setShowLangSwitcher] = usePersistentState('showLangSwitcher', true);
   // Lazy init mirrors the header toggle: this panel only renders after the
@@ -141,6 +129,8 @@ function PreferencesPanel() {
           }
         />
       </Card>
+
+      {(isPlatformAdmin || companyRole === 'company_admin') && <StorageInfoCard />}
     </div>
   );
 }
@@ -151,16 +141,20 @@ function PreferencesPanel() {
 export default function SettingsClient({ tab: tabProp }: { tab?: string }) {
   const t = useT();
   const router = useRouter();
-  const { isPlatformAdmin, companyRole } = useAppData();
+  const { isPlatformAdmin, companyRole, can } = useAppData();
+
+  // 附件总表对任一附件宿主模块（工单/用例/需求）有读权限的成员可见。
+  const canSeeAttachments = can('issues', 'read') || can('testcases', 'read') || can('requirements', 'read');
 
   const tabs: { key: TabKey; label: string; adminOnly?: boolean; companyAdminOnly?: boolean }[] = [
     { key: 'preferences', label: t('settingsPage.tab.preferences') },
+    ...(canSeeAttachments ? [{ key: 'attachments' as TabKey, label: t('settingsPage.tab.attachments') }] : []),
     { key: 'companies', label: t('settingsPage.tab.companies'), adminOnly: true },
     { key: 'members', label: t('settingsPage.tab.members'), adminOnly: true },
     { key: 'matrix', label: t('settingsPage.tab.matrix'), adminOnly: true },
     { key: 'oauth', label: t('settingsPage.tab.oauth'), adminOnly: true },
+    { key: 'platform-storage', label: t('settingsPage.tab.platformStorage'), adminOnly: true },
     { key: 'company-matrix', label: t('settingsPage.tab.companyMatrix'), companyAdminOnly: true },
-    { key: 'storage', label: t('settingsPage.tab.storage'), companyAdminOnly: true },
   ];
   const visible = tabs.filter(
     (tab) =>
@@ -200,12 +194,13 @@ export default function SettingsClient({ tab: tabProp }: { tab?: string }) {
       ) : (
         <div className="flex min-h-0 flex-1 flex-col pt-2">
           <div className="mx-auto flex min-h-0 w-full max-w-[860px] flex-1 flex-col">
+            {tab === 'attachments' && <AttachmentsPanel />}
             {tab === 'companies' && <CompaniesPanel />}
             {tab === 'members' && <MembersPanel />}
             {tab === 'matrix' && <MatrixPanel scope="global" />}
             {tab === 'oauth' && <OAuthProvidersPanel />}
             {tab === 'company-matrix' && <MatrixPanel scope="company" />}
-            {tab === 'storage' && <StoragePanel />}
+            {tab === 'platform-storage' && <StoragePanel />}
           </div>
         </div>
       )}

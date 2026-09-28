@@ -64,18 +64,6 @@ async function loadMember(companyId: string, memberId: string | null | undefined
   return m ?? null;
 }
 
-/* The (legacy) team a new issue inherits — derived from its project, for residual
-   sprint/team filtering. Null when the issue isn't tied to a project. */
-async function teamForProject(companyId: string, projectId: string | null) {
-  if (!projectId) return null;
-  const [p] = await db
-    .select({ teamId: projects.teamId })
-    .from(projects)
-    .where(and(eq(projects.companyId, companyId), eq(projects.id, projectId)))
-    .limit(1);
-  return p?.teamId ?? null;
-}
-
 /* §4.3 consistency: a sprint spans one or more projects (sprint_projects) —
    the issue's project must be one of them (explicit conflicts are rejected);
    a project-less issue adopts the project only when the sprint has exactly
@@ -106,16 +94,30 @@ async function resolveSprintProject(
   return projectId;
 }
 
-/* ---- list (optionally filtered by team / assignee / project) ---- */
+/* ---- list (optionally filtered by assignee / project / status / type / priority / sprint) ----
+   所有过滤条件必须下推到下面的动态 conds(LIMIT 1000 在过滤之后生效)——
+   消费方不得在拿到结果后再做内存过滤,否则超限公司的筛选结果会静默不全。 */
 export async function listIssues(
   actor: Actor,
-  filter?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean; recentDoneOnly?: boolean },
+  filter?: {
+    assignee?: string;
+    project?: string;
+    status?: IssueStatus;
+    type?: IssueType;
+    priority?: IssuePriority;
+    sprint?: string;
+    includeArchived?: boolean;
+    recentDoneOnly?: boolean;
+  },
 ) {
   await requirePerm(actor, 'issues', 'read');
   const conds = [eq(issues.companyId, actor.companyId)];
-  if (filter?.team) conds.push(eq(issues.teamId, filter.team));
   if (filter?.assignee) conds.push(eq(issues.assigneeId, filter.assignee));
   if (filter?.project) conds.push(eq(issues.projectId, filter.project));
+  if (filter?.status) conds.push(eq(issues.status, filter.status));
+  if (filter?.type) conds.push(eq(issues.type, filter.type));
+  if (filter?.priority) conds.push(eq(issues.priority, filter.priority));
+  if (filter?.sprint) conds.push(eq(issues.sprintId, filter.sprint));
   // 令牌项目白名单：只看得到白名单内的项目（无项目的 Issue 也不可见）。
   if (actor.allowedProjectIds) conds.push(inArray(issues.projectId, actor.allowedProjectIds));
   // 指派可见性：仅可见项目的 Issue 可见;无项目(projectId NULL)的 Issue 视为
@@ -225,9 +227,6 @@ export async function createIssue(actor: Actor, input: CreateIssueInput, opts?: 
   // 令牌项目白名单：只能在白名单项目内创建。
   await assertProjectWritable(actor, resolvedProjectId);
 
-  // Legacy team inherited from the project (team is retired from the UI).
-  const teamId = await teamForProject(companyId, resolvedProjectId);
-
   // Allocate the display key: caller-supplied (must be free within the company)
   // or the next per-type key (BUG-/TKT-/BLG-).
   const issueType = input.type ?? 'ticket';
@@ -246,7 +245,6 @@ export async function createIssue(actor: Actor, input: CreateIssueInput, opts?: 
       id,
       companyId,
       key,
-      teamId,
       title: input.title.trim(),
       description: input.description ?? null,
       type: issueType,
@@ -364,10 +362,6 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
     }
   }
   if (patch.projectId !== undefined) await assertProjectWritable(actor, patch.projectId ?? null);
-  // Keep the legacy teamId aligned with the issue's (possibly changed) project.
-  if (patch.projectId !== undefined) {
-    patch.teamId = await teamForProject(companyId, patch.projectId ?? null);
-  }
   if (input.estimate !== undefined) patch.estimate = input.estimate;
   if (input.storyPoints !== undefined) patch.storyPoints = input.storyPoints;
   if (input.assigneeId !== undefined) {
@@ -381,38 +375,43 @@ export async function updateIssue(actor: Actor, key: string, input: UpdateIssueI
     }
   }
 
-  await db.update(issues).set(patch).where(eq(issues.id, existing.id));
+  // 主更新与状态动态+结构化流转记录同生同灭 → 一个事务:
+  // transition 插入失败不再留下"状态已改但分析数据丢失"的半截状态。
+  await db.transaction(async (tx) => {
+    await tx.update(issues).set(patch).where(eq(issues.id, existing.id));
+
+    // Record the status transition in the activity feed (the activity_kind enum
+    // has 'status' but neither the blueprint nor the port ever wrote it — the
+    // MCP contract expects status changes to be traceable in the feed).
+    if (input.status !== undefined && input.status !== existing.status) {
+      await tx.insert(activities).values({
+        id: crypto.randomUUID(),
+        companyId,
+        issueId: existing.id,
+        whoId: actor.memberId,
+        ...systemActivity({ k: 'statusChanged', p: { status: input.status } }),
+      });
+      // 结构化流转记录:团队总结的交付/验收/打回/周期时长统计都读这张表。
+      await tx.insert(issueStatusTransitions).values({
+        id: crypto.randomUUID(),
+        companyId,
+        issueId: existing.id,
+        fromStatus: existing.status,
+        toStatus: input.status,
+        whoId: actor.memberId,
+      });
+    }
+  });
 
   // 状态/故事点/所属迭代变化会改变燃尽剩余点数 →  upsert 当日快照;
-  // 换迭代时旧迭代也要补一记。
+  // 换迭代时旧迭代也要补一记。recordSprintSnapshot 是外部 helper(内部用全局
+  // db,且依赖已提交的 issue 行),与 createIssue 同理保持事务后执行。
   if (input.status !== undefined || input.storyPoints !== undefined || input.sprintId !== undefined) {
     const nextSprintId = input.sprintId !== undefined ? input.sprintId : existing.sprintId;
     if (existing.sprintId && existing.sprintId !== nextSprintId) {
       await recordSprintSnapshot(companyId, existing.sprintId);
     }
     await recordSprintSnapshot(companyId, nextSprintId);
-  }
-
-  // Record the status transition in the activity feed (the activity_kind enum
-  // has 'status' but neither the blueprint nor the port ever wrote it — the
-  // MCP contract expects status changes to be traceable in the feed).
-  if (input.status !== undefined && input.status !== existing.status) {
-    await db.insert(activities).values({
-      id: crypto.randomUUID(),
-      companyId,
-      issueId: existing.id,
-      whoId: actor.memberId,
-      ...systemActivity({ k: 'statusChanged', p: { status: input.status } }),
-    });
-    // 结构化流转记录:团队总结的交付/验收/打回/周期时长统计都读这张表。
-    await db.insert(issueStatusTransitions).values({
-      id: crypto.randomUUID(),
-      companyId,
-      issueId: existing.id,
-      fromStatus: existing.status,
-      toStatus: input.status,
-      whoId: actor.memberId,
-    });
   }
 
   if (input.labels !== undefined) {
@@ -470,16 +469,19 @@ export async function archiveIssue(actor: Actor, key: string, archived: boolean)
   if (!existing || !(await issueVisible(actor, existing.projectId))) {
     throw new ApiException('ISSUE_NOT_FOUND', `Issue ${key} 不存在`);
   }
-  await db
-    .update(issues)
-    .set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() })
-    .where(eq(issues.id, existing.id));
-  await db.insert(activities).values({
-    id: crypto.randomUUID(),
-    companyId: actor.companyId,
-    issueId: existing.id,
-    whoId: actor.memberId,
-    ...systemActivity(archived ? { k: 'archived' } : { k: 'unarchived' }),
+  // 归档标记与归档动态同生同灭 → 一个事务。
+  await db.transaction(async (tx) => {
+    await tx
+      .update(issues)
+      .set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() })
+      .where(eq(issues.id, existing.id));
+    await tx.insert(activities).values({
+      id: crypto.randomUUID(),
+      companyId: actor.companyId,
+      issueId: existing.id,
+      whoId: actor.memberId,
+      ...systemActivity(archived ? { k: 'archived' } : { k: 'unarchived' }),
+    });
   });
   return { id: key, archived };
 }

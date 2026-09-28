@@ -26,8 +26,16 @@ const issueHooks = createEntityHooks<
 });
 
 /* Issue-list query. "My issues" passes the current user's member id (resolved
-   from /bootstrap) as the assignee param. */
-export const useIssues = issueHooks.useList;
+   from /bootstrap) as the assignee param. `enabled=false` suspends the query
+   (my-issues waits for meId, avoiding a first request with no assignee). Same
+   query key/queryFn as the factory's useList, so factory invalidation applies. */
+export function useIssues(params?: Parameters<typeof api.issues>[0], enabled = true) {
+  return useQuery({
+    queryKey: ['issues', params ?? {}],
+    queryFn: () => api.issues(params),
+    enabled,
+  });
+}
 
 export function useAllIssues(includeArchived = false) {
   return useQuery({

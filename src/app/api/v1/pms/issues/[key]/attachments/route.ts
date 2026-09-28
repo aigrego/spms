@@ -8,5 +8,7 @@ type Ctx = { params: Promise<{ key: string }> };
    blob (client-direct upload) as an attachment on this issue. */
 export const POST = route(async (req, ctx: Ctx) => {
   const actor = await requireActor();
-  return ok(await registerAttachment(actor, (await ctx.params).key, await jsonBody<RegisterAttachmentInput>(req)));
+  return ok(
+    await registerAttachment(actor, { type: 'issue', key: (await ctx.params).key }, await jsonBody<RegisterAttachmentInput>(req)),
+  );
 });

@@ -3,6 +3,7 @@ import type {
   Issue,
   IssueDetail,
   IssueAttachment,
+  CompanyAttachmentPage,
   IssueStatus,
   IssuePriority,
   Importance,
@@ -15,7 +16,6 @@ import type {
   ProductLine,
   Product,
   Release,
-
   ProductStatus,
   ReleaseStatus,
   Requirement,
@@ -63,7 +63,8 @@ export class ApiError extends Error {
   }
 }
 
-/* Metadata of an already-uploaded blob, registered as an issue attachment. */
+/* Metadata of an already-uploaded blob, registered as an attachment on an
+   issue / test case / requirement. */
 export interface AttachmentMeta {
   url: string;
   pathname: string;
@@ -75,7 +76,6 @@ export interface AttachmentMeta {
 export interface CreateIssueInput {
   title: string;
   description?: string;
-  teamId?: string;
   type?: IssueType;
   status?: IssueStatus;
   priority?: IssuePriority;
@@ -182,7 +182,6 @@ export interface ReleaseInput {
   status?: ReleaseStatus;
   phase?: ProjectPhase;
   targetDate?: string | null;
-  progress?: number;
 }
 
 export interface InviteResourceInput {
@@ -210,7 +209,6 @@ export interface Seat {
 
 export interface ProjectInput {
   name: string;
-  teamId?: string | null;
   releaseId?: string | null;
   status?: ProjectStatus;
   leadId?: string | null;
@@ -314,7 +312,7 @@ const qs = (params: Record<string, unknown>): string => {
 export const api = {
   bootstrap: () => request<Bootstrap>('/bootstrap'),
 
-  issues: (params?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean }) =>
+  issues: (params?: { assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean }) =>
     request<Issue[]>(
       `/issues${qs({
         ...params,
@@ -345,21 +343,31 @@ export const api = {
   registerAttachment: (issueKey: string, meta: AttachmentMeta) =>
     request<IssueAttachment>(`/issues/${issueKey}/attachments`, json('POST', meta)),
 
+  registerTestCaseAttachment: (key: string, meta: AttachmentMeta) =>
+    request<IssueAttachment>(`/test-cases/${key}/attachments`, json('POST', meta)),
+
+  registerRequirementAttachment: (key: string, meta: AttachmentMeta) =>
+    request<IssueAttachment>(`/requirements/${key}/attachments`, json('POST', meta)),
+
   deleteAttachment: (id: string) => request<{ id: string }>(`/attachments/${id}`, { method: 'DELETE' }),
+
+  /* 设置 → 附件 面板:本公司附件分页列表(含归属实体 key/标题)。 */
+  companyAttachments: (params?: { page?: number; pageSize?: number }) =>
+    request<CompanyAttachmentPage>(`/attachments${qs(params ?? {})}`),
 
   toggleSub: (id: string, subId: string, status: IssueStatus) =>
     request<{ id: string; status: IssueStatus }>(`/issues/${id}/sub/${subId}`, json('PATCH', { status })),
 
   /* ---- Scrum ---- */
-  sprints: (team?: string) => request<Sprint[]>(`/sprints${qs({ team })}`),
+  sprints: () => request<Sprint[]>('/sprints'),
 
-  backlog: (team?: string) => request<Issue[]>(`/sprints/backlog${qs({ team })}`),
+  backlog: () => request<Issue[]>('/sprints/backlog'),
 
   sprint: (id: string) => request<SprintDetail | null>(`/sprints/${id}`),
 
   burndown: (id: string) => request<Burndown | null>(`/sprints/${id}/burndown`),
 
-  velocity: (team?: string) => request<Velocity>(`/sprints/velocity${qs({ team })}`),
+  velocity: () => request<Velocity>('/sprints/velocity'),
 
   moveIssueToSprint: (sprintId: string, issueId: string, storyPoints?: number | null) =>
     request<{ issueId: string; sprintId: string | null }>(
@@ -368,7 +376,6 @@ export const api = {
     ),
 
   createSprint: (input: {
-    teamId?: string | null;
     projectIds?: string[];
     name: string;
     goal?: string | null;
@@ -380,7 +387,6 @@ export const api = {
   updateSprint: (
     id: string,
     input: Partial<{
-      teamId: string | null;
       projectIds: string[];
       name: string;
       goal: string | null;
@@ -406,13 +412,13 @@ export const api = {
     request<{ id: string }>(`/product-lines/${id}`, json('PATCH', input)),
   deleteProductLine: (id: string) => request<{ id: string }>(`/product-lines/${id}`, { method: 'DELETE' }),
 
-  products: (line?: string) => request<Product[]>(`/products${line ? `?line=${line}` : ''}`),
+  products: (line?: string) => request<Product[]>(`/products${qs({ line })}`),
   createProduct: (input: ProductInput) => request<{ id: string; key: string }>('/products', json('POST', input)),
   updateProduct: (id: string, input: Partial<ProductInput>) =>
     request<{ id: string }>(`/products/${id}`, json('PATCH', input)),
   deleteProduct: (id: string) => request<{ id: string }>(`/products/${id}`, { method: 'DELETE' }),
 
-  releases: (product?: string) => request<Release[]>(`/releases${product ? `?product=${product}` : ''}`),
+  releases: (product?: string) => request<Release[]>(`/releases${qs({ product })}`),
   createRelease: (input: ReleaseInput) => request<{ id: string; key: string }>('/releases', json('POST', input)),
   updateRelease: (id: string, input: Partial<ReleaseInput>) =>
     request<{ id: string }>(`/releases/${id}`, json('PATCH', input)),
@@ -476,12 +482,21 @@ export const api = {
   saveCompanyMatrix: (matrix: PermissionsMatrix['matrix']) =>
     request<unknown>('/permissions-matrix', json('PUT', { matrix })),
 
-  /* ---- 文件存储配置(设置 → 文件存储;敏感字段只回 hasXxx) ---- */
+  /* ---- 文件存储配置(设置 → 文件存储 / 偏好) ----
+     GET 只读视图:未开通时附平台侧配置/开关状态,已开通时附开通信息;
+     PUT 保存手动 MinIO 配置;POST {action:'test'} 连通性测试、无 body 一键开通
+     (平台存储已配置时物化本公司隔离账号,幂等;密钥轮换仍由平台管理员在
+     公司管理操作);DELETE 删除本公司配置。敏感字段只回 hasXxx/account。 */
   storageConfig: () => request<StorageConfigState>('/storage-config'),
   saveStorageConfig: (input: SaveStorageConfigInput) =>
     request<{ backend: string }>('/storage-config', json('PUT', input)),
   testStorageConfig: (input: SaveStorageConfigInput) =>
     request<{ tested: boolean }>('/storage-config', json('POST', { ...input, action: 'test' })),
+  provisionStorage: () =>
+    request<{ companyId: string; provisioned: true; account: string | null; bucket: string | null; prefix: string }>(
+      '/storage-config',
+      json('POST'),
+    ),
   deleteStorageConfig: () => request<{ deleted: boolean }>('/storage-config', { method: 'DELETE' }),
 
   /* ---- 节点资源指派 / 虚拟团队 (PMS-2 §5.2) ---- */
@@ -570,12 +585,17 @@ export interface UserEmailEntry {
 /* 登录页实际使用的条目：已配置则展示按钮（附授权 url），否则为 null。 */
 export type OAuthEntry = { configured: true; url?: string } | null;
 
-/* 文件存储配置（设置 → 文件存储）。敏感字段永不回显,只有 hasXxx。 */
+/* 本公司存储配置/开通状态（设置 → 文件存储 / 偏好）。两个分支：
+   未配置（无公司存储行）时带平台侧状态，供前端区分「平台未配置」与
+   「平台已配置但本公司未开通/平台总开关关闭」；已配置时敏感字段永不回显
+   （只有 hasXxx），account 为标识性用户名（auto 行即 IAM 用户 spms-xxx）。
+   endpoint/bucket 等顶层字段供存储卡片展示；编辑表单读嵌套 minio 对象。 */
 export type StorageConfigState =
-  | { configured: false }
+  | { configured: false; provisioned: false; platformConfigured: boolean; platformEnabled: boolean }
   | {
       configured: true;
-      backend: 'minio' | 'vercel_blob';
+      provisioned: true;
+      backend: 'minio';
       minio: {
         endpoint: string | null;
         port: number | null;
@@ -585,11 +605,20 @@ export type StorageConfigState =
         hasAccessKey: boolean;
         hasSecretKey: boolean;
       } | null;
-      hasToken: boolean;
+      endpoint: string | null;
+      port: number | null;
+      useSsl: boolean;
+      bucket: string | null;
+      publicBaseUrl: string | null;
+      prefix: string;
+      account: string | null;
+      mode: 'auto' | 'manual';
+      updatedAt: string;
     };
 
+/* 手动 MinIO 配置保存/连通性测试入参（vercel_blob 已随 TKT-213 移除）。 */
 export interface SaveStorageConfigInput {
-  backend: 'minio' | 'vercel_blob';
+  backend: 'minio';
   minio?: {
     endpoint?: string;
     port?: number | null;
@@ -599,7 +628,6 @@ export interface SaveStorageConfigInput {
     bucket?: string;
     publicBaseUrl?: string | null; // 不传 = 保留旧值;'' / null = 清除
   };
-  token?: string; // vercel_blob;不传 = 保留旧值
 }
 
 /* Multi-company sandbox contracts (P5). All optional on the wire while the

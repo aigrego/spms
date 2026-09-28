@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 
-/* settings 区域的通用卡片与设置行(SettingsClient / NotionCard 共用)。 */
+/* settings 区域的通用卡片与设置行(SettingsClient / NotionCard /
+   PreferencesPanel / StorageInfoCard 共用)。 */
 
 export function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (

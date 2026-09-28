@@ -58,14 +58,11 @@ export function NewIssueModal({
   open,
   onOpenChange,
   preset,
-  presetProject,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   preset?: { status?: IssueStatus } | null;
-  // when opened from a project context, preselect that project
-  presetProject?: string | null;
   onCreated: (id: string) => void;
 }) {
   const t = useT();
@@ -84,7 +81,7 @@ export function NewIssueModal({
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   // Browser memory: remember the last picked project so the next new issue
-  // defaults to it (presetProject, when given, always wins).
+  // defaults to it.
   const [cachedProjectId, setCachedProjectId] = usePersistentState<string | null>(
     'newIssue.projectId',
     null,
@@ -99,14 +96,14 @@ export function NewIssueModal({
       setStatus(preset?.status ?? 'todo');
       setPriority('none');
       setImportance('none');
-      setProjectId(presetProject ?? (cachedProjectId && projectById(cachedProjectId) ? cachedProjectId : null));
+      setProjectId(cachedProjectId && projectById(cachedProjectId) ? cachedProjectId : null);
       setAssignee(null);
       setLabels([]);
       setPending([]);
       setSubmitError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, preset, presetProject]);
+  }, [open, preset]);
 
   // Upload each picked/pasted file immediately; keep the blob meta pending
   // until the issue exists.
@@ -126,7 +123,7 @@ export function NewIssueModal({
           failed: false,
         },
       ]);
-      uploadAttachment(file)
+      uploadAttachment(file, 'issues')
         .then((meta) =>
           setPending((p) => p.map((x) => (x.key === key ? { ...x, meta, uploading: false } : x))),
         )

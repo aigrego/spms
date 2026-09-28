@@ -155,7 +155,7 @@ function ProjectCard({
           + Popover 指派;指派的 role=lead 即新 lead 展示(legacy
           leadId/aiLeadId 字段保留于编辑弹窗,卡片不再展示)。 */}
       <div className="flex items-center gap-2.5 border-t border-border pt-3">
-        <ResourcePanelCompact nodeType="project" nodeId={p.id} variant="compact" />
+        <ResourcePanelCompact nodeType="project" nodeId={p.id} />
         <div className="flex-1" />
         <span className="inline-flex items-center gap-1 text-[12px] text-fg-3">
           <Hash size={13} />

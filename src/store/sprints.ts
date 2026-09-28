@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
-export function useSprints(team?: string) {
-  return useQuery({ queryKey: ['sprints', team], queryFn: () => api.sprints(team) });
+export function useSprints() {
+  return useQuery({ queryKey: ['sprints'], queryFn: () => api.sprints() });
 }
 
-export function useBacklog(team?: string) {
-  return useQuery({ queryKey: ['backlog', team], queryFn: () => api.backlog(team) });
+export function useBacklog() {
+  return useQuery({ queryKey: ['backlog'], queryFn: () => api.backlog() });
 }
 
 export function useSprint(id: string | null) {
@@ -25,8 +25,8 @@ export function useBurndown(id: string | null) {
   });
 }
 
-export function useVelocity(team?: string) {
-  return useQuery({ queryKey: ['velocity', team], queryFn: () => api.velocity(team) });
+export function useVelocity() {
+  return useQuery({ queryKey: ['velocity'], queryFn: () => api.velocity() });
 }
 
 /* Move an issue into a sprint (or '_backlog' to remove). Invalidates the

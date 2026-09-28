@@ -1,12 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import { X, Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronLeft, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Loader2, Archive, ArchiveRestore, Pencil, Calendar, Copy, FlaskConical } from 'lucide-react';
-import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { Link2, MoreHorizontal, GitBranch, Target, Eye, CornerDownLeft, Check, FileText, ChevronLeft, ChevronRight, Box, Layers, Trash2, Plus, Paperclip, Archive, ArchiveRestore, Pencil, Calendar, Copy, FlaskConical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverTrigger, PopoverContent, MenuItem } from '@/components/ui/popover';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { StatusIcon } from '@/components/glyphs/StatusIcon';
 import { PriorityIcon } from '@/components/glyphs/PriorityIcon';
 import { ImportanceIcon } from '@/components/glyphs/ImportanceIcon';
@@ -14,6 +12,7 @@ import { TypeIcon } from '@/components/glyphs/TypeIcon';
 import { Avatar } from '@/components/glyphs/Avatar';
 import { AISlaBadge, LabelChip, ProjectIcon } from '@/components/glyphs/misc';
 import { Markdown } from '@/components/Markdown';
+import { AttachmentSection, type AttachmentSectionHandle } from '@/components/AttachmentSection';
 import { TypeMenu, StatusMenu, PriorityMenu, ImportanceMenu, ScopedAssigneeMenu, RequirementMenu, LabelMenu } from '@/components/menus';
 import { DetailDrawer } from '@/components/DetailDrawer';
 import { useT, useLocale } from '@/lib/i18n';
@@ -198,7 +197,8 @@ function CommentBox({ candidates, me, onSubmit }: { candidates: Member[]; me: Me
     setValue((v) => `${v.slice(0, caret)}${items.map((it) => it.placeholder).join('\n')}${v.slice(caret)}`);
     requestAnimationFrame(autoResize);
     for (const it of items) {
-      uploadAttachment(it.file)
+      // 粘贴图不注册为附件行(维持现状),intent 时 category 默认 issues。
+      uploadAttachment(it.file, 'issues')
         .then((meta) => {
           // 嵌入代理地址(?key= 按公司隔离),而不是后端的原始 url(私有不可直读)。
           const md = `${isImageType(meta.contentType) ? '!' : ''}[${meta.filename}](${objectReadUrl(meta.pathname)})`;
@@ -330,15 +330,9 @@ export function IssueDetail({
   const archive = useArchiveIssue();
   const registerAttachment = useRegisterAttachment();
   const deleteAttachment = useDeleteAttachment();
-  // In-flight uploads (blob uploaded, registration pending) — shown as dimmed tiles.
-  const [uploading, setUploading] = React.useState<{ key: string; preview: string; image: boolean }[]>([]);
-  // 上传失败原因(如 STORAGE_NOT_CONFIGURED)的短暂横幅提示。
-  const [uploadError, setUploadError] = React.useState<string | null>(null);
-  const flashUploadError = (msg: string) => {
-    setUploadError(msg);
-    setTimeout(() => setUploadError(null), 6000);
-  };
-  const attachInputRef = React.useRef<HTMLInputElement>(null);
+  // 附件区块共享组件(列表/上传占位/错误横幅/lightbox 均内聚);描述编辑态
+  // 粘贴图经 ref 复用其上传链路,lightbox 开闭经 onPreviewOpenChange 回流。
+  const attachRef = React.useRef<AttachmentSectionHandle>(null);
   const { data: projectReqs = [] } = useRequirements(issue?.projectId ? { project: issue.projectId } : undefined);
   const { data: linkedTcs = [] } = useTestCases({ issue: id });
   // Assignee + @-mention pool: the issue's project research resources (+ AI agents).
@@ -350,15 +344,14 @@ export function IssueDetail({
   const [moreOpen, setMoreOpen] = React.useState(false);
   // 描述编辑草稿(TKT-25):按 issue id 记,翻页到别的 issue 自动退出编辑态。
   const [descEdit, setDescEdit] = React.useState<{ id: string; text: string } | null>(null);
-  // Image preview lightbox: index into the image-only attachment list (documents
-  // open in a new tab instead), null = closed.
-  const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
-  const previewOpen = previewIndex !== null;
-  const attachCount = issue?.attachments.length ?? 0;
+  // 附件 lightbox 开闭状态(AttachmentSection 经 onPreviewOpenChange 同步):
+  // 开着时 Escape 只关 lightbox 不关抽屉(下方 capture 阶段处理器据此判断)。
+  const [previewOpen, setPreviewOpen] = React.useState(false);
 
   React.useEffect(() => {
-    // Capture phase: runs before the Dialog's own Escape handling, so `previewOpen`
-    // still reflects the open lightbox and Escape closes only the lightbox, not the drawer.
+    // Capture phase: runs before the lightbox Dialog's own Escape handling, so
+    // `previewOpen` still reflects the open lightbox and Escape closes only the
+    // lightbox, not the drawer.
     // 描述编辑中(descEdit)不按 Escape 关抽屉,避免丢失草稿。
     const k = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !previewOpen && descEdit?.id !== id) onClose();
@@ -366,17 +359,6 @@ export function IssueDetail({
     window.addEventListener('keydown', k, true);
     return () => window.removeEventListener('keydown', k, true);
   }, [onClose, previewOpen, descEdit, id]);
-
-  // ArrowLeft/ArrowRight cycle the preview while the lightbox is open.
-  React.useEffect(() => {
-    if (!previewOpen || attachCount < 2) return;
-    const k = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') setPreviewIndex((i) => (i === null ? i : (i - 1 + attachCount) % attachCount));
-      if (e.key === 'ArrowRight') setPreviewIndex((i) => (i === null ? i : (i + 1) % attachCount));
-    };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [previewOpen, attachCount]);
 
   if (!issue) return null;
 
@@ -408,32 +390,12 @@ export function IssueDetail({
     update.mutate({ id, input: { description: text || null } }, { onSuccess: () => setDescEdit(null) });
   };
   const candidates = candData?.candidates ?? [];
-  // Current lightbox attachment + wrap-around stepping across image attachments
-  // only (documents never enter the lightbox — they open in a new tab).
-  const imageAttachments = issue.attachments.filter((a) => isImageType(a.contentType));
-  const preview = previewIndex !== null ? (imageAttachments[previewIndex] ?? null) : null;
-  const stepImage = (delta: number) =>
-    setPreviewIndex((i) => (i === null ? i : (i + delta + imageAttachments.length) % imageAttachments.length));
 
-  // Upload each picked file straight to Blob, then register it on the issue.
-  const addFiles = (files: Iterable<File>) => {
-    for (const file of files) {
-      const key = crypto.randomUUID();
-      const image = isImageType(file.type);
-      setUploading((u) => [...u, { key, preview: image ? URL.createObjectURL(file) : '', image }]);
-      uploadAttachment(file)
-        .then((meta) =>
-          registerAttachment.mutate(
-            { id, meta },
-            { onSettled: () => setUploading((u) => u.filter((x) => x.key !== key)) },
-          ),
-        )
-        .catch((e) => {
-          flashUploadError(e instanceof Error ? e.message : t('issue.uploadFailed'));
-          setUploading((u) => u.filter((x) => x.key !== key));
-        });
-    }
-  };
+  // 上传链路:直传存储后端(category 恒 issues,客户端不指定 key 的任何一段),
+  // 成功后注册到本 issue;mutateAsync 逐调用独立结算(多文件并发不丢回调),
+  // settled 后 AttachmentSection 撤下占位块/错误横幅自管。
+  const uploadOne = (file: File) =>
+    uploadAttachment(file, 'issues').then((meta) => registerAttachment.mutateAsync({ id, meta }).then(() => undefined));
 
   // TKT-36:内容区仅在描述编辑态接受粘贴上传(评论框聚焦后的粘贴由 CommentBox
   // 自行处理并阻止冒泡);非编辑态用「添加附件」按钮,避免误粘贴污染附件列表。
@@ -442,13 +404,7 @@ export function IssueDetail({
     const files = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
     if (files.length) {
       e.preventDefault();
-      addFiles(files);
-    }
-  };
-
-  const removeAttachment = (attachmentId: string) => {
-    if (window.confirm(t('issue.confirmDeleteAttachment'))) {
-      deleteAttachment.mutate({ id, attachmentId });
+      attachRef.current?.uploadFiles(files);
     }
   };
 
@@ -637,94 +593,14 @@ export function IssueDetail({
             )}
 
             {/* Attachments */}
-            <div className="mb-[22px]">
-              <div className="mb-2 flex items-center gap-1.5 text-[12.5px] font-semibold text-fg-2">
-                <Paperclip size={14} className="text-fg-3" /> {t('issue.attachments')}
-                {issue.attachments.length > 0 && <> · {issue.attachments.length}</>}
-                <div className="flex-1" />
-                <button
-                  onClick={() => attachInputRef.current?.click()}
-                  className="inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[12.5px] font-medium text-fg-2 hover:bg-surface-2"
-                >
-                  <Plus size={13} className="text-fg-3" /> {t('issue.attachImage')}
-                </button>
-              </div>
-              {uploadError && (
-                <div className="mb-2 rounded-lg border border-danger/40 bg-danger/5 px-3 py-1.5 text-[12.5px] text-danger">
-                  {uploadError}
-                </div>
-              )}
-              {(issue.attachments.length > 0 || uploading.length > 0) && (
-                <div className="flex flex-wrap gap-2">
-                  {issue.attachments.map((a) => {
-                    const image = isImageType(a.contentType);
-                    return (
-                      <div
-                        key={a.id}
-                        title={a.filename}
-                        className="group relative h-16 w-16 overflow-hidden rounded-lg border border-border"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (image) {
-                              setPreviewIndex(imageAttachments.findIndex((x) => x.id === a.id));
-                            } else {
-                              window.open(a.url, '_blank', 'noopener');
-                            }
-                          }}
-                          aria-label={a.filename}
-                          className="block h-full w-full cursor-pointer"
-                        >
-                          {image ? (
-                            <img src={a.url} alt={a.filename} className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="flex h-full w-full flex-col items-center justify-center gap-0.5 bg-surface-2 px-1">
-                              <FileText size={16} className="flex-none text-fg-3" />
-                              <span className="w-full truncate text-center text-[10px] leading-tight text-fg-2">
-                                {a.filename}
-                              </span>
-                            </div>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => removeAttachment(a.id)}
-                          aria-label="delete"
-                          className="absolute right-0.5 top-0.5 hidden h-4 w-4 place-items-center rounded-full bg-black/55 text-white hover:bg-black/75 group-hover:grid"
-                        >
-                          <X size={10} />
-                        </button>
-                      </div>
-                    );
-                  })}
-                  {uploading.map((u) => (
-                    <div key={u.key} className="relative h-16 w-16 overflow-hidden rounded-lg border border-border">
-                      {u.image ? (
-                        <img src={u.preview} alt="" className="h-full w-full object-cover opacity-60" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-surface-2">
-                          <FileText size={16} className="text-fg-3" />
-                        </div>
-                      )}
-                      <div className="absolute inset-0 grid place-items-center">
-                        <Loader2 size={16} className="animate-spin text-fg-2" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <input
-                ref={attachInputRef}
-                type="file"
-                accept={ATTACHMENT_ACCEPT}
-                multiple
-                hidden
-                onChange={(e) => {
-                  if (e.target.files) addFiles(e.target.files);
-                  e.target.value = '';
-                }}
-              />
-            </div>
+            <AttachmentSection
+              ref={attachRef}
+              items={issue.attachments}
+              onUpload={uploadOne}
+              onDelete={(attachmentId) => deleteAttachment.mutate({ id, attachmentId })}
+              busy={registerAttachment.isPending || deleteAttachment.isPending}
+              onPreviewOpenChange={setPreviewOpen}
+            />
 
             {/* AI agent workspace card */}
             {issue.aiAssigned && assignee && (
@@ -1071,65 +947,6 @@ export function IssueDetail({
           </div>
         </div>
       </DetailDrawer>
-
-      {/* Attachment image lightbox — replaces opening the blob URL in a new tab */}
-      <Dialog open={!!preview} onOpenChange={(open) => !open && setPreviewIndex(null)}>
-        <DialogContent aria-describedby={undefined} className="w-[min(920px,94vw)] overflow-hidden">
-          <DialogPrimitive.Title className="sr-only">{preview?.filename}</DialogPrimitive.Title>
-          {preview && (
-            <div>
-              <div className="relative flex items-center justify-center bg-surface-2">
-                <img
-                  src={preview.url}
-                  alt={preview.filename}
-                  className="max-h-[76vh] w-auto max-w-full object-contain"
-                />
-                {imageAttachments.length > 1 && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => stepImage(-1)}
-                      aria-label={t('issue.prevImage')}
-                      title={t('issue.prevImage')}
-                      className="absolute left-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-black/45 text-white transition-colors hover:bg-black/65"
-                    >
-                      <ChevronLeft size={18} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => stepImage(1)}
-                      aria-label={t('issue.nextImage')}
-                      title={t('issue.nextImage')}
-                      className="absolute right-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-black/45 text-white transition-colors hover:bg-black/65"
-                    >
-                      <ChevronRight size={18} />
-                    </button>
-                  </>
-                )}
-              </div>
-              <div className="flex items-center gap-2.5 px-4 py-2.5">
-                <span className="min-w-0 flex-1 truncate text-[12.5px] text-fg-2" title={preview.filename}>
-                  {preview.filename}
-                </span>
-                {imageAttachments.length > 1 && (
-                  <span className="flex-none text-[12px] tabular-nums text-fg-3">
-                    {(previewIndex ?? 0) + 1} / {imageAttachments.length}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setPreviewIndex(null)}
-                  aria-label={t('issue.closePreview')}
-                  title={t('issue.closePreview')}
-                  className="grid h-7 w-7 flex-none place-items-center rounded-[7px] text-fg-3 hover:bg-surface-2 hover:text-fg-1"
-                >
-                  <X size={15} />
-                </button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

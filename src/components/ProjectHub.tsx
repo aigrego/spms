@@ -38,7 +38,7 @@ function PrdField({ label, value, placeholder, onSave }: { label: string; value:
         value={v}
         onChange={(e) => setV(e.target.value)}
         onBlur={() => { if (v.trim() !== value.trim()) onSave(v.trim()); }}
-        rows={Math.max(2, v.split('\n').length)}
+        rows={Math.max(6, v.split('\n').length)}
         placeholder={placeholder}
         className="w-full resize-none rounded-[9px] border border-transparent bg-transparent px-0 text-sm leading-relaxed text-fg-1 outline-none placeholder:text-fg-3 hover:border-border focus:border-brand-blue focus:px-2.5 focus:py-2"
       />
@@ -160,7 +160,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
       </div>
 
       {/* tab content */}
-      <div className="mx-auto w-full max-w-[940px] flex-1 overflow-y-auto p-6">
+      <div className={`w-full flex-1 overflow-y-auto p-6${tab === 'testcases' ? '' : ' mx-auto max-w-[940px]'}`}>
         {tab === 'basics' && (
           <div className="flex flex-col gap-6">
             {project.description && (
@@ -231,7 +231,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
               </Button>
             </div>
             {/* category board: 冒烟 / 功能 / 集成 / 回归 四列,列内快速创建带上该列类别 */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {TEST_CATEGORY_ORDER.map((cat) => {
                 const list = testCases.filter((c) => c.category === cat);
                 return (
@@ -288,7 +288,7 @@ export function ProjectHub({ projectId }: { projectId: string }) {
                   </div>
                   {/* stop propagation so interacting with the resource panel doesn't navigate */}
                   <div onClick={(e) => e.stopPropagation()}>
-                    <ResourcePanelCompact nodeType="sprint" nodeId={s.id} variant="compact" />
+                    <ResourcePanelCompact nodeType="sprint" nodeId={s.id} />
                   </div>
                   <ChevronRight size={15} className="flex-none text-fg-3 opacity-0 transition-opacity group-hover:opacity-100" />
                 </div>

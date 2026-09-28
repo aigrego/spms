@@ -77,12 +77,13 @@ export async function listTestCases(
   return filtered.map(serializeTestCase);
 }
 
-/* ---- single test case. Missing or outside the actor's visibility → null ---- */
+/* ---- single test case (+ attachments). Missing or outside the actor's
+   visibility → null ---- */
 export async function getTestCase(actor: Actor, key: string) {
   await requirePerm(actor, 'testcases', 'read');
   const row = await db.query.testCases.findFirst({
     where: and(eq(testCases.companyId, actor.companyId), eq(testCases.key, key)),
-    with: withLinks,
+    with: { ...withLinks, attachments: true },
   });
   if (!row) return null;
   const visibleProjectIds = clampAllowed(actor, (await visibleSetsFor(actor))?.projectIds ?? null);

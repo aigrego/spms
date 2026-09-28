@@ -10,7 +10,7 @@ import { useAppData } from '@/store/AppData';
 import { useT } from '@/lib/i18n';
 
 const selectCls =
-  'h-8 rounded-md border border-border-strong bg-surface px-2 text-[13px] text-fg-1 outline-none focus:border-brand-blue disabled:opacity-60';
+  'h-8 rounded-md border border-border-strong bg-surface px-2 text-[13px] text-fg-1 outline-none focus:border-brand-blue disabled:opacity-60 select-chevron';
 const primaryBtnCls =
   'h-8 rounded-md bg-brand-blue px-3 text-[13px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-40';
 const secondaryBtnCls =

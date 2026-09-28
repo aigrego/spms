@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { platformApi } from '@/lib/platformApi';
 import { api } from '@/lib/api';
-import type { AddMemberInput, CompanyRole, CreateCompanyInput, CreateMcpKeyInput, PermLevel, SaveOAuthProviderInput } from '@/lib/platformApi';
-import type { SaveStorageConfigInput } from '@/lib/api';
+import type { AddMemberInput, CreateCompanyInput, CreateMcpKeyInput, PermLevel, SaveOAuthProviderInput, SavePlatformStorageInput } from '@/lib/platformApi';
 
 /* Platform admin React Query hooks. All platform data lives under the
    ['platform', ...] key tree; mutations invalidate their subtree only —
@@ -17,6 +16,7 @@ export const platformKeys = {
   matrix: () => [...platformKeys.all, 'permissions-matrix'] as const,
   oauthProviders: () => [...platformKeys.all, 'oauth-providers'] as const,
   mcpKeys: () => [...platformKeys.all, 'mcp-keys'] as const,
+  storageConfig: () => [...platformKeys.all, 'storage-config'] as const,
 };
 
 /* ---- companies ---- */
@@ -48,6 +48,20 @@ export function useEnterCompany() {
     // Entering another company's sandbox switches server-side session scope:
     // every cached query (bootstrap, issues, …) belongs to the old company.
     onSuccess: () => qc.clear(),
+  });
+}
+
+/* 公司管理 → 开通存储:成功后刷新公司列表(storageMode)与本公司存储
+   状态卡(若该公司正是当前公司)。 */
+export function useProvisionCompanyStorage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
+      platformApi.provisionCompanyStorage(id, force),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: platformKeys.companies() });
+      qc.invalidateQueries({ queryKey: ['storage-config'] });
+    },
   });
 }
 
@@ -94,15 +108,6 @@ export function useAddMember(companyId: string) {
   const invalidate = useInvalidateMembers();
   return useMutation({
     mutationFn: (input: AddMemberInput) => platformApi.addMember(companyId, input),
-    onSuccess: () => invalidate(companyId),
-  });
-}
-
-export function useUpdateMemberRole(companyId: string) {
-  const invalidate = useInvalidateMembers();
-  return useMutation({
-    mutationFn: ({ membershipId, role }: { membershipId: string; role: CompanyRole }) =>
-      platformApi.updateMemberRole(companyId, membershipId, role),
     onSuccess: () => invalidate(companyId),
   });
 }
@@ -165,24 +170,45 @@ export function useDeleteOAuthProvider() {
   });
 }
 
-/* ---- 本公司文件存储配置(设置 → 文件存储) ---- */
+/* ---- 本公司存储状态(设置 → 偏好) ---- */
 export function useStorageConfig(enabled = true) {
   return useQuery({ queryKey: ['storage-config'], queryFn: () => api.storageConfig(), enabled });
 }
 
-export function useSaveStorageConfig() {
+/* 设置 → 偏好:平台存储已配置且本公司未开通时,一键开通当前公司存储。 */
+export function useProvisionStorage() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: SaveStorageConfigInput) => api.saveStorageConfig(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['storage-config'] }),
+    mutationFn: () => api.provisionStorage(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['storage-config'] });
+      qc.invalidateQueries({ queryKey: platformKeys.companies() });
+    },
   });
 }
 
-export function useDeleteStorageConfig() {
+/* ---- 平台默认文件存储(设置 → 平台存储,平台管理员) ---- */
+export function usePlatformStorageConfig(enabled = true) {
+  return useQuery({
+    queryKey: platformKeys.storageConfig(),
+    queryFn: () => platformApi.storageConfig(),
+    enabled,
+  });
+}
+
+export function useSavePlatformStorageConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.deleteStorageConfig(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['storage-config'] }),
+    mutationFn: (input: SavePlatformStorageInput) => platformApi.saveStorageConfig(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: platformKeys.storageConfig() }),
+  });
+}
+
+export function useDeletePlatformStorageConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => platformApi.deleteStorageConfig(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: platformKeys.storageConfig() }),
   });
 }
 

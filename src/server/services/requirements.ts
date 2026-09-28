@@ -57,13 +57,13 @@ export async function listRequirements(actor: Actor, filter?: { project?: string
   return rows.map(serializeRequirement);
 }
 
-/* ---- single requirement (+ linked issue keys). Missing or outside the
-   actor's visibility → null ---- */
+/* ---- single requirement (+ linked issue keys + attachments). Missing or
+   outside the actor's visibility → null ---- */
 export async function getRequirement(actor: Actor, key: string) {
   await requirePerm(actor, 'requirements', 'read');
   const row = await db.query.requirements.findFirst({
     where: and(eq(requirements.companyId, actor.companyId), eq(requirements.key, key)),
-    with: withIssues,
+    with: { ...withIssues, attachments: true },
   });
   if (!row) return null;
   const visibleProjectIds = clampAllowed(actor, (await visibleSetsFor(actor))?.projectIds ?? null);

@@ -1,0 +1,1 @@
+ALTER TABLE "platform_storage_configs" ADD COLUMN "enabled" boolean DEFAULT true NOT NULL;

@@ -8,7 +8,7 @@ import { TabBtn } from '@/components/ui/segmented';
 import { Skeleton, StateBlock } from '@/components/StateBlock';
 import { useMcpKeys, useRevokeMcpKey, useDeleteMcpKey, useUpdateMcpKey } from '@/store/platform';
 import { CreateKeyModal, KeyRevealDialog, useOwnerCandidates } from '@/components/platform/CreateKeyModal';
-import { PopoverConfirm, tdCls, thCls, fieldLabel, inputCls } from '@/components/platform/common';
+import { PopoverConfirm, tdCls, thCls, fieldLabel, selectCls } from '@/components/platform/common';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { ApiError } from '@/lib/api';
@@ -177,16 +177,29 @@ export function KeysPanel() {
                     </td>
                     <td className={`${tdCls} whitespace-nowrap`}>{k.companyId ? (k.companyName ?? '—') : t('keys.scopeAll')}</td>
                     <td className={`${tdCls} whitespace-nowrap`}>
-                      {k.projectIds ? (
-                        <span
-                          className="text-fg-2"
-                          title={k.projectIds.map((id) => projectById(id)?.name ?? id).join('、')}
-                        >
-                          {t('keys.nProjects', { n: k.projectIds.length })}
-                        </span>
-                      ) : (
-                        <span className="text-fg-2">{t('keys.allProjects')}</span>
-                      )}
+                      <span className="inline-flex items-center gap-1">
+                        {k.projectIds ? (
+                          <span
+                            className="text-fg-2"
+                            title={k.projectIds.map((id) => projectById(id)?.name ?? id).join('、')}
+                          >
+                            {t('keys.nProjects', { n: k.projectIds.length })}
+                          </span>
+                        ) : (
+                          <span className="text-fg-2">{t('keys.allProjects')}</span>
+                        )}
+                        {/* 项目白名单只能在 key 归属当前公司时编辑（项目列表来自当前公司 bootstrap） */}
+                        {k.companyId === currentCompany?.id && projects.length > 0 && (
+                          <button
+                            title={t('keys.editWhitelist')}
+                            aria-label={t('keys.editWhitelist')}
+                            className="grid h-6 w-6 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-2 hover:text-fg-1"
+                            onClick={() => setEditingProjects(k)}
+                          >
+                            <FolderKanban size={13} />
+                          </button>
+                        )}
+                      </span>
                     </td>
                     <td className={`${tdCls} whitespace-nowrap`}>
                       <span className="text-fg-2">{k.expiresAt ? formatDate(k.expiresAt, locale) : t('keys.forever')}</span>
@@ -201,17 +214,6 @@ export function KeysPanel() {
                     </td>
                     <td className={`${tdCls} whitespace-nowrap text-right`}>
                       <span className="inline-flex items-center gap-1">
-                        {/* 项目白名单只能在 key 归属当前公司时编辑（项目列表来自当前公司 bootstrap） */}
-                        {k.companyId === currentCompany?.id && projects.length > 0 && (
-                          <button
-                            title={t('keys.editWhitelist')}
-                            aria-label={t('keys.editWhitelist')}
-                            className="grid h-7 w-7 place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-2 hover:text-fg-1"
-                            onClick={() => setEditingProjects(k)}
-                          >
-                            <FolderKanban size={14} />
-                          </button>
-                        )}
                         <button
                           title={t('keys.changeOwner')}
                           aria-label={t('keys.changeOwner')}
@@ -388,7 +390,7 @@ function EditOwnerModal({
         <div className="flex flex-col gap-3 px-[18px] py-3">
           <div>
             <span className={fieldLabel}>{t('keys.ownerLabel')}</span>
-            <select className={inputCls} value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+            <select className={selectCls} value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
               {!options.some((o) => o.id === ownerId) && (
                 <option value={ownerId}>{k.ownerName ?? t('keys.currentOwner')}</option>
               )}

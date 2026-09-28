@@ -7,7 +7,7 @@
 ## 权限门（RBAC）
 
 - 每个 service 入口按「路由 → 模块」映射做 `requirePerm(actor, module, read|write)`，不足 → **403 FORBIDDEN**（真实状态码）。
-- 模块映射：`/issues*`→issues · `/labels*`→issues（自定义标签复用 issues 模块）· `/requirements*`→requirements · `/plans*`→requirements（复用，不新增模块）· `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases · `/reports*|/summary`→reports。
+- 模块映射：`/issues*`→issues · `/labels*`→issues（自定义标签复用 issues 模块）· `/requirements*`→requirements · `/plans*`→requirements（复用，不新增模块）· `/projects*`→projects · `/sprints*`→sprints（`/sprints/backlog`→backlog）· `/product-lines|/products|/releases*`→products · `/resources|/assignments*`→resources · `/test-cases*`→testcases · `/reports*|/summary`→reports · 附件注册/删除按归属实体模块（issues/testcases/requirements，见「Attachments」节）。
 - `company_admin` 与平台管理员恒过；`viewer` 类只读角色调写接口同样 403。
 - **项目创建/删除**额外要求 `company_admin` 或平台管理员（矩阵 projects=write 不够）。
 - bootstrap 无模块门（登录即可），返回里的 `permissions` 供前端过滤 UI。
@@ -42,14 +42,14 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/bootstrap` | 启动参考数据：`{ me, role, companyRole, companies, currentCompany, permissions, members, teams, labels, projects, myProjectIds, sprints, productLines, products, releases }`；均为**当前公司**沙箱内数据；projects/releases 的 progress 为派生值；`myProjectIds` 为「我参与的」项目集（本人 direct 指派的项目及其指派迭代关联的项目，口径同指派可见性），供项目列表「全部/我参与的」筛选 |
+| GET | `/bootstrap` | 启动参考数据：`{ me, role, companyRole, companies, currentCompany, permissions, members, labels, projects, myProjectIds, sprints, productLines, products, releases }`；均为**当前公司**沙箱内数据；projects/releases 的 progress 为派生值；`myProjectIds` 为「我参与的」项目集（本人 direct 指派的项目及其指派迭代关联的项目，口径同指派可见性），供项目列表「全部/我参与的」筛选 |
 | POST | `/labels` | `{ name, color }`（color 为 `#RRGGBB`）现场自定义标签（issues=write）；同名 → CONFLICT；`key` 自动生成 `custom_<8hex>`。标签列表随 bootstrap 下发，无独立 GET |
 
 ## Issues（缺陷 = type='bug'）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/issues?team&assignee&project&includeArchived&recentDone` | 列表，updatedAt desc；带 labels/subIssues/requirement.key；`sub:{done,total}`；默认排除已归档 issue 及已归档项目的 issue（`includeArchived=1` 放行，项目中心等历史上下文用）；`recentDone=1` 时已完成（done）只显示最近一周完成的记录（按 `completedAt`，全部/我的 Issues 视图 opt-in，其余消费方全量） |
+| GET | `/issues?assignee&project&includeArchived&recentDone` | 列表，updatedAt desc；带 labels/subIssues/requirement.key；`sub:{done,total}`；默认排除已归档 issue 及已归档项目的 issue（`includeArchived=1` 放行，项目中心等历史上下文用）；`recentDone=1` 时已完成（done）只显示最近一周完成的记录（按 `completedAt`，全部/我的 Issues 视图 opt-in，其余消费方全量） |
 | GET | `/issues/:key` | 详情（含 activities）；不存在 → `ok(null)` |
 | POST | `/issues` | title 必填；requirementId 收展示 key；sprint-project 一致性（冲突 → LIFECYCLE_MISMATCH）；写 created activity；指派 agent 触发 AI 演示 |
 | PATCH | `/issues/:key` | 部分更新；labels 全量替换；assignee 变更写 assign activity。与 MCP 同口径走工作流：`status='done'` 且当前不在 testing → 落 testing 并自动指派测试人员；testing → done 过测试关单门禁（关联用例未全过报 TESTS_NOT_PASSED，`force: true` 覆盖） |
@@ -84,12 +84,12 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/sprints?team` | 列表 |
+| GET | `/sprints` | 列表 |
 | POST | `/sprints` | **新增**（原系统无）：name/startDate/endDate/projectIds（数组，可跨多项目）等 |
 | PATCH | `/sprints/:id` | **新增**：部分更新（projectIds 整体替换） |
 | DELETE | `/sprints/:id` | **新增**：issues.sprintId set null 后删 |
-| GET | `/sprints/backlog?team` | 产品待办：sprintId IS NULL 且 status=todo（待处理）的 issues，keyNum/key 倒序（与 `/issues` 展示顺序一致）；其他状态及已归档（含已归档项目的）一律不进 |
-| GET | `/sprints/velocity?team` | 每 sprint committed/completed/capacity + avgVelocity |
+| GET | `/sprints/backlog` | 产品待办：sprintId IS NULL 且 status=todo（待处理）的 issues，keyNum/key 倒序（与 `/issues` 展示顺序一致）；其他状态及已归档（含已归档项目的）一律不进 |
+| GET | `/sprints/velocity` | 每 sprint committed/completed/capacity + avgVelocity |
 | GET | `/sprints/:id` | 元数据 + committed issues + stats |
 | GET | `/sprints/:id/burndown` | ideal 线性 + snapshots actual |
 | PATCH | `/sprints/:id/issues/:issueKey` | 移入/移出（`:id` 可为 `_backlog`）；迭代有项目时 issue 的项目必须在其中（否则 LIFECYCLE_MISMATCH），issue 无项目且迭代恰好一个项目时自动归属 |
@@ -146,6 +146,22 @@
 | GET | `/test-runs?project&category` | 测试执行历史（倒序，含逐条明细） |
 | POST | `/test-runs` | 记录一次套件执行：`{projectId\|releaseId, category, results:[{key,result,note?}], note?, raiseBugs?}`（范围二选一）；逐条更新用例 result（draft 自动转 active）并写 test_runs/test_run_items；raiseBugs=true 时 failed 项自动生成 BUG |
 
+## Attachments 附件（`/attachments*` + 实体注册路由）
+
+附件可挂在 issue / test case / requirement 上（DB 恰一 owner FK，CHECK 约束）。浏览器流 = ①`upload` 拿预签名 PUT → ②直传 MinIO → ③调对应实体的注册路由落行；MCP 流为服务端直传后走同一注册服务。对象 key 全部由服务端铸造（`{companyId}/{category}/{userSegment}/{fileType}/{uuid}-{safeName}`，category = issues/cases/requirements，userSegment = 操作人 memberId），客户端不能指定任何一段。注册闸门顺序：requirePerm（归属模块 write）→ 实体存在 → meta 非空 → key 三段比对 → contentType allow-list → ≤10MB。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/attachments` | 公司附件分页列表（设置 → 附件 面板）：`?page=`（从 1 起，默认 1）`&pageSize=`（默认 24，上限 100）→ `{ items, total, page, pageSize }`，items 行附 `owner:{type,key,title}`；读闸门为 issues/testcases/requirements 任一模块 read，三者皆 none → 403 |
+| POST | `/attachments/upload` | `{ action:'create-intent', filename, contentType, size, category? }` → `{ mode:'presigned-put', uploadUrl, objectKey }`；category ∈ `issues\|cases\|requirements`（默认 `issues`）；仅登录门（真正闸门在注册时）；公司未开通 → STORAGE_NOT_PROVISIONED，平台未配置 → STORAGE_NOT_CONFIGURED，总开关关 → STORAGE_DISABLED；格式/大小不符 → VALIDATION_FAILED |
+| POST | `/issues/:key/attachments` | `{ url, pathname, filename, contentType, size }` 注册为 issue 附件（模块门 issues=write；issue 不存在 → ISSUE_NOT_FOUND；key 三段比对失败/格式/大小 → VALIDATION_FAILED）→ 附件行 |
+| POST | `/test-cases/:key/attachments` | 同上，注册到测试用例（模块门 testcases=write；TEST_CASE_NOT_FOUND） |
+| POST | `/requirements/:key/attachments` | 同上，注册到需求（模块门 requirements=write；REQUIREMENT_NOT_FOUND） |
+| GET | `/attachments/object?id=\|key=` | 读取代理（私有 bucket 唯一读口）：`?id=` 行级鉴权（附件行须属当前公司），`?key=` 校验 key 内嵌 companyId；鉴权后 302 到 MinIO 短时效 presigned GET（`Cache-Control: private, no-cache`）；objectKey 为 NULL 的 Vercel 旧行 302 其存量公网 url；不存在 → ATTACHMENT_NOT_FOUND，跨公司 → FORBIDDEN |
+| DELETE | `/attachments/:id` | 删行 + 删对象（对象删除失败只告警，孤儿由对账脚本清理）；模块门按行的实际归属实体（issues/testcases/requirements write）；不存在 → ATTACHMENT_NOT_FOUND |
+
+附件响应形状：`{ id, url, pathname, objectKey, filename, contentType, size, uploadedById, createdAt }`（`url` 恒为应用内代理地址 `?id=` 形式，真实存储地址不出库）。issue/testCase/requirement 详情响应内嵌 `attachments`（列表响应为空数组）。
+
 ## Dev Plans 开发计划（`/plans*`，模块门复用 requirements）
 
 项目级 markdown 计划，经 plan_requirements 关联 N 条需求（关联键 = FR/NFR 展示 key）；status：`draft`（待生成）/ `generated`（已生成）。
@@ -180,16 +196,18 @@
 
 口径：新建 = 实体 `createdAt` 落入周期；交付 = `issue_status_transitions` to `testing`；验收完成 = 流转 to `done` ∪ `completedAt` 兜底（Notion 同步只回写 completedAt），按 issue 去重；验收打回 = 从 `testing` 回 todo/in_progress/backlog；重开 = 从 `done` 离开。成员过滤对流量指标按行为人（流转/创建活动/作者 whoId），对存量指标（在办/待验收/积压/状态分布）按当前负责人。返回卡片（本期+上期值）、吞吐分桶（每日=14 天；每周=周 7 天 + 12 周趋势）、周期时长三段（建单→首次可测试 / 首次可测试→首次验收 / 端到端，avg/P90/max+maxKey）、验收积压、当前流动健康、按成员分列（全部 active 成员）。
 
-## File Storage 文件存储（设置 → 文件存储）
+## File Storage 文件存储（公司级：设置 → 偏好 / 平台级：设置 → 平台存储）
 
-公司自助配置附件存储后端（MinIO / Vercel Blob），`company_storage_configs` 表每公司一行；**无配置 = 禁止上传**（零平台兜底，上传报 `STORAGE_NOT_CONFIGURED`）。权限门槛：平台管理员或本公司 `company_admin`（不走模块矩阵）。敏感字段（accessKey/secretKey/token）AES-256-GCM 密文落库，读取只回 `hasXxx` 标志。
+附件存储只有 MinIO 一个后端，两级模型：`platform_storage_configs` 单行（平台管理员维护全局 MinIO 配置 + `enabled` 总开关）+ `company_storage_configs` 每公司一行（公司行恒优先；一般由「开通」物化，也可 PUT 手动配置覆盖）。**公司未开通 = 禁止上传**：上传报 `STORAGE_NOT_PROVISIONED`；平台未配置 → `STORAGE_NOT_CONFIGURED`；总开关关闭 → `STORAGE_DISABLED`。开通 = 以平台 MinIO 管理员凭据创建按 `{companyId}/*` 前缀隔离的 IAM 账号并物化公司行（`provisioned='auto'`），幂等不覆盖已有行。公司级路由门槛：平台管理员或本公司 `company_admin`（不走模块矩阵）。敏感字段 AES-256-GCM 密文落库，读取只回 `hasXxx` 标志。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/storage-config` | 本公司配置状态：`{ configured:false }` 或 `{ configured:true, backend, minio:{endpoint,port,useSsl,bucket,publicBaseUrl,hasAccessKey,hasSecretKey}\|null, hasToken }` |
-| PUT | `/storage-config` | `{ backend:'minio'\|'vercel_blob', minio?{endpoint,port?,useSsl?,accessKey?,secretKey?,bucket?,publicBaseUrl?}, token? }` 保存（新建或整行替换；敏感字段不传 = 保留旧值，首次保存必填；`publicBaseUrl` 传 `''`/null 清除） |
-| POST | `/storage-config` | `{ action:'test', backend?, minio?, token? }` 连通性测试（缺省字段回落已存配置；后端连接失败 → `STORAGE_TEST_FAILED`） |
-| DELETE | `/storage-config` | 删除本公司配置，回到「未配置 = 禁止上传」 |
+| GET | `/storage-config` | 本公司配置/开通状态；无公司行时附平台侧配置/开关状态，供前端区分「平台未配置」与「未开通/总开关关闭」 |
+| PUT | `/storage-config` | `{ backend:'minio', minio?{endpoint,port?,useSsl?,accessKey?,secretKey?,bucket?,publicBaseUrl?} }` 保存手动 MinIO 配置（覆盖自动开通行；敏感字段不传 = 保留旧值，首次保存必填；`publicBaseUrl` 传 `''`/null 清除） |
+| POST | `/storage-config` | 无 body 或 `{action:'provision'}` → 一键开通（平台 MinIO 已配置时物化本公司 IAM 账号）；`{action:'test', minio?}` → 连通性测试（缺省字段回落已存配置；失败 → `STORAGE_TEST_FAILED`） |
+| DELETE | `/storage-config` | 删除本公司配置，回到平台级状态 |
+
+平台级路由见「Platform 平台管理」节的 `/platform/storage-config` 与 `/platform/companies/:id/storage`。
 
 ## Integrations 集成（Notion，均需 issues=write）
 
@@ -223,6 +241,11 @@
 | GET | `/oauth-providers` | 三方登录（飞书/Lark/GitHub）配置状态列表：`{ configSource, providers:[{ provider, configured, source(db/env/null), enabled, appId, redirectUri, derivedRedirectUri, hasSecret }] }`（secret 永不回显；生效来源受 env `OAUTH_CONFIG_SOURCE` 开关约束：auto=DB 优先 env 兜底 / db / env） |
 | PUT | `/oauth-providers` | `{ provider, appId, appSecret?, redirectUri?, enabled? }` 保存 DB 配置（appSecret 不传 = 保留旧值，AES-256-GCM 密文落库；redirectUri 只存路径部分，host 由 PUBLIC_ORIGIN/请求 origin 拼接） |
 | DELETE | `/oauth-providers?provider=` | 删除该 provider 的 DB 配置行（回退 env 兜底；未知 provider → VALIDATION_FAILED） |
+| GET | `/storage-config` | 平台默认附件存储状态（设置 → 平台存储）：`{ configured:false }` 或 `{ configured:true, backend, enabled, minio:{endpoint,port,useSsl,bucket,publicBaseUrl,hasAccessKey,hasSecretKey} }` |
+| PUT | `/storage-config` | `{ backend:'minio', minio?{...}, enabled? }` 保存平台 MinIO 配置（敏感字段不传 = 保留旧值，首次必填且需管理员权限凭据；`enabled` 为平台级总开关，可单独部分更新） |
+| POST | `/storage-config` | `{ action:'test', minio? }` 连通性测试：除 bucket 存在/创建 + 写删探测外，额外校验管理员能力（`mc admin user list`，「开通存储」依赖）；失败 → `STORAGE_TEST_FAILED` |
+| DELETE | `/storage-config` | 删除平台存储配置行 |
+| POST | `/companies/:id/storage` | 平台管理员手动为该公司开通存储（公司管理 → 开通存储）：物化按前缀隔离的 IAM 用户与公司行；body `{ force?: boolean }` 可省略——默认幂等不覆盖已有公司行，`force=true` 重跑并覆盖（= 密钥轮换）；平台未配置 MinIO → `STORAGE_NOT_CONFIGURED`，物化失败 → `STORAGE_PROVISION_FAILED` |
 | GET | `/mcp-keys` | MCP key 列表（不返回 keyHash/明文；含 ownerId/ownerName）；管理员见全部，member 只见自己创建的 |
 | POST | `/mcp-keys` | `{ name, companyId?, ownerId?, capabilities?, expiresInDays?, projectIds? }` 签发 key（管理员：companyId 省略=平台级；member 自助：companyId 省略=当前公司，且必须是其所属公司，显式 null/他人公司 → 403；ownerId=所属人，省略=创建人，公司级 key 的所属人必须是该公司成员或平台管理员；capabilities ⊆ read/write，默认 `['read','write']`（delete 预留，不可新签发）；expiresInDays 省略=永不过期；projectIds=项目白名单，省略/null=不限项目，公司级 key 要求项目属该公司）；**明文仅本次返回** |
 | PATCH | `/mcp-keys/:id` | `{ ownerId }` 修改所属人（MCP 调用的第一人称身份）；member 只能改自己的 key，否则 403 |
@@ -230,4 +253,4 @@
 
 ## 错误码（主要）
 
-`UNAUTHORIZED` `FORBIDDEN` `NO_COMPANY`（用户无公司归属）`VALIDATION_FAILED` `NOT_FOUND` `REQUIREMENT_NOT_FOUND` `LIFECYCLE_MISMATCH` `INVITE_FAILED` `RESOURCE_REVOKED` `STORAGE_NOT_CONFIGURED`（公司未配置存储，禁止上传）`STORAGE_TEST_FAILED`（存储连通性测试失败）
+`UNAUTHORIZED` `FORBIDDEN` `NO_COMPANY`（用户无公司归属）`VALIDATION_FAILED` `NOT_FOUND` `REQUIREMENT_NOT_FOUND` `LIFECYCLE_MISMATCH` `INVITE_FAILED` `RESOURCE_REVOKED` `ATTACHMENT_NOT_FOUND` `STORAGE_NOT_CONFIGURED`（平台未配置存储）`STORAGE_NOT_PROVISIONED`（公司未开通存储，禁止上传）`STORAGE_DISABLED`（平台总开关关闭）`STORAGE_TEST_FAILED`（存储连通性测试失败）`STORAGE_PROVISION_FAILED`（开通物化失败）

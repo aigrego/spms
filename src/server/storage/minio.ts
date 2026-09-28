@@ -1,6 +1,7 @@
 import * as Minio from 'minio';
+import { fileTypeOf } from '@/lib/attachments';
 import { ApiException } from '@/lib/envelope';
-import { assertOwnKey, newObjectKey, type StorageBackend, type UploadIntent } from './types';
+import { assertOwnKey, categoryFromKey, newObjectKey, objectKeyPrefix, type StorageBackend, type UploadIntent } from './types';
 
 /* MinIO (S3-compatible) backend. The bucket is expected to be PRIVATE — all
    reads go through the app's /attachments/object proxy, which 302s to a
@@ -19,6 +20,12 @@ export interface MinioConfig {
      预签名 URL 必须按公网 host 签发（V4 签名覆盖 host 头，浏览器必须按签发
      的 host 请求才校验得过）；null/缺省 = 用内网 endpoint 直签（纯内网部署）。 */
   publicBaseUrl?: string | null;
+  /* 签名 region。已知凭据为按前缀授权（provisioned='auto' 的隔离账号）时
+     必须 pin 死：受限凭据无 GetBucketLocation 权限，presign 前 minio-js 的
+     getBucketRegion 探活会被拒——MinIO 对该拒绝路径直接重置连接，minio-js
+     又长时间重试，表现为上传意图/读 URL 卡死。缺省 = 不 pin（按需探活，
+     全权限凭据可正常探到真实 region）。 */
+  region?: string | null;
 }
 
 /* 把公网基址解析成 minio 客户端参数 + 规范化基址。规范化规则（protocol//host，
@@ -54,18 +61,20 @@ const GET_EXPIRY_S = 5 * 60; // 代理 302 后立即跟随，短时效即可
 
 /* 由公司配置构造 minio 客户端。预签名场景用 override 把 endpoint 换成公网基址
    （浏览器按公网 host 校验 V4 签名），region 写死 us-east-1 以避免 presign 前的
-   getBucketRegion 探活请求打到公网地址（服务端可能不可达）。 */
+   getBucketRegion 探活请求打到公网地址（服务端可能不可达）。region 优先级：
+   override > conf.region（受限凭据 pin 死的签名 region）。 */
 function minioClient(
   conf: MinioConfig,
   override?: { endPoint: string; port: number; useSSL: boolean; region?: string },
 ): Minio.Client {
+  const region = override?.region ?? conf.region ?? undefined;
   return new Minio.Client({
     endPoint: override?.endPoint ?? conf.endpoint,
     port: override?.port ?? conf.port,
     useSSL: override?.useSSL ?? conf.useSsl,
     accessKey: conf.accessKey,
     secretKey: conf.secretKey,
-    ...(override?.region ? { region: override.region } : {}),
+    ...(region ? { region } : {}),
   });
 }
 
@@ -89,14 +98,17 @@ export function minioBackend(companyId: string, conf: MinioConfig): StorageBacke
     kind: 'minio',
     companyId,
 
-    async createUploadIntent(filename: string): Promise<UploadIntent> {
-      const objectKey = newObjectKey(companyId, filename);
+    async createUploadIntent(filename, keying): Promise<UploadIntent> {
+      const objectKey = newObjectKey(companyId, keying.category, keying.userSegment, fileTypeOf(keying.contentType), filename);
       const uploadUrl = await presignClient.presignedPutObject(conf.bucket, objectKey, PUT_EXPIRY_S);
       return { mode: 'presigned-put', uploadUrl, objectKey };
     },
 
     async put(objectKey, body, contentType) {
-      assertOwnKey(companyId, objectKey);
+      // 写路径只认新格式前缀（get/getReadUrl/del 才走 assertOwnKey 的双格式兼容）。
+      if (!objectKey.startsWith(objectKeyPrefix(companyId))) {
+        throw new Error(`object key ${objectKey} 不是公司 ${companyId} 的新格式 key（写路径不接受 legacy key）`);
+      }
       await client.putObject(conf.bucket, objectKey, body, body.length, { 'Content-Type': contentType });
     },
 
@@ -120,9 +132,17 @@ export function minioBackend(companyId: string, conf: MinioConfig): StorageBacke
 
     canonicalUrl,
 
-    assertMeta(url, objectKey) {
-      if (!objectKey.startsWith(`issues/${companyId}/`)) {
+    assertMeta(url, objectKey, expected) {
+      // 注册校验只认新格式：前缀 + category 段 + userSegment 段三重比对——
+      // 客户端上报错 category 段或他人 userSegment 段的 key 一律拒绝。
+      if (!objectKey.startsWith(objectKeyPrefix(companyId))) {
         throw new ApiException('VALIDATION_FAILED', '附件 objectKey 与签发前缀不一致');
+      }
+      if (categoryFromKey(objectKey) !== expected.category) {
+        throw new ApiException('VALIDATION_FAILED', '附件 objectKey 与签发 category 不一致');
+      }
+      if (objectKey.split('/')[2] !== expected.userSegment) {
+        throw new ApiException('VALIDATION_FAILED', '附件 objectKey 与签发用户不一致');
       }
       if (url !== canonicalUrl(objectKey)) {
         throw new ApiException('VALIDATION_FAILED', '附件 url 不属于本存储后端');
@@ -138,6 +158,15 @@ export async function testMinioConnection(conf: MinioConfig): Promise<void> {
     throw new ApiException('VALIDATION_FAILED', `bucket ${conf.bucket} 不存在或无权访问`);
   }
   const probe = `.spms-probe-${crypto.randomUUID()}`;
+  await client.putObject(conf.bucket, probe, Buffer.from('ok'), 2);
+  await client.removeObject(conf.bucket, probe);
+}
+
+/* 按前缀授权（provisioned='auto'）的凭据探测：bucket 根目录无权限，只在给定
+   前缀下写/删探测对象。provisioning 落库前的端到端验证也用它。 */
+export async function probePrefixAccess(conf: MinioConfig, prefix: string): Promise<void> {
+  const client = minioClient(conf);
+  const probe = `${prefix}.spms-probe-${crypto.randomUUID()}`;
   await client.putObject(conf.bucket, probe, Buffer.from('ok'), 2);
   await client.removeObject(conf.bucket, probe);
 }

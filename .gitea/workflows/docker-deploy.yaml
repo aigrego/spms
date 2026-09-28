@@ -82,7 +82,16 @@ jobs:
           cat buildkitd.toml
           docker buildx create --use --name spmsbuilder --config buildkitd.toml
 
-      # 构建上下文 = 仓库根（根级 Dockerfile：Next.js standalone 多阶段构建）。
+      # 构建上下文 = 仓库根（根级 Dockerfile：runtime-node 单段模式，源码 COPY，
+      # 容器启动时 install+build——见 Dockerfile 头注释）。
+      # mc（MinIO Client）是运行时依赖且官方已停发预编译二进制：先在一次性 golang
+      # 容器里从源码构建出 .ci-assets/mc（scripts/build-mc.sh，MC_REF 钉版本，
+      # 可用仓库变量覆盖），Dockerfile 构建期拷入。
+      - name: 构建 mc 二进制（.ci-assets/mc）
+        env:
+          MC_REF: ${{ vars.INNEV_MC_REF || 'RELEASE.2025-07-21T05-28-08Z' }}
+        run: cd src && bash scripts/build-mc.sh
+
       # 层缓存外置 registry（mode=max 含中间阶段；image-manifest/oci-mediatypes 提兼容性），
       # 首次无 buildcache 时 buildkit 自动忽略继续。单架构原生构建——部署目标即本机，无需 QEMU 多架构。
       - name: 构建并推送 spms 镜像
@@ -139,24 +148,28 @@ jobs:
           docker rm -f spms 2>/dev/null || true
           # 靠后的 -e 覆盖 --env-file 同名变量（容器端口固定 5175，不受 .env 影响）；
           # --add-host livebook: 让 .env 里的 livebook 主机名（如 postgres@livebook:5433）在容器内可解析。
+          # runtime-node 单段模式：容器启动时 install+build，APP_ENTRY 指向 standalone 产物入口。
           docker run -d --name spms --restart unless-stopped \
             -p "${INNEV_HOST_PORT}:5175" \
             --env-file "$INNEV_ENV_FILE" \
             -e HOSTNAME=0.0.0.0 \
             -e PORT=5175 \
+            -e APP_ENTRY=.next/standalone/server.js \
             --add-host host.docker.internal:host-gateway \
             --add-host livebook:host-gateway \
             "$IMAGE"
 
+      # runtime-node 容器启动时要先 pnpm install + next build（数分钟），
+      # 健康检查窗口放宽到 ~7.5 分钟，日志可见 install/build 进度，别当挂起杀掉。
       - name: 健康检查
         run: |
-          for i in $(seq 1 15); do
+          for i in $(seq 1 90); do
             if curl -fsS "http://127.0.0.1:${INNEV_HOST_PORT}/api/health"; then
               echo ""
               echo "部署完成：http://127.0.0.1:${INNEV_HOST_PORT}（镜像 $INNEV_IMAGE_PREFIX/spms:${GITHUB_SHA:0:8}）"
               exit 0
             fi
-            sleep 2
+            sleep 5
           done
           echo "::error::健康检查失败，容器最近日志：" >&2
           docker logs --tail 50 spms >&2 || true
@@ -220,6 +233,7 @@ jobs:
 #                           registry.hub.docker.com,docker.1panel.live,docker.1panel.dev,docker.1ms.run
 #   INNEV_HOST_PORT         容器对外发布端口，默认 5175（容器内固定 5175）
 #   INNEV_ENV_FILE          服务器上 .env 的绝对路径，默认 /etc/spms/.env（见上方准备 6）
+#   INNEV_MC_REF            mc（MinIO Client）源码构建版本 git tag，默认 RELEASE.2025-07-21T05-28-08Z
 # 密钥（Secrets）：
 #   INNEV_REGISTRY_USER     docker login 账号——跨命名空间推包时必需（同命名空间可回退 gitea.actor）
 #   INNEV_REGISTRY_TOKEN    docker login token（scope: write:package + read:package）

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { CreateTestCaseInput, RecordTestRunInput, UpdateTestCaseInput } from '@/lib/api';
+import type { AttachmentMeta, CreateTestCaseInput, RecordTestRunInput, UpdateTestCaseInput } from '@/lib/api';
 import type { TestCase, TestCaseCategory } from '@/lib/types';
 import { createEntityHooks } from './createEntityHooks';
 
@@ -48,5 +48,23 @@ export function useRecordTestRun() {
       // raiseBugs=true 时 failed 项自动建 BUG issue。
       qc.invalidateQueries({ queryKey: ['issues'] });
     },
+  });
+}
+
+/* 用例附件(执行证据截图等)走用例详情失效,与 issue 附件同构。 */
+export function useRegisterAttachment() {
+  const invalidate = testCaseHooks.useInvalidate();
+  return useMutation({
+    mutationFn: ({ id, meta }: { id: string; meta: AttachmentMeta }) => api.registerTestCaseAttachment(id, meta),
+    onSuccess: (_d, vars) => invalidate(vars.id),
+  });
+}
+
+export function useDeleteAttachment() {
+  const invalidate = testCaseHooks.useInvalidate();
+  return useMutation({
+    mutationFn: ({ attachmentId }: { id: string; attachmentId: string }) =>
+      api.deleteAttachment(attachmentId),
+    onSuccess: (_d, vars) => invalidate(vars.id),
   });
 }

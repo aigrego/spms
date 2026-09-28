@@ -155,8 +155,6 @@ export function requireAdmin(actor: Actor): void {
   if (actor.role !== 'admin') throw new ApiException('FORBIDDEN', '需要管理员权限', 403);
 }
 
-export const requirePlatformAdmin = requireAdmin;
-
 /* Enter a company: re-sign the session cookie with `cid` pointing at the
    target company and return ok({ companyId }) with the cookie set. Requires
    membership in the target company, or platform admin (target company must

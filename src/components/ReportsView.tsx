@@ -204,7 +204,7 @@ function ReportEditor({
                   </button>
                 </div>
                 <Textarea
-                  rows={4}
+                  rows={8}
                   value={b.content}
                   onChange={(e) =>
                     setBlocks((prev) => prev.map((x) => (x.productId === b.productId ? { ...x, content: e.target.value } : x)))

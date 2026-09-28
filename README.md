@@ -17,11 +17,11 @@
 - **产品目录**：产品线 → 产品 → 版本三级生命周期管理（级联删除确认）
 - **研发资源池**：内部成员 / 外部挂名资源 / 4 个内置 AI Agent；虚拟团队指派沿生命周期传播（direct/propagated）
 - **日报系统**：每人每天一份、按产品拆条目（按 项目→版本→产品 推导归属）；产品/人员/负责人三维度汇总 + 提交统计与未提交名单；MCP 可按项目上报
-- **图片附件**：issue 图片附件存**本公司自助配置的存储后端**（设置 → 文件存储，公司管理员自助维护 MinIO / Vercel Blob，凭据加密落库；无配置 = 禁止上传，零平台兜底），jpeg/png/gif/webp/avif ≤10MB；MCP 可 base64 上传，`spms_get_issue` 把图片以 image 内容块内联返回给 Agent 识别
+- **图片附件**：issue / 测试用例 / 需求的图片附件存 MinIO（唯一后端，两级模型：平台管理员在 设置 → 平台存储 维护全局配置与启用总开关；公司开通二选一——公司管理员在 设置 → 偏好 底部状态卡一键开通，或平台管理员在 公司管理 手动开通/密钥轮换，均物化按 `{companyId}/*` 前缀隔离的独立 IAM 账号；对象 key 全部由服务端按 `{companyId}/{category}/{userSegment}/{fileType}/{uuid}-{safeName}` 铸造），jpeg/png/gif/webp/avif ≤10MB；设置 → 附件 tab 是本公司附件分页总表；MCP 可 base64 上传（三实体各一个上传工具），`spms_get_issue` 把图片以 image 内容块内联返回给 Agent 识别
 - **Notion 集成**：`/integrations` 页公共 OAuth 连接（每公司一条，token 仅服务端保存），同步数据库/目标项目/状态映射可配；手动增量同步（`lastSyncedAt` 水位）或全量重同步（`?full=1`），单向 Notion → Issues
 - **登录认证**：账号密码（用户名可填任一邮箱）+ 飞书 / Lark / GitHub OAuth 登录（对应 env 未配置时入口自动隐藏）；`/profile` 支持绑定/解绑第三方身份与改密
 - **全局**：52px 全局 Header（公司切换器 + 角色 Badge + 全局搜索 ⌘K + 用户下拉[个人资料/浅色模式/退出登录]）、侧边栏底部「设置 / 个人资料」入口、快速新建（`c`）、浅色主题（可在设置页切深色/跟随系统）、中文界面；`/profile` 个人资料页（资料/安全/已授权应用三 Tab）支持改名与改密码
-- **MCP**：`spms_*` tools（读/写分组与完整清单见 [docs/MCP.md](docs/MCP.md)，数量以 `src/mcp/server.ts` 注册为准），DB key 鉴权（公司级自动隔离 / 平台级跨公司）
+- **MCP**：40 个 `spms_*` tools（15 读 + 25 写，数量以 `src/mcp/server.ts` 注册为准）+ 2 个 prompts（`spms_plan_workflow` / `spms_bug_fix_workflow`），DB key 鉴权（公司级自动隔离 / 平台级跨公司），读/写分组与完整清单见 [docs/MCP.md](docs/MCP.md)
 
 ## 快速开始
 
@@ -42,6 +42,8 @@ npm run dev
 
 打开 http://localhost:5175 ，种子账号：**admin / admin123**（平台管理员 + 默认公司 company_admin）。种子数据含「默认公司」（历史演示数据）与「示例公司」（空沙箱）。
 
+> 可选依赖：若使用「平台默认 MinIO 存储」的自动开通能力（设置 → 平台存储），本地需安装 MinIO Client `mc`——社区版已不再发布预编译二进制，用 Go 从源码安装：`go install github.com/minio/mc@latest`（Go ≥ 1.23，确保 `~/go/bin` 在 PATH）；Docker 镜像已内置，无需额外处理。
+
 ### 环境变量
 
 | 变量 | 说明 |
@@ -57,18 +59,19 @@ npm run dev
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `GITHUB_REDIRECT_URI` | 可选，GitHub OAuth 登录；未配置时登录页不显示 GitHub 入口。`*_REDIRECT_URI` 同样只填路径 |
 | `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` / `NOTION_REDIRECT_URI` | 可选，Notion 集成（公共 OAuth）；未配置时 `/integrations` 页连接按钮禁用。`*_REDIRECT_URI` 同样只填路径 |
 | `SEED_ADMIN_PASSWORD` | 可选，覆盖种子 admin 密码（默认 admin123） |
-| `BLOB_READ_WRITE_TOKEN` | **已废弃（运行时不读）**：附件存储改为公司自助配置（设置 → 文件存储）。仅供 `scripts/reconcile-attachments.ts` 对账平台级 Vercel Blob 时代的存量旧行 |
+> 文件存储不再读 env：MinIO 配置在「设置 → 平台存储」维护（含启用/禁用总开关），公司隔离账号在「设置 → 偏好」一键开通或由平台管理员在「公司管理」手动开通；旧 `BLOB_READ_WRITE_TOKEN`（Vercel Blob 时代）已彻底移除，存量旧附件仅保留 302 只读兼容。
 
 ## Docker 部署
 
-根级 `Dockerfile` 为 Next.js standalone 多阶段构建（容器内固定端口 **5175**）：
+根级 `Dockerfile` 为**单阶段**构建（`livebook:8418/images/runtime-node` 运行时镜像）：镜像只携带源码，容器启动时自动 `pnpm install --frozen-lockfile → pnpm build → exec node $APP_ENTRY`（`output: "standalone"`，`npm run build` 尾部的 `scripts/prepare-standalone.js` 把 `public` 与 `.next/static` 并入 standalone 产物）；首次启动的 install+build 需数分钟。MinIO Client `mc` 由 `scripts/build-mc.sh` 用一次性 golang 容器从源码构建（产物 `.ci-assets/mc`，CI 自动执行），存在时装入镜像——缺失时镜像照常运行，仅「公司管理 → 开通存储」报"未安装 mc"。容器内固定端口 **5175**：
 
 ```bash
 docker build -t spms .
-# 运行期环境变量直接用本地 .env（--env-file）；PORT/HOSTNAME 由后面的 -e 固定
+# 运行期环境变量直接用本地 .env（--env-file）；PORT/HOSTNAME/APP_ENTRY 由后面的 -e 固定
 docker run -d --name spms -p 5175:5175 \
   --env-file .env \
   -e HOSTNAME=0.0.0.0 -e PORT=5175 \
+  -e APP_ENTRY=.next/standalone/server.js \
   --add-host host.docker.internal:host-gateway \
   --add-host livebook:host-gateway \
   spms

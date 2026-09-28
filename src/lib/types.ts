@@ -105,14 +105,6 @@ export interface CascadeImpact {
   assignments: number;
 }
 
-export interface Team {
-  id: string;
-  // PLAN-5: the issue-number prefix ("AGT"), tenant-unique.
-  key?: string;
-  name: string;
-  color: string;
-}
-
 export interface Label {
   id: string;
   // PLAN-5: stable handle ("ai" finds the AI-生成 label).
@@ -160,7 +152,6 @@ export interface Release {
 export interface Project {
   id: string;
   name: string;
-  teamId: string | null;
   releaseId: string | null;
   status: ProjectStatus;
   leadId: string | null;
@@ -195,6 +186,7 @@ export interface Requirement {
   position: number;
   issues: string[]; // linked issue keys
   issueStats: { total: number; done: number };
+  attachments: IssueAttachment[]; // detail 查询加载;列表响应为空数组
   createdAt: string;
   updatedAt: string;
 }
@@ -222,6 +214,7 @@ export interface TestCase {
   authorId: string | null;
   assigneeId: string | null;
   position: number;
+  attachments: IssueAttachment[]; // detail 查询加载;列表响应为空数组
   createdAt: string;
   updatedAt: string;
 }
@@ -266,7 +259,6 @@ export interface Plan {
 
 export interface Sprint {
   id: string;
-  teamId: string | null;
   projectIds: string[];
   name: string;
   goal: string | null;
@@ -335,7 +327,6 @@ export interface Activity {
 
 export interface Issue {
   id: string;
-  teamId: string | null;
   title: string;
   description: string | null;
   type: IssueType;
@@ -360,12 +351,26 @@ export interface Issue {
 export interface IssueAttachment {
   id: string;
   url: string;
-  pathname: string;
+  pathname: string | null;
   filename: string;
   contentType: string;
   size: number;
   uploadedById: string | null;
   createdAt: string;
+}
+
+/* 设置 → 附件 面板的公司级附件行:在 IssueAttachment 上附归属实体
+   (展示 key + 标题;owner 为 null 仅在归属实体异常缺失时出现)。 */
+export interface CompanyAttachment extends IssueAttachment {
+  owner: { type: 'issue' | 'testCase' | 'requirement'; key: string; title: string } | null;
+}
+
+/* GET /attachments 的分页返回(page 从 1 起)。 */
+export interface CompanyAttachmentPage {
+  items: CompanyAttachment[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface IssueDetail extends Issue {
@@ -374,24 +379,12 @@ export interface IssueDetail extends Issue {
   attachments: IssueAttachment[];
 }
 
-export interface Notification {
-  id: string;
-  issueId: string | null;
-  whoId: string | null;
-  icon: string;
-  tone: string;
-  text: string;
-  read: boolean;
-  createdAt: string;
-}
-
 export interface Bootstrap {
   // The current user's member id (resolved by the server from the session).
   me: string | null;
   // The current user's user role: 'admin' | 'member'.
   role: string | null;
   members: Member[];
-  teams: Team[];
   labels: Label[];
   projects: Project[];
   // 「我参与的」项目 id 集:本人 direct 指派的项目及其指派迭代关联的项目

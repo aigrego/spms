@@ -11,7 +11,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ### key 能力、有效期与使用记录
 
-- **能力上限**（`capabilities`，逗号分隔）：`read` = 15 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`，含 `spms_run_test_suite` 不传 `results` 的取待执行清单模式）；`write` = 23 个写工具（`spms_run_test_suite` 传 `results` 记录结果时也需 `write` 能力，在 handler 内二次校验）；`delete` 预留（当前无删除类工具，新建/签发已不再提供该选项；存量带 delete 的令牌行为不变，能力门只查 read/write）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
+- **能力上限**（`capabilities`，逗号分隔）：`read` = 15 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`，含 `spms_run_test_suite` 不传 `results` 的取待执行清单模式）；`write` = 25 个写工具（`spms_run_test_suite` 传 `results` 记录结果时也需 `write` 能力，在 handler 内二次校验）；`delete` 预留（当前无删除类工具，新建/签发已不再提供该选项；存量带 delete 的令牌行为不变，能力门只查 read/write）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
 - **有效期**（`expiresAt`，NULL = 永久）：到期后鉴权直接 401，无需吊销。
 - **最近使用**（`lastUsedAt`）：每次通过 MCP 鉴权时刷新（60s 节流），在令牌列表展示。
   2. **env 兜底**：未命中 DB 时回退到 env `MCP_API_KEY`（逗号分隔多个），一律视为**平台级** key（开发兼容）。
@@ -49,7 +49,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## Tools
 
-共 **38 个**（读 15 + 写 23）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
+共 **40 个**（读 15 + 写 25，以 `src/mcp/server.ts` 注册为准）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
 
 ### 读
 
@@ -80,6 +80,8 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_update_issue` | `key, ...任意可更新字段, force?` | 改状态/指派/优先级/标题/描述等。`status='done'` 且当前不在 testing → 拦截落库 `testing`，未显式传 `assigneeId` 时自动指派测试人员并写说明评论；testing → done 过测试关单门禁（关联用例须全部 passed，否则 TESTS_NOT_PASSED），`force=true` 强制关单 |
 | `spms_add_comment` | `key, body` | 给 issue 加评论 |
 | `spms_upload_issue_attachment` | `key, filename, data, contentType?` | 上传图片附件（data 为 base64；≤10MB，jpeg/png/gif/webp/avif）。配合 `spms_update_issue`（status='done'）实现"传图并关单" |
+| `spms_upload_test_case_attachment` | `key, filename, data, contentType?` | 上传图片附件到测试用例（key 为 TC-N；其余同上）。典型用法：执行用例后上传结果截图 |
+| `spms_upload_requirement_attachment` | `key, filename, data, contentType?` | 上传图片附件到需求（key 为 FR-N / NFR-N；其余同上）。典型用法：维护 PRD 时上传原型稿/流程图 |
 | `spms_create_requirement` | `projectId, title, type?, category?, priority?, importance?, description?, acceptanceCriteria?, releaseId?, assigneeId?` | 创建需求（自动分配 FR/NFR key）；assigneeId 指派负责人 |
 | `spms_update_requirement` | `key, ...` | 更新需求；assigneeId 指派负责人（null 取消） |
 | `spms_decompose_requirement` | `key` | **新增**：把需求拆解为工单（按验收标准逐行、空则回退 PRD 描述逐行；继承项目/紧急度/重要度，一次最多 20 条、key 连号） |
@@ -94,12 +96,21 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_update_project` | `id, name?, releaseId?, status?, leadId?, aiLeadId?, icon?, color?, target?, description?, summary?, goal?, nonGoals?` | **新增**：更新项目（releaseId 换绑版本即调整关联） |
 | `spms_create_plan` | `projectId, title, requirementIds?, templateMd?` | **新增**：创建开发计划（自动 PLAN-N key，初始 draft/待生成；requirementIds 传需求展示 key 数组）。Agent 生成内容后调 `spms_update_plan` 写入 content 并置 `generated` |
 | `spms_update_plan` | `key, title?, content?, templateMd?, status?, requirementIds?` | **新增**：更新开发计划（status：draft 待生成/generated 已生成；requirementIds 传了即全量替换关联）。「生成」= 写 content + 置 `generated` |
-| `spms_update_release` | `id, name?, description?, status?, phase?, targetDate?, progress?, position?, force?` | 更新版本；`phase` 为产品生命周期段（concept→development→release→maintenance→retired），项目卡片生命周期进度条读它。发布门禁：`status='released'` 要求版本下 integration 用例全部 passed，否则 TESTS_NOT_PASSED；`force=true` 强制发布 |
+| `spms_update_release` | `id, name?, description?, status?, phase?, targetDate?, position?, force?` | 更新版本；`phase` 为产品生命周期段（concept→development→release→maintenance→retired），项目卡片生命周期进度条读它。发布门禁：`status='released'` 要求版本下 integration 用例全部 passed，否则 TESTS_NOT_PASSED；`force=true` 强制发布 |
 | `spms_create_product` | `productLineId, name, description?, icon?, color?, status?, leadId?, position?` | **新增**：创建产品（自动 PD-N key，productLineId 关联到产品线） |
 | `spms_update_product` | `id, productLineId?, name?, description?, icon?, color?, status?, leadId?, position?` | **新增**：更新产品（productLineId 换绑产品线即调整关联；status：active/maintenance/archived） |
 | `spms_submit_report` | `date, entries[{project, content}], mode?` | 按项目提交本人日报（合并式 upsert）：服务端按 项目→版本→产品 推导日报归属产品（项目需已关联版本），同日重复提交同一产品时默认把新内容**追加**到该产品已有条目末尾（`mode='replace'` 才整体替换）、不影响其他产品条目，返回 `created`/`updated` 标明各产品条目新建/更新。`project` 接受项目 id 或项目名（精确匹配），且必须在令牌的项目白名单内；一次调用内多个项目推导到同一产品需先自行合并内容。`content` 会规整为简单 Markdown（普通行自动转为 `- ` 列表项），日报汇总视图按 Markdown 渲染；内容只需把相关 issue 的标题/内容简化总结、说清楚即可，不要额外展开描述。作者固定为令牌所属人，不能代他人提交。典型场景：Agent 按 git 提交记录按项目汇总条目后逐项目上报，多项目/多令牌分别上报互不覆盖 |
 
 写工具与 REST API 复用同一套 `src/server/services/*`，业务规则一致（如 sprint-project 一致性校验、REQUIREMENT_NOT_FOUND 等错误码原样抛出）。
+
+## Prompts（工作流模板）
+
+共 **2 个**，即 MCP 规范的 prompts 原语：`prompts/list` 发现、`prompts/get` 获取，客户端注入上下文后由模型按语义匹配任务。纯文本模板，不访问数据、不受 key 能力上限限制；流程中的强制环节（审查/关单门禁）仍由服务端 workflow 兜底（见下节），prompt 只做语义引导。
+
+| Prompt | 参数 | 流程 |
+|---|---|---|
+| `spms_plan_workflow` | `projectId? title?` | 项目计划生成：`spms_get_bootstrap` 拿 `me`（令牌所有人 member id）→ `spms_create_plan` 建计划 → 按优先级（urgent→high→medium→low）逐条 `spms_create_issue` 拆工单 → 经需求间接关联计划（plan ↔ requirement ↔ issue；无需求则保证同项目）→ `assigneeId` 一律指派给令牌所有人 |
+| `spms_bug_fix_workflow` | `bugKey?` | BUG 处理：`spms_get_issue` 看图核实 → `spms_review_issue` 审查（`passed` 自动置 in_progress；`failed` 终止并按 suggestion 处理）→ 修复 → `spms_upload_issue_attachment` 传验证截图 → 从 activities 的 `kind='created'` 取发起人 whoId → `spms_update_issue` 置 `testing` 并显式指派回发起人（跳过自动指派测试人员；不传 `done`，避免触发关单门禁） |
 
 ## 工作流自动化（内置，无需显式提示词）
 
