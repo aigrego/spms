@@ -13,23 +13,9 @@
  *   DATABASE_URL=<目标库> CONFIG_CRYPTO_KEY=<hex64> npx tsx scripts/reconcile-attachments.ts --apply    # 实删
  *   可选: BLOB_READ_WRITE_TOKEN=<legacy token>  用于对账 object_key 为 NULL 的存量行
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import * as Minio from 'minio';
-import postgres from 'postgres';
 import { decryptSecret } from '../src/server/crypto';
-
-// Load .env.local / .env (Next only auto-loads these for `next` commands).
-for (const file of ['.env.local', '.env']) {
-  const p = resolve(process.cwd(), file);
-  if (!existsSync(p)) continue;
-  for (const line of readFileSync(p, 'utf8').split('\n')) {
-    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
-    if (!m) continue;
-    const [, k, v] = m;
-    if (process.env[k] === undefined) process.env[k] = v.replace(/^["']|["']$/g, '');
-  }
-}
+import { createSql } from './lib/env';
 
 const apply = process.argv.includes('--apply');
 
@@ -105,11 +91,7 @@ async function delObject(conf: CompanyConf, key: string): Promise<void> {
 }
 
 async function main() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error('Missing DATABASE_URL — set it in .env.local or .env (see .env.example)');
-  }
-  const sql = postgres(databaseUrl);
+  const sql = createSql();
   console.log(`mode: ${apply ? 'APPLY (实删)' : 'DRY-RUN (只列出)'}`);
 
   const rows = await sql<AttachmentRow[]>`

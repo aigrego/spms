@@ -13,22 +13,9 @@
  *      default company already has the CORE product line);
  *   7. a second, empty demo company (示例公司) to prove sandbox isolation.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-
-// Load .env.local / .env (Next only auto-loads these for `next` commands).
-for (const file of ['.env.local', '.env']) {
-  const p = resolve(process.cwd(), file);
-  if (!existsSync(p)) continue;
-  for (const line of readFileSync(p, 'utf8').split('\n')) {
-    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
-    if (!m) continue;
-    const [, k, v] = m;
-    if (process.env[k] === undefined) process.env[k] = v.replace(/^["']|["']$/g, '');
-  }
-}
+import './lib/env';
 
 const DEFAULT_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -80,6 +67,7 @@ async function main() {
   } = await import('../src/db/schema');
   const { nextKey } = await import('../src/lib/keys');
   const { hashPassword } = await import('../src/lib/password');
+  const { AGENT_DEFS } = await import('../src/lib/identity');
 
   const id = () => randomUUID();
 
@@ -97,13 +85,6 @@ async function main() {
   console.log('company: DEFAULT (默认公司) ensured');
 
   /* ---- 2. AI agents + "AI 生成" label, seeded per company ---- */
-  const AGENT_DEFS = [
-    { agentKey: 'atlas', name: 'Atlas', initials: 'A', role: 'plan' },
-    { agentKey: 'forge', name: 'Forge', initials: 'F', role: 'code' },
-    { agentKey: 'sentry', name: 'Sentry', initials: 'S', role: 'test' },
-    { agentKey: 'scribe', name: 'Scribe', initials: 'C', role: 'docs' },
-  ] as const;
-
   async function seedAgents(companyId: string) {
     await db
       .insert(members)
