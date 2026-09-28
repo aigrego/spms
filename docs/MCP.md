@@ -11,7 +11,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ### key 能力、有效期与使用记录
 
-- **能力上限**（`capabilities`，逗号分隔）：`read` = 13 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`）；`write` = 21 个写工具；`delete` 预留（当前无删除类工具，新建/签发已不再提供该选项；存量带 delete 的令牌行为不变，能力门只查 read/write）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
+- **能力上限**（`capabilities`，逗号分隔）：`read` = 15 个只读工具（`spms_list_*` / `spms_get_*` / `spms_get_bootstrap`，含 `spms_run_test_suite` 不传 `results` 的取待执行清单模式）；`write` = 23 个写工具（`spms_run_test_suite` 传 `results` 记录结果时也需 `write` 能力，在 handler 内二次校验）；`delete` 预留（当前无删除类工具，新建/签发已不再提供该选项；存量带 delete 的令牌行为不变，能力门只查 read/write）。调用超出能力的工具返回 `FORBIDDEN` 工具错误，不执行。
 - **有效期**（`expiresAt`，NULL = 永久）：到期后鉴权直接 401，无需吊销。
 - **最近使用**（`lastUsedAt`）：每次通过 MCP 鉴权时刷新（60s 节流），在令牌列表展示。
   2. **env 兜底**：未命中 DB 时回退到 env `MCP_API_KEY`（逗号分隔多个），一律视为**平台级** key（开发兼容）。
@@ -49,7 +49,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 
 ## Tools
 
-共 **34 个**（读 13 + 写 21）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
+共 **38 个**（读 15 + 写 23）。平台级 key 的每个工具都带可选 `companyId` 参数（公司级 key 与浏览器 session 忽略之）。
 
 ### 读
 
@@ -65,7 +65,7 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_list_sprints` | — | 迭代列表 |
 | `spms_get_sprint` | `id` | 迭代详情（含 committed/completed 点数统计） |
 | `spms_list_test_cases` | `project? requirement? issue? category? status? result?` | 测试用例列表；category：smoke 冒烟/functional 功能(默认)/integration 集成/regression 回归 |
-| `spms_run_test_suite` | `projectId\|releaseId, category, results?, note?, raiseBugs?` | 测试套件执行（一条命令）：不传 results 返回待执行套件清单；传 results 批量落结果（draft 用例自动转 active）并写 test_runs 留痕；raiseBugs=true 时 failed 用例自动建 BUG。典型：部署后冒烟 smoke、发布前集成 integration、hotfix 后回归 regression |
+| `spms_run_test_suite` | `projectId\|releaseId, category, results?, note?, raiseBugs?` | 测试套件执行（一条命令）：不传 results 返回待执行套件清单（**纯读**，read 能力即可）；传 results 批量落结果（draft 用例自动转 active）并写 test_runs 留痕（**需 write 能力**，handler 内二次校验）；raiseBugs=true 时 failed 用例自动建 BUG。典型：部署后冒烟 smoke、发布前集成 integration、hotfix 后回归 regression |
 | `spms_list_test_runs` | `project? category?` | 测试执行历史（倒序，含明细） |
 | `spms_list_plans` | `project?` | **新增**：开发计划列表（按创建时间倒序；requirements 为关联需求展示 key 数组） |
 | `spms_get_plan` | `key` | **新增**：开发计划详情（markdown 正文/模板/关联需求） |
@@ -86,6 +86,8 @@ HTTP Streamable MCP 端点，供 Agent 连接并读取/处理需求、任务、�
 | `spms_create_test_case` | `projectId, title, requirementId?, issueId?, category?, status?, result?, priority?, preconditions?, steps?, expected?` | 创建测试用例；category：smoke 冒烟/functional 功能(默认)/integration 集成/regression 回归；issueId 把用例直接挂到工单（TDD） |
 | `spms_update_test_case` | `key, ...` | 更新用例（含 category/issueId/result；套件批量执行用 spms_run_test_suite） |
 | `spms_move_issue_to_sprint` | `sprintId（或 '_backlog'）, issueKey, storyPoints?` | 移入/移出迭代 |
+| `spms_create_sprint` | `name, startDate, endDate, goal?, capacity?, projectIds?` | **新增**：创建迭代（初始 planned；projectIds 可多项目，不传则创建无项目迭代） |
+| `spms_update_sprint` | `id, name?, goal?, status?, startDate?, endDate?, capacity?, projectIds?` | **新增**：更新迭代（projectIds 全量替换；status 仅支持 planned→active / active→completed，等同 start/complete 全量流程，其余流转报 VALIDATION_FAILED） |
 | `spms_start_sprint` | `id` | 启动迭代（planned → active；迭代可跨多项目，任一项目已有进行中迭代即冲突） |
 | `spms_complete_sprint` | `id` | 完成迭代（active → completed；未完成 Issue 移回待办，返回 movedCount） |
 | `spms_create_project` | `name, releaseId?, leadId?, target?, description?` | 创建项目 |

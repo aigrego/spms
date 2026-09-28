@@ -6,8 +6,8 @@ import { requirePerm } from '@/lib/permissions';
 import { requireActor, route } from '@/server/http';
 import { queryDatabaseFirstPage } from '@/server/notion';
 
-/* GET /api/v1/pms/integrations/notion/preview — 阶段 1 调试接口:拉取所选
-   数据库最近编辑的一条记录,返回原始 Notion page JSON,用于核对字段映射。 */
+/* GET /api/v1/pms/integrations/notion/preview — 拉取所选数据库最近编辑的一条
+   记录,返回原始 Notion page JSON;集成页 NotionCard 的「预览」功能用它核对字段映射。 */
 export const GET = route(async () => {
   const actor = await requireActor();
   await requirePerm(actor, 'notion', 'write');

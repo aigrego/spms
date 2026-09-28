@@ -230,6 +230,8 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
   /* 能力门（DB key 的 capabilities 是上限）：带 readOnlyHint 的工具要 read，
      其余写工具要 write；delete 预留（当前无删除类工具）。超限不执行，直接
      返回 FORBIDDEN 工具错误。env 兜底 key / 浏览器会话为全量能力。
+     例外：spms_run_test_suite 标 readOnlyHint（不传 results 的取清单模式是
+     纯读），传 results 记录结果时在 handler 内二次校验 write 能力。
      实现上包装 server.registerTool 并保持其泛型签名，调用点类型推断不变。 */
   type LooseConfig = { annotations?: { readOnlyHint?: boolean } };
   type LooseHandler = (callArgs: unknown, extra: unknown) => unknown;
@@ -550,7 +552,9 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         `并写入 test_runs 执行留痕（谁/何时/哪类套件），返回汇总 {run, bugs}。` +
         `raiseBugs=true 时 failed 用例自动生成 BUG issue（标题【测试失败】…，关联同项目/需求）。` +
         `典型用法：部署后冒烟（category='smoke'，项目或版本范围）；版本上线前集成测试（category='integration' + releaseId，全部 passed 后 spms_update_release status='released' 才放行）；` +
-        `hotfix 修复部署后回归（category='regression'）。${CONCEPTS}`,
+        `hotfix 修复部署后回归（category='regression'）。` +
+        `能力口径：不传 results 按只读工具对待（read 能力即可）；传 results 记录结果需 write 能力（handler 内二次校验）。${CONCEPTS}`,
+      annotations: { readOnlyHint: true },
       inputSchema: {
         companyId: companyIdParam,
         projectId: z.string().optional().describe('项目 id（与 releaseId 二选一）'),
@@ -570,8 +574,12 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
         raiseBugs: z.boolean().optional().describe('failed 用例是否自动生成 BUG issue（默认 false）'),
       },
     },
-    async (args) =>
-      run(async () => {
+    async (args) => {
+      // 传 results 是写操作：能力门按 readOnlyHint 只查了 read，这里补 write 校验。
+      if (args.results && !keyContext.capabilities.includes('write')) {
+        return errResult('FORBIDDEN', '此 API Key 没有「写入」能力（签发时未勾选），请换用具备该能力的 Key');
+      }
+      return run(async () => {
         const actor = await actorFor(args.companyId);
         const scope = { projectId: args.projectId, releaseId: args.releaseId };
         if (!args.results) {
@@ -585,7 +593,8 @@ export function createMcpServer(keyContext: McpKeyContext): McpServer {
           note: args.note,
           raiseBugs: args.raiseBugs,
         });
-      }),
+      });
+    },
   );
 
   reg(

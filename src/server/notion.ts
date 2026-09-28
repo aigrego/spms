@@ -1,7 +1,7 @@
 import { env } from '@/lib/env';
 import { joinOriginPath } from '@/lib/url';
 
-/* Notion public-integration OAuth + REST API helpers (阶段 1: 连接 + 预览).
+/* Notion public-integration OAuth + REST API helpers (连接 / 预览 / 同步).
    Enabled only when NOTION_CLIENT_ID / NOTION_CLIENT_SECRET are set; the
    redirect URI defaults to <origin>/api/v1/pms/integrations/notion/callback.
    A NOTION_REDIRECT_URI override stores only the path part — the host is
@@ -108,7 +108,7 @@ export async function searchDatabases(token: string): Promise<NotionDatabaseOpti
 }
 
 /* The most recently edited page of a database, as raw Notion page JSON
-   (阶段 1 preview: 用来与真实客户库核对字段结构). */
+   (集成页「预览」功能: 用来与真实客户库核对字段结构). */
 export async function queryDatabaseFirstPage(token: string, databaseId: string): Promise<unknown | null> {
   const res = await fetch(`${API_BASE}/databases/${databaseId}/query`, {
     method: 'POST',

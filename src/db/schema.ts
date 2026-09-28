@@ -891,7 +891,7 @@ export const resourceAssignments = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
-/* Notion integration (阶段 1: 连接 + 预览)                              */
+/* Notion integration (连接 + 预览 + 同步)                                */
 /* One connection per company. accessToken stays server-side only —     */
 /* it must never be serialized out through any API response.            */
 /* ------------------------------------------------------------------ */

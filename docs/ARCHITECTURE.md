@@ -41,12 +41,16 @@
 spms/
 ├── drizzle/                    # 迁移文件
 ├── docs/                       # 项目文档（本目录）
-├── scripts/seed.ts             # 初始数据（admin/agent/演示数据）
+├── scripts/                    # 运维/数据脚本（不走 next 命令；lib/env.ts 为共享引导，加载 .env 并校验 DATABASE_URL）
+│   ├── seed.ts                 # 初始数据（admin/agent/演示数据）
+│   ├── export-data.js          # 按表导出 PostgreSQL 数据（每表一个文件）
+│   ├── import-data.js          # 按表导入（与 export-data.js 配套）
+│   └── reconcile-attachments.ts # 附件存储对账（见下文「文件存储」）
 ├── src/
 │   ├── db/
 │   │   ├── schema.ts           # 全部表 + 枚举 + relations（计数权威文档：docs/DATA-MODEL.md）
 │   │   └── index.ts            # postgres-js 连接（DATABASE_URL）
-│   ├── lib/                    # 服务端基础库
+│   ├── lib/                    # 服务端与前端共用的基础库（单一目录，无独立前端 lib）
 │   │   ├── env.ts              # 环境变量集中读取
 │   │   ├── session.ts          # jose HS256 cookie session（7 天，payload 含 cid）
 │   │   ├── password.ts         # bcryptjs 哈希
@@ -59,50 +63,74 @@ spms/
 │   │   ├── identity.ts         # user↔member 懒绑定 + agent 兜底播种
 │   │   ├── visibility.ts       # 指派可见性（issueVisible/assertProjectWritable/visibleSetsFor）
 │   │   ├── rateLimit.ts        # 内存滑动窗口限流（登录接口按 IP+用户名）
-│   │   └── agents.ts           # AI 演示剧本（同步写 activities）
-│   ├── server/services/        # 业务服务层（API 与 MCP 共用）
-│   │   ├── issues.ts  requirements.ts  projects.ts  sprints.ts
-│   │   ├── catalog.ts resources.ts assignments.ts testcases.ts
-│   │   ├── labels.ts  plans.ts  testruns.ts  sprintSnapshots.ts  # 自定义标签 / 开发计划 / 测试执行 / 燃尽快照
-│   │   ├── reports.ts            # 日报（每人每天一份,按产品拆 entries,产品/人员/负责人三维度汇总）
-│   │   ├── summary.ts            # 团队总结（周期吞吐/周期时长/验收积压/流动健康/按成员分列,读 issue_status_transitions）
-│   │   ├── attachments.ts        # issue 图片附件（本公司存储后端；storage.assertMeta 校验注册 url/objectKey；attachmentReadTarget 统一解析读取目标——objectKey/旧行公网 url，REST 代理与 MCP 图片内联共用）
-│   │   ├── notionSync.ts         # Notion → Issues 同步（lastSyncedAt 水位增量 / ?full=1 全量，幂等靠 notion_issue_links）+ 连接管理
-│   │   ├── platform.ts           # 平台管理（公司/成员/矩阵/MCP key）
-│   │   ├── storage.ts            # 公司文件存储配置（设置→文件存储；读/存/测/删，敏感字段加密落库）
-│   │   ├── oauth.ts              # 三方登录提供方配置 + OAuth callback 账号编排（绑定/邮箱匹配/建号/邀请认领）
-│   │   ├── workflow.ts           # 审查/关单工作流自动化（REST 与 MCP 共用）
-│   │   ├── meta.ts             # bootstrap 聚合（REST 与 MCP 共用的单一查询实现；MCP 侧只裁剪字段 + 叠加令牌白名单）
-│   │   └── shared.ts           # service 层共享小工具（LIST_LIMIT/withRelations/key 解析；Actor 类型在 types.ts）
-│   ├── server/http.ts            # 路由底座（route 包装 / requireActor / jsonBody / 平台管理员门）
-│   ├── server/validate.ts        # zod 校验层（REST 写端点入口 schema 按域集中；jsonBodyWith → VALIDATION_FAILED）
-│   ├── server/crypto.ts          # AES-256-GCM 配置密钥加解密（CONFIG_CRYPTO_KEY；OAuth secret / 存储凭据密文落库）
-│   ├── server/storage/           # 公司级文件存储抽象（设置→文件存储；无配置=禁止上传，零平台兜底）
-│   │   ├── index.ts              # storageForCompany(companyId)：配置行 60s 缓存 + 解密构造后端
-│   │   ├── minio.ts              # MinIO/S3：presigned PUT 直传 / presigned GET / putObject / removeObject
-│   │   └── vercel.ts             # Vercel Blob：token 来自公司配置（密文），不再是平台 env
+│   │   ├── agents.ts           # AI 演示剧本（同步写 activities）
+│   │   ├── activity.ts         # 系统动态（创建/状态流转/归档/指派）的结构化文案
+│   │   ├── emails.ts           # user_emails 主/备邮箱规则（登录反查/邀请认领）
+│   │   ├── decompose.ts        # 需求按行拆解为工单的解析助手
+│   │   ├── notionStatusMap.ts  # Notion Status → SPMS 状态映射/过滤规则
+│   │   ├── reportMarkdown.ts   # 日报内容 Markdown 规整（MCP 上报与汇总共用）
+│   │   ├── reportHtml.ts       # 日报汇总复制的富文本（HTML）一侧
+│   │   ├── markdownInline.ts   # 行内 markdown token 唯一来源（React 渲染与纯文本两侧共用）
+│   │   ├── attachments.ts      # 附件类型白名单（图片 + 常见文档格式）
+│   │   ├── upload.ts           # 浏览器直传附件到公司存储后端（client-direct）
+│   │   ├── i18n.ts + i18n/     # 前端 i18n 字典（zh-CN 默认 / en / zh-TW）
+│   │   └── api.ts / platformApi.ts / types.ts / constants.ts / prefs.ts / theme.ts / time.ts / url.ts / utils.ts / useDragHighlight.ts
+│   │                           #   前端 API client、类型、常量与 UI 工具（偏好记忆/主题/相对时间/拖拽高亮等）
+│   ├── server/
+│   │   ├── services/           # 业务服务层（API 与 MCP 共用）
+│   │   │   ├── issues.ts  requirements.ts  projects.ts  sprints.ts
+│   │   │   ├── catalog.ts resources.ts assignments.ts testcases.ts
+│   │   │   ├── labels.ts  plans.ts  testruns.ts  sprintSnapshots.ts  # 自定义标签 / 开发计划 / 测试执行 / 燃尽快照
+│   │   │   ├── reports.ts            # 日报（每人每天一份,按产品拆 entries,产品/人员/负责人三维度汇总）
+│   │   │   ├── summary.ts            # 团队总结（周期吞吐/周期时长/验收积压/流动健康/按成员分列,读 issue_status_transitions）
+│   │   │   ├── attachments.ts        # issue 图片附件（本公司存储后端；storage.assertMeta 校验注册 url/objectKey；attachmentReadTarget 统一解析读取目标——objectKey/旧行公网 url，REST 代理与 MCP 图片内联共用）
+│   │   │   ├── notionSync.ts         # Notion → Issues 同步（lastSyncedAt 水位增量 / ?full=1 全量，幂等靠 notion_issue_links）+ 连接管理
+│   │   │   ├── platform.ts           # 平台管理（公司/成员/矩阵/MCP key）
+│   │   │   ├── storage.ts            # 公司文件存储配置（设置→文件存储；读/存/测/删，敏感字段加密落库）
+│   │   │   ├── oauth.ts              # 三方登录提供方配置 + OAuth callback 账号编排（绑定/邮箱匹配/建号/邀请认领）
+│   │   │   ├── workflow.ts           # 审查/关单工作流自动化（REST 与 MCP 共用）
+│   │   │   ├── meta.ts               # bootstrap 聚合（REST 与 MCP 共用的单一查询实现；MCP 侧只裁剪字段 + 叠加令牌白名单）
+│   │   │   ├── shared.ts             # service 层共享小工具（LIST_LIMIT/withRelations/key 解析）
+│   │   │   └── types.ts              # service 层共享类型（Actor 等）
+│   │   ├── http.ts             # 路由底座（route 包装 / requireActor / jsonBody / 平台管理员门）
+│   │   ├── validate.ts         # zod 校验层（REST 写端点入口 schema 按域集中；jsonBodyWith → VALIDATION_FAILED）
+│   │   ├── crypto.ts           # AES-256-GCM 配置密钥加解密（CONFIG_CRYPTO_KEY；OAuth secret / 存储凭据密文落库）
+│   │   ├── lark.ts             # 三方登录 provider 抽象（飞书/Lark/GitHub，env 未配置即停用）
+│   │   ├── notion.ts           # Notion public-integration OAuth + REST helpers（连接/预览/同步共用）
+│   │   ├── params.ts           # assignments 路由族共享的 query/body 校验
+│   │   └── storage/            # 公司级文件存储抽象（设置→文件存储；无配置=禁止上传，零平台兜底）
+│   │       ├── index.ts        # storageForCompany(companyId)：配置行 60s 缓存 + 解密构造后端
+│   │       ├── minio.ts        # MinIO/S3：presigned PUT 直传 / presigned GET / putObject / removeObject
+│   │       ├── vercel.ts       # Vercel Blob：token 来自公司配置（密文），不再是平台 env
+│   │       └── types.ts        # StorageBackend 接口与配置类型
 │   ├── mcp/                    # server.ts（McpServer + tools 注册的薄适配层；工具清单见 docs/MCP.md）
 │   ├── app/
 │   │   ├── (auth)/login/       # 登录页（密码 + 飞书/Lark/GitHub OAuth）
 │   │   ├── (app)/              # 主应用（Header + Sidebar 布局 + AuthGate）
-│   │   │   ├── issues/  products/  requirements/  testcases/
-│   │   │   ├── projects/  projects/[id]/  resources/
-│   │   │   ├── roadmap/  backlog/  sprints/  sprints/[id]/
+│   │   │   ├── issues/  issues/[key]/  products/  requirements/  requirements/[key]/
+│   │   │   ├── testcases/  testcases/[id]/  projects/  projects/[id]/  resources/
+│   │   │   ├── roadmap/  backlog/  backlog/[key]/  sprints/  sprints/[id]/
+│   │   │   ├── my-issues/  my-issues/[key]/  # 我的 issue（含详情）
+│   │   │   ├── guide/            # 使用指引页
 │   │   │   ├── reports/          # 日报（写日报 + 产品/人员/负责人三维度汇总上报）
 │   │   │   ├── summary/          # 团队总结（每日/每周两个页签;模块门复用 reports）
-│   │   │   ├── integrations/     # 集成页（Notion 连接/同步管理）
-│   │   │   ├── settings/         # 设置页（偏好 + 平台管理 Tab，平台管理仅平台管理员；旧 /platform 重定向至此）
+│   │   │   ├── integrations/     # 集成页（Notion 连接/预览/同步管理）
+│   │   │   ├── settings/  settings/[tab]/  # 设置页 7 个 Tab（路径段驱动）：偏好（所有用户）；公司/成员/矩阵/三方登录（平台管理，仅平台管理员）；公司矩阵/文件存储（公司管理员）
+│   │   │   ├── platform/         # 兼容重定向页（companies/members/matrix → /settings/*，keys → /agent-access）
 │   │   │   ├── agent-access/     # Agent 接入页（MCP 令牌自助管理，所有登录用户；member 仅自己的公司级 key）
-│   │   │   ├── profile/          # 个人资料页（资料/安全/已授权应用三 Tab）
+│   │   │   ├── profile/  profile/[tab]/  # 个人资料页（资料/安全/已授权应用三 Tab，路径段驱动）
 │   │   ├── api/v1/pms/**/route.ts   # 业务 API（路径与原系统一致）
 │   │   ├── api/v1/pms/integrations/**/route.ts # 集成 API（Notion OAuth authorize/callback + 连接/预览/同步）
 │   │   ├── api/v1/platform/**/route.ts # 平台管理 API（仅平台管理员；mcp-keys 支持 member 自助）
-│   │   ├── api/auth/           # login/logout/session/switch-company/change-password/[provider]/*/oauth/*
+│   │   ├── api/auth/           # login/logout/session/switch-company/change-password/emails/profile/[provider]/*/oauth/*
+│   │   ├── api/health/         # 健康检查
 │   │   └── mcp/route.ts        # MCP Streamable HTTP 端点
-│   ├── components/             # ui/ glyphs/ menus/ inline/ Header/ Sidebar/ profile/(改密码表单)/ platform/(设置页四个管理面板)/ 各详情抽屉
-│   │                           #   + 各页面视图（IssuesView/ProjectHub/ScrumViews/ReportsView/…，无独立 views/ 目录）
-│   ├── store/                  # React Query hooks + AppDataProvider
-│   └── lib/ (前端)             # types / api client / i18n
+│   ├── components/             # ui/ glyphs/ menus/ inline/ common/ DetailDrawer/ Header/ Sidebar/
+│   │                           #   platform/（设置页 5 个管理面板 Companies/Members/Keys/Matrix/OAuthProviders + 各弹窗抽屉）
+│   │                           #   settings/（StoragePanel 文件存储面板 + common）
+│   │                           #   profile/（改密码表单 + 邮箱管理卡）
+│   │                           #   + 各页面视图（IssuesView/ProjectHub/ScrumViews/ReportsView/…，无独立 views/ 目录）与详情抽屉
+│   └── store/                  # React Query hooks + AppDataProvider
 └── .env.local                  # DATABASE_URL / SESSION_SECRET / MCP_API_KEY / LARK_* / GITHUB_*
 ```
 
