@@ -570,7 +570,14 @@ export const issues = pgTable(
     sprintId: text('sprint_id').references((): any => sprints.id, { onDelete: 'set null' }),
     estimate: integer('estimate'),
     storyPoints: integer('story_points'),
-    backlogRank: integer('backlog_rank').notNull().default(0),
+    // key 尾号数字（生成列，无写入路径）：列表/待办/迭代详情的展示顺序按它 +
+    // key 倒序，走 issues_key_num_idx。表达式与历史上排序用的正则 cast 完全
+    // 一致：key 不以数字结尾时为 0（不是 NULL，nulls 排序位置语义不涉及）。
+    keyNum: integer('key_num')
+      .notNull()
+      .generatedAlwaysAs(
+        sql`case when "key" ~ '\\d+$' then cast(substring("key" from '\\d+$') as integer) else 0 end`,
+      ),
     aiAssigned: boolean('ai_assigned').notNull().default(false),
     commentsCount: integer('comments_count').notNull().default(0),
     // 归档:非 NULL 时从「全部 Issues」/产品待办默认隐藏(可用 includeArchived
@@ -589,6 +596,8 @@ export const issues = pgTable(
     index('issues_sprint_idx').on(t.sprintId),
     index('issues_project_idx').on(t.projectId),
     index('issues_assignee_idx').on(t.assigneeId),
+    // 公司内按 (keyNum, key) 倒序扫描即可产出列表展示顺序，免去全表 sort。
+    index('issues_key_num_idx').on(t.companyId, t.keyNum, t.key),
   ],
 );
 

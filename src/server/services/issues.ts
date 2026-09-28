@@ -141,13 +141,9 @@ export async function listIssues(
     with: withRelations,
     // 展示顺序固定为展示 ID 倒序(尾号数字降序,数字相同按 key 降序),
     // 不随创建/修改时间漂移 —— 列表位置稳定可预期。
-    // 注意:模板串里的正则必须写成 \\d(JS 会把 \d 吞成字面 d)。
-    // TODO(perf): 正则 cast 无法走索引,排序仍是全表 sort;LIMIT 只兜内存。
-    // 后续优化点:key 尾号生成列 + 表达式索引(需迁移,TKT-21 未引入)。
-    orderBy: [
-      sql`case when ${issues.key} ~ '\\d+$' then cast(substring(${issues.key} from '\\d+$') as integer) else 0 end desc`,
-      desc(issues.key),
-    ],
+    // keyNum 是 key 尾号数字的生成列(见 schema.ts),排序走 issues_key_num_idx,
+    // 不再正则 cast 全表 sort;非标准 key(无尾号数字)归 0,语义与旧表达式一致。
+    orderBy: [desc(issues.keyNum), desc(issues.key)],
     limit: ISSUE_LIST_LIMIT,
   });
   return rows.map(serializeIssueList);

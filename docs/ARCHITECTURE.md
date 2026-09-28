@@ -191,7 +191,7 @@ spms/
 
 - `progressOf(issues)`：有 storyPoints 按点数加权，否则按计数；只认 `done`（不含 canceled）
 - bootstrap 时 `computeRollups()` 覆盖 projects/releases 的存储 progress 列（存储列仅作展示兜底）
-- Sprint velocity：completed 状态 sprint 的完成点数均值；burndown：ideal 线性 + sprint_snapshots actual
+- Sprint velocity：completed 状态 sprint 的完成点数均值；burndown：ideal 线性 + sprint_snapshots actual（快照只在变更时写入，无变更日 actual 无锚点、前端把相邻锚点直线相连——见 DATA-MODEL.md sprint_snapshots 段）
 
 ## AI Agent 演示
 

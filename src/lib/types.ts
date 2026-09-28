@@ -348,7 +348,6 @@ export interface Issue {
   sprintId: string | null;
   estimate: number | null;
   storyPoints: number | null;
-  backlogRank: number;
   aiAssigned: boolean;
   commentsCount: number;
   labels: string[];

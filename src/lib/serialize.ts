@@ -28,7 +28,6 @@ export function serializeIssueList(row: {
   sprintId: string | null;
   estimate: number | null;
   storyPoints: number | null;
-  backlogRank: number;
   aiAssigned: boolean;
   commentsCount: number;
   archivedAt: Date | null;
@@ -58,7 +57,6 @@ export function serializeIssueList(row: {
     sprintId: row.sprintId,
     estimate: row.estimate,
     storyPoints: row.storyPoints,
-    backlogRank: row.backlogRank,
     aiAssigned: row.aiAssigned,
     commentsCount: row.commentsCount,
     labels: row.issueLabels.map((il) => il.label?.id).filter(Boolean) as string[],

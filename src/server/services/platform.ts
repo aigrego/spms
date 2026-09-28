@@ -480,7 +480,10 @@ export async function listMcpKeys(actor: Actor) {
   return rows;
 }
 
-export const MCP_CAPABILITIES = ['read', 'write', 'delete'] as const;
+/* 可勾选的能力上限。delete 预留：当前无删除类工具，已从可选项移除（不再能
+   新签发/勾选）；存量带 delete 的令牌不受影响——MCP 能力门（mcp/server.ts）
+   只查 read/write，DB 行里的 delete 串原样保留、行为不变。 */
+export const MCP_CAPABILITIES = ['read', 'write'] as const;
 export type McpCapability = (typeof MCP_CAPABILITIES)[number];
 
 export interface CreateMcpKeyInput {

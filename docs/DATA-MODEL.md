@@ -93,11 +93,13 @@ PostgreSQL + Drizzle ORM。schema 源文件：`src/db/schema.ts`。
 
 写入方是 `src/server/services/sprintSnapshots.ts` 的 `recordSprintSnapshot`：issue 状态/故事点/所属迭代变更、issue 创建/删除、迭代启动/完成时按当日 upsert（无定时任务；剩余点数 = 迭代内非 done issue 的点数和，与 getSprint stats 同口径）。
 
+取舍说明：**只在变更发生时记快照，某天无任何变更则该日没有快照行、燃尽 actual 线在该日无锚点**（不为"无变化"重复写一行，省一次每日定时任务）。getBurndown 对无快照日返回 `actual: null`，前端 BurndownChart 过滤 null 后把相邻锚点直接连线——即 actual 线在有锚点的日期之间是直线插值语义，不是阶梯持平；启动/完成当日因流程必记快照，首尾锚点始终存在。
+
 ### requirements（需求/PRD）
 `id` PK · `key` unique NN（FR-N / NFR-N，创建后固定）· `projectId` NN → projects cascade · `releaseId` → releases set null · `title` NN · `type` NN 默认 functional · `category`（仅 NFR）· `priority` NN 默认 none · `importance` NN 默认 none · `status` NN 默认 draft · `description`（PRD 正文）· `acceptanceCriteria` · `assigneeId` / `authorId` / `aiOwnerId` → members · `position` NN 默认 0 · `createdAt` / `updatedAt` NN
 
 ### issues（核心工作项；缺陷 = type='bug'）
-`id` PK（内部，不出网）· `key` unique NN（BLG/TKT/BUG-N）· `teamId` → teams · `title` NN · `description` · `type` NN 默认 ticket · `status` NN 默认 todo · `priority` / `importance` NN 默认 none · `assigneeId` → members · `projectId` → projects set null · `requirementId` → requirements set null · `sprintId` → sprints set null · `estimate` int · `storyPoints` int · `backlogRank` int NN 默认 0 · `aiAssigned` bool NN 默认 false · `commentsCount` int NN 默认 0 · `archivedAt`（归档；全部 Issues/产品待办默认隐藏）· `completedAt`（进入 done 写入、离开清空；「最近一周完成」过滤依据；Notion 同步的 done 回写为页面 created_time）· `createdAt` / `updatedAt` NN
+`id` PK（内部，不出网）· `key` unique NN（BLG/TKT/BUG-N）· `teamId` → teams · `title` NN · `description` · `type` NN 默认 ticket · `status` NN 默认 todo · `priority` / `importance` NN 默认 none · `assigneeId` → members · `projectId` → projects set null · `requirementId` → requirements set null · `sprintId` → sprints set null · `estimate` int · `storyPoints` int · `keyNum` int NN **生成列**（key 尾号数字，`GENERATED ALWAYS AS ... STORED`，无写入路径；无尾号数字的 key 归 0；列表/待办/迭代详情的展示排序键）· `aiAssigned` bool NN 默认 false · `commentsCount` int NN 默认 0 · `archivedAt`（归档；全部 Issues/产品待办默认隐藏）· `completedAt`（进入 done 写入、离开清空；「最近一周完成」过滤依据；Notion 同步的 done 回写为页面 created_time）· `createdAt` / `updatedAt` NN。索引含 `(companyId, key)` 唯一、`(companyId, keyNum, key)`（展示排序 `keyNum desc, key desc` 走它，免去正则 cast 全表 sort）及 team/sprint/project/assignee 外键列索引。
 
 ### issue_labels（多对多）
 `issueId` / `labelId` 复合 PK，均 cascade

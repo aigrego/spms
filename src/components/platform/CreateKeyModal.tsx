@@ -14,10 +14,11 @@ import { useAppData } from '@/store/AppData';
 import { fieldLabel, inputCls } from './common';
 import { cn } from '@/lib/utils';
 
+/* 可勾选的能力。delete 预留（当前无删除类工具），已从面板隐藏、不再能新勾选；
+   存量带 delete 的令牌能力不变（鉴权层只查 read/write）。 */
 const CAP_OPTIONS: { key: McpCapability; danger?: boolean }[] = [
   { key: 'read' },
   { key: 'write' },
-  { key: 'delete', danger: true },
 ];
 
 const EXPIRY_OPTIONS: (number | null)[] = [30, 90, 180, 365, null];
@@ -73,7 +74,7 @@ export function useOwnerCandidates(platformAdmin: boolean, companyId: string | n
     .map((m) => ({ id: (m as { userId?: string | null }).userId as string, name: m.name }));
 }
 
-/* 新建 Agent 令牌:名称 + 能力上限(read/write/delete)+ 范围(全平台/某公司)
+/* 新建 Agent 令牌:名称 + 能力上限(read/write;delete 预留不展示)+ 范围(全平台/某公司)
    + 所属人(默认自己)+ 有效期。成功后明文 key 仅本次返回,弹出一次性展示对话框。
    platformAdmin=false(member 自助)时隐藏范围选择,令牌自动归属当前公司。 */
 export function CreateKeyModal({

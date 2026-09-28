@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { sprints, sprintProjects, sprintSnapshots, issues, projects } from '@/db/schema';
 import { serializeIssueList } from '@/lib/serialize';
@@ -135,7 +135,8 @@ export async function listSprints(actor: Actor, filter?: { team?: string }) {
 }
 
 /* ---- product backlog: 未进入任何迭代 且状态为「待处理(todo)」的 issue,
-   backlogRank asc。产品待办 = 敏捷 product backlog 概念:只放待规划进下一次
+   展示顺序与 listIssues 一致(keyNum/key 倒序,走 issues_key_num_idx)。
+   产品待办 = 敏捷 product backlog 概念:只放待规划进下一次
    迭代的待办工单,in_progress/testing/done/canceled/backlog 状态一律不进。 */
 export async function getBacklog(actor: Actor, filter?: { team?: string }) {
   await requirePerm(actor, 'backlog', 'read');
@@ -151,7 +152,7 @@ export async function getBacklog(actor: Actor, filter?: { team?: string }) {
   const rows = await db.query.issues.findMany({
     where: and(...conds),
     with: withRelations,
-    orderBy: [asc(issues.backlogRank)],
+    orderBy: [desc(issues.keyNum), desc(issues.key)],
     limit: LIST_LIMIT,
   });
   return rows.map(serializeIssueList);
@@ -232,7 +233,8 @@ export async function getSprint(actor: Actor, id: string) {
   const rows = await db.query.issues.findMany({
     where: and(eq(issues.companyId, actor.companyId), eq(issues.sprintId, id)),
     with: withRelations,
-    orderBy: [asc(issues.backlogRank)],
+    // committed issue 的展示顺序同 listIssues(keyNum/key 倒序)。
+    orderBy: [desc(issues.keyNum), desc(issues.key)],
   });
   const committedPoints = sumPoints(rows);
   const completedPoints = sumPoints(rows.filter((r) => r.status === 'done'));

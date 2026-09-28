@@ -300,14 +300,15 @@ export const memberAddSchema = z.object({
 });
 
 /* ---- platform: MCP API keys ---- */
-/* capabilities 枚举值与 services/platform.MCP_CAPABILITIES 一致。 */
+/* capabilities 枚举值与 services/platform.MCP_CAPABILITIES 一致（delete 预留，
+   不再提供勾选，存量令牌携 delete 不受影响）。 */
 export const mcpKeyCreateSchema = z.object({
   name: z.string().trim().min(1, '名称不能为空').max(200),
   companyId: z.string().nullable().optional(),
   ownerId: z.string().optional(),
   capabilities: z
-    .array(z.enum(['read', 'write', 'delete'], '能力只能包含 read/write/delete，且至少一项'))
-    .min(1, '能力只能包含 read/write/delete，且至少一项')
+    .array(z.enum(['read', 'write'], '能力只能包含 read/write，且至少一项'))
+    .min(1, '能力只能包含 read/write，且至少一项')
     .optional(),
   expiresInDays: z.number().int('有效期必须是正整数天数').min(1, '有效期必须是正整数天数').nullable().optional(),
   projectIds: z.array(z.string()).nullable().optional(),

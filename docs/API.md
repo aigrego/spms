@@ -85,7 +85,7 @@
 | POST | `/sprints` | **新增**（原系统无）：name/startDate/endDate/projectIds（数组，可跨多项目）等 |
 | PATCH | `/sprints/:id` | **新增**：部分更新（projectIds 整体替换） |
 | DELETE | `/sprints/:id` | **新增**：issues.sprintId set null 后删 |
-| GET | `/sprints/backlog?team` | 产品待办：sprintId IS NULL 且 status=todo（待处理）的 issues，backlogRank asc；其他状态及已归档（含已归档项目的）一律不进 |
+| GET | `/sprints/backlog?team` | 产品待办：sprintId IS NULL 且 status=todo（待处理）的 issues，keyNum/key 倒序（与 `/issues` 展示顺序一致）；其他状态及已归档（含已归档项目的）一律不进 |
 | GET | `/sprints/velocity?team` | 每 sprint committed/completed/capacity + avgVelocity |
 | GET | `/sprints/:id` | 元数据 + committed issues + stats |
 | GET | `/sprints/:id/burndown` | ideal 线性 + snapshots actual |
