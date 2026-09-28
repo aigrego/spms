@@ -268,10 +268,14 @@ const PREFIX = '/api/v1/pms';
 
 type Envelope<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/* fetch + envelope unwrap 公共核:/api/v1/pms(request,PREFIX 拼接)与 /api/auth/**
+   (authRequest,完整路径)共用。fetch 层异常统一收敛为 ApiError('NETWORK', …),
+   业务错误为 ApiError(code, message)。platformApi.ts 维持自己的一份拷贝 ——
+   该模块的隔离是刻意决策(pms client 归另一条工作流)。 */
+async function call<T>(url: string, init?: RequestInit): Promise<T> {
   let env: Envelope<T> | null = null;
   try {
-    const res = await fetch(PREFIX + path, {
+    const res = await fetch(url, {
       credentials: 'same-origin',
       ...init,
     });
@@ -285,25 +289,39 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   throw new ApiError(env.error?.code ?? 'ERROR', env.error?.message ?? 'Unknown error');
 }
 
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  return call(PREFIX + path, init);
+}
+
 const json = (method: string, body?: unknown): RequestInit => ({
   method,
   headers: { 'Content-Type': 'application/json' },
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 
+/* query string 拼装:跳过空值(undefined/null/''),返回带前导 '?' 的串,无参数时 ''。
+   统一走 URLSearchParams 自动 encode —— 顺带修复了此前手写 ?team=${team} 不
+   encode 的口子(team 与存储值做相等匹配,含保留字符时旧拼接会截断 query)。 */
+const qs = (params: Record<string, unknown>): string => {
+  const q = new URLSearchParams(
+    Object.entries(params)
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, String(v)]),
+  ).toString();
+  return q ? `?${q}` : '';
+};
+
 export const api = {
   bootstrap: () => request<Bootstrap>('/bootstrap'),
 
-  issues: (params?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean }) => {
-    const q = new URLSearchParams(
-      Object.entries({
+  issues: (params?: { team?: string; assignee?: string; project?: string; includeArchived?: boolean; recentDone?: boolean }) =>
+    request<Issue[]>(
+      `/issues${qs({
         ...params,
         includeArchived: params?.includeArchived ? '1' : undefined,
         recentDone: params?.recentDone ? '1' : undefined,
-      }).filter(([, v]) => v) as [string, string][],
-    ).toString();
-    return request<Issue[]>(`/issues${q ? `?${q}` : ''}`);
-  },
+      })}`,
+    ),
 
   // Missing issue resolves to null (data: null), not a thrown 404.
   issue: (id: string) => request<IssueDetail | null>(`/issues/${id}`),
@@ -333,15 +351,15 @@ export const api = {
     request<{ id: string; status: IssueStatus }>(`/issues/${id}/sub/${subId}`, json('PATCH', { status })),
 
   /* ---- Scrum ---- */
-  sprints: (team?: string) => request<Sprint[]>(`/sprints${team ? `?team=${team}` : ''}`),
+  sprints: (team?: string) => request<Sprint[]>(`/sprints${qs({ team })}`),
 
-  backlog: (team?: string) => request<Issue[]>(`/sprints/backlog${team ? `?team=${team}` : ''}`),
+  backlog: (team?: string) => request<Issue[]>(`/sprints/backlog${qs({ team })}`),
 
   sprint: (id: string) => request<SprintDetail | null>(`/sprints/${id}`),
 
   burndown: (id: string) => request<Burndown | null>(`/sprints/${id}/burndown`),
 
-  velocity: (team?: string) => request<Velocity>(`/sprints/velocity${team ? `?team=${team}` : ''}`),
+  velocity: (team?: string) => request<Velocity>(`/sprints/velocity${qs({ team })}`),
 
   moveIssueToSprint: (sprintId: string, issueId: string, storyPoints?: number | null) =>
     request<{ issueId: string; sprintId: string | null }>(
@@ -409,12 +427,8 @@ export const api = {
     request<{ id: string; archived: boolean }>(`/projects/${id}/archive`, json('POST', { archived })),
 
   /* ---- Requirements / PRD ---- */
-  requirements: (params?: { project?: string; type?: RequirementType }) => {
-    const q = new URLSearchParams(
-      Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
-    ).toString();
-    return request<Requirement[]>(`/requirements${q ? `?${q}` : ''}`);
-  },
+  requirements: (params?: { project?: string; type?: RequirementType }) =>
+    request<Requirement[]>(`/requirements${qs(params ?? {})}`),
   requirement: (id: string) => request<Requirement | null>(`/requirements/${id}`),
   createRequirement: (input: CreateRequirementInput) =>
     request<Requirement>('/requirements', json('POST', input)),
@@ -425,12 +439,8 @@ export const api = {
     request<IssueDetail[]>(`/requirements/${id}/decompose`, { method: 'POST' }),
 
   /* ---- 测试用例 ---- */
-  testCases: (params?: { project?: string; requirement?: string; issue?: string; category?: TestCaseCategory; status?: TestCaseStatus; result?: TestResult }) => {
-    const q = new URLSearchParams(
-      Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
-    ).toString();
-    return request<TestCase[]>(`/test-cases${q ? `?${q}` : ''}`);
-  },
+  testCases: (params?: { project?: string; requirement?: string; issue?: string; category?: TestCaseCategory; status?: TestCaseStatus; result?: TestResult }) =>
+    request<TestCase[]>(`/test-cases${qs(params ?? {})}`),
   testCase: (id: string) => request<TestCase | null>(`/test-cases/${id}`),
   createTestCase: (input: CreateTestCaseInput) => request<TestCase>('/test-cases', json('POST', input)),
   updateTestCase: (id: string, input: UpdateTestCaseInput) =>
@@ -438,22 +448,13 @@ export const api = {
   deleteTestCase: (id: string) => request<{ id: string }>(`/test-cases/${id}`, { method: 'DELETE' }),
 
   /* ---- 测试执行 (test runs) ---- */
-  testRuns: (params?: { project?: string; category?: TestCaseCategory }) => {
-    const q = new URLSearchParams(
-      Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
-    ).toString();
-    return request<TestRun[]>(`/test-runs${q ? `?${q}` : ''}`);
-  },
+  testRuns: (params?: { project?: string; category?: TestCaseCategory }) =>
+    request<TestRun[]>(`/test-runs${qs(params ?? {})}`),
   recordTestRun: (input: RecordTestRunInput) =>
     request<{ run: TestRun; bugs: { key: string; testCase: string }[] }>('/test-runs', json('POST', input)),
 
   /* ---- 开发计划 (dev plans) ---- */
-  plans: (params?: { project?: string }) => {
-    const q = new URLSearchParams(
-      Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
-    ).toString();
-    return request<Plan[]>(`/plans${q ? `?${q}` : ''}`);
-  },
+  plans: (params?: { project?: string }) => request<Plan[]>(`/plans${qs(params ?? {})}`),
   plan: (id: string) => request<Plan | null>(`/plans/${id}`),
   createPlan: (input: CreatePlanInput) => request<Plan>('/plans', json('POST', input)),
   updatePlan: (id: string, input: UpdatePlanInput) => request<Plan>(`/plans/${id}`, json('PATCH', input)),
@@ -502,13 +503,10 @@ export const api = {
     }),
 
   /* ---- Notion 集成 ---- */
-  notionIntegration: (opts?: { databases?: boolean; statuses?: boolean }) => {
-    const q = new URLSearchParams();
-    if (opts?.databases) q.set('databases', '1');
-    if (opts?.statuses) q.set('statuses', '1');
-    const qs = q.toString();
-    return request<NotionIntegrationStatus>(`/integrations/notion${qs ? `?${qs}` : ''}`);
-  },
+  notionIntegration: (opts?: { databases?: boolean; statuses?: boolean }) =>
+    request<NotionIntegrationStatus>(
+      `/integrations/notion${qs({ databases: opts?.databases ? '1' : undefined, statuses: opts?.statuses ? '1' : undefined })}`,
+    ),
   updateNotionIntegration: (input: NotionIntegrationPatch) =>
     request<NotionIntegrationStatus>('/integrations/notion', json('PATCH', input)),
   disconnectNotion: () => request<{ disconnected: boolean }>('/integrations/notion', { method: 'DELETE' }),
@@ -518,24 +516,16 @@ export const api = {
     request<NotionSyncResult>(`/integrations/notion/sync${opts?.full ? '?full=1' : ''}`, { method: 'POST' }),
 
   /* ---- 日报 (daily reports) ---- */
-  reports: (params?: { startDate?: string; endDate?: string; memberId?: string; productId?: string }) => {
-    const q = new URLSearchParams(
-      Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],
-    ).toString();
-    return request<DailyReport[]>(`/reports${q ? `?${q}` : ''}`);
-  },
+  reports: (params?: { startDate?: string; endDate?: string; memberId?: string; productId?: string }) =>
+    request<DailyReport[]>(`/reports${qs(params ?? {})}`),
   myReport: (date: string) => request<DailyReport | null>(`/reports/mine?date=${date}`),
   saveMyReport: (input: SaveMyReportInput) => request<DailyReport>('/reports/mine', json('PUT', input)),
   deleteReport: (id: string) => request<{ id: string }>(`/reports/${id}`, { method: 'DELETE' }),
   reportStats: (today: string) => request<ReportStats>(`/reports/stats?today=${today}`),
 
   /* ---- 团队总结 (team summary) ---- */
-  teamSummary: (params: { period: 'daily' | 'weekly'; date: string; tzMin: number; memberId?: string; projectId?: string }) => {
-    const q = new URLSearchParams(
-      Object.entries(params).filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)]),
-    ).toString();
-    return request<TeamSummary>(`/summary?${q}`);
-  },
+  teamSummary: (params: { period: 'daily' | 'weekly'; date: string; tzMin: number; memberId?: string; projectId?: string }) =>
+    request<TeamSummary>(`/summary${qs(params)}`),
 };
 
 export type Api = typeof api;
@@ -640,12 +630,10 @@ export interface SessionInfo {
   permissions?: Partial<Record<ModuleKey, PermLevel>>;
 }
 
+/* /api/auth/** 与 pms 同一信封约定,直接复用 call(path 已是完整路径,
+   不拼 PREFIX);fetch 异常同样收敛为 ApiError('NETWORK', …)。 */
 async function authRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { credentials: 'same-origin', ...init });
-  const env = (await res.json().catch(() => null)) as Envelope<T> | null;
-  if (!env) throw new ApiError('ERROR', `HTTP ${res.status}`);
-  if (env.ok) return env.data;
-  throw new ApiError(env.error?.code ?? 'ERROR', env.error?.message ?? 'Unknown error');
+  return call(path, init);
 }
 
 export const authApi = {

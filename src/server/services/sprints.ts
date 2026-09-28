@@ -7,6 +7,7 @@ import { requirePerm } from '@/lib/permissions';
 import { assertProjectWritable, clampAllowed, issueVisible, visibleSetsFor } from '@/lib/visibility';
 import { recordSprintSnapshot } from './sprintSnapshots';
 import { archivedProjectIds } from './issues';
+import { LIST_LIMIT, parseDate, withRelations, type Tx } from './shared';
 import type { Actor } from './types';
 
 /* Sprint business service. Ported from apps/spms-server/src/routes/sprints.ts —
@@ -20,20 +21,7 @@ import type { Actor } from './types';
    A sprint spans one or more projects via the sprint_projects join table —
    a product split into module-projects runs one iteration cycle across them. */
 
-const withRelations = {
-  issueLabels: { with: { label: true } },
-  subIssues: true,
-  requirement: { columns: { key: true } },
-} as const;
-
 const DONE_STATUSES = ['done', 'canceled'];
-
-/* 列表服务端上限(与 reports.ts 的 LIST_LIMIT=500 同口径):内存保护,
-   超出按现有排序截断;不加分页参数、不改响应形状。 */
-const LIST_LIMIT = 500;
-
-/* drizzle 事务句柄(db.transaction 回调参数),供须入事务的私有 helper 使用。 */
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /* The projects a sprint spans (sprint_projects join). */
 async function sprintProjectIds(companyId: string, sprintId: string): Promise<string[]> {
@@ -355,12 +343,6 @@ export async function moveIssue(actor: Actor, sprintIdOrBacklog: string, issueKe
 /* ------------------------------------------------------------------ */
 /* Sprint CRUD — NEW (the blueprint had no sprint create/update/delete)  */
 /* ------------------------------------------------------------------ */
-
-function parseDate(v: Date | string, field: string): Date {
-  const d = v instanceof Date ? v : new Date(v);
-  if (Number.isNaN(+d)) throw new ApiException('VALIDATION_FAILED', `${field} 不是合法日期`);
-  return d;
-}
 
 /* The legacy team a sprint inherits — derived from its (single) project. */
 async function teamForProject(companyId: string, projectId: string | null | undefined) {

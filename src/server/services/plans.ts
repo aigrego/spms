@@ -7,6 +7,7 @@ import { nextKey } from '@/lib/keys';
 import { requirePerm } from '@/lib/permissions';
 import { assertProjectWritable, clampAllowed, issueVisible, visibleSetsFor } from '@/lib/visibility';
 import { archivedProjectIds } from './issues';
+import { LIST_LIMIT } from './shared';
 import type { Actor } from './types';
 
 /* Dev plans (开发计划) business service — project-scoped markdown documents
@@ -23,9 +24,6 @@ export type PlanStatus = PlanRow['status'];
 const withRequirements = {
   planRequirements: { with: { requirement: { columns: { key: true } } } },
 } as const;
-
-/* 列表服务端上限(与 testcases.ts 的 LIST_LIMIT=500 同口径)。 */
-const LIST_LIMIT = 500;
 
 /* Resolve requirement display keys (FR-N / NFR-N) → internal uuids, within the
    company. Unknown keys → VALIDATION_FAILED(创建不幂等,调用方需明确纠错)。 */

@@ -8,6 +8,7 @@ import { requirePerm } from '@/lib/permissions';
 import { assertProjectWritable, clampAllowed, issueVisible, visibleSetsFor } from '@/lib/visibility';
 import { decompositionItemsFor } from '@/lib/decompose';
 import { archivedProjectIds, createIssue, fetchIssueDetails } from './issues';
+import { LIST_LIMIT } from './shared';
 import type { Actor } from './types';
 
 /* Requirements / PRD business service. Ported from
@@ -29,10 +30,6 @@ export type RequirementPriority = RequirementRow['priority'];
 export type RequirementImportance = RequirementRow['importance'];
 
 const withIssues = { issues: { columns: { key: true, status: true } } } as const;
-
-/* 列表服务端上限(与 reports.ts 的 LIST_LIMIT=500 同口径):内存保护,
-   超出按 position 截断;不加分页参数、不改响应形状。 */
-const LIST_LIMIT = 500;
 
 async function findByKey(companyId: string, key: string) {
   return db.query.requirements.findFirst({

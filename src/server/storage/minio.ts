@@ -52,29 +52,30 @@ export function parsePublicBaseUrl(raw: string): { endPoint: string; port: numbe
 const PUT_EXPIRY_S = 10 * 60; // 浏览器 10 分钟内完成直传
 const GET_EXPIRY_S = 5 * 60; // 代理 302 后立即跟随，短时效即可
 
-export function minioBackend(companyId: string, conf: MinioConfig): StorageBackend {
-  const client = new Minio.Client({
-    endPoint: conf.endpoint,
-    port: conf.port,
-    useSSL: conf.useSsl,
+/* 由公司配置构造 minio 客户端。预签名场景用 override 把 endpoint 换成公网基址
+   （浏览器按公网 host 校验 V4 签名），region 写死 us-east-1 以避免 presign 前的
+   getBucketRegion 探活请求打到公网地址（服务端可能不可达）。 */
+function minioClient(
+  conf: MinioConfig,
+  override?: { endPoint: string; port: number; useSSL: boolean; region?: string },
+): Minio.Client {
+  return new Minio.Client({
+    endPoint: override?.endPoint ?? conf.endpoint,
+    port: override?.port ?? conf.port,
+    useSSL: override?.useSSL ?? conf.useSsl,
     accessKey: conf.accessKey,
     secretKey: conf.secretKey,
+    ...(override?.region ? { region: override.region } : {}),
   });
+}
+
+export function minioBackend(companyId: string, conf: MinioConfig): StorageBackend {
+  const client = minioClient(conf);
 
   /* 预签名专用客户端：配了公网基址就按公网 host 签发（浏览器直传/302 读取
-     都发生在浏览器侧），否则回落内网 endpoint。region 写死 us-east-1，避免
-     presign 前的 getBucketRegion 探活请求打到公网地址（服务端可能不可达）。 */
+     都发生在浏览器侧），否则回落内网 endpoint。 */
   const pub = conf.publicBaseUrl ? parsePublicBaseUrl(conf.publicBaseUrl) : null;
-  const presignClient = pub
-    ? new Minio.Client({
-        endPoint: pub.endPoint,
-        port: pub.port,
-        useSSL: pub.useSSL,
-        accessKey: conf.accessKey,
-        secretKey: conf.secretKey,
-        region: 'us-east-1',
-      })
-    : client;
+  const presignClient = pub ? minioClient(conf, { ...pub, region: 'us-east-1' }) : client;
 
   /* 规范 url：仅作为身份标识存入 DB 并通过 assertMeta 校验 —— bucket 是私有的,
      该 url 公网不可读,真正的读取走代理路由。配了公网基址时以公网基址为准
@@ -132,13 +133,7 @@ export function minioBackend(companyId: string, conf: MinioConfig): StorageBacke
 
 /* 设置页「测试连接」：bucket 存在 + 写/删一个探测对象。 */
 export async function testMinioConnection(conf: MinioConfig): Promise<void> {
-  const client = new Minio.Client({
-    endPoint: conf.endpoint,
-    port: conf.port,
-    useSSL: conf.useSsl,
-    accessKey: conf.accessKey,
-    secretKey: conf.secretKey,
-  });
+  const client = minioClient(conf);
   if (!(await client.bucketExists(conf.bucket))) {
     throw new ApiException('VALIDATION_FAILED', `bucket ${conf.bucket} 不存在或无权访问`);
   }

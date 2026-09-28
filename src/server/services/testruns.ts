@@ -1,11 +1,12 @@
 import { and, asc, desc, eq, inArray, isNull, ne, notInArray, or } from 'drizzle-orm';
 import { db } from '@/db';
-import { issues, projects, releases, testCases, testRunItems, testRuns } from '@/db/schema';
+import { issues, releases, testCases, testRunItems, testRuns } from '@/db/schema';
 import { serializeTestCase, serializeTestRun } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { requirePerm } from '@/lib/permissions';
 import { assertProjectWritable, clampAllowed, visibleSetsFor } from '@/lib/visibility';
 import { archivedProjectIds, createIssue } from './issues';
+import { LIST_LIMIT, TEST_RUN_LIST_LIMIT, projectIdsOfRelease, withLinks } from './shared';
 import type { TestCaseCategory, TestResult } from './testcases';
 import type { Actor } from './types';
 
@@ -19,23 +20,6 @@ import type { Actor } from './types';
 export interface SuiteScope {
   projectId?: string;
   releaseId?: string;
-}
-
-const withLinks = {
-  requirement: { columns: { key: true } },
-  issue: { columns: { key: true } },
-} as const;
-
-const LIST_LIMIT = 100;
-
-/* Projects directly under a release (local copy — catalog.ts 里的同名私有函数
-   不能直接 import,否则与 catalog 的发布门禁形成循环依赖)。 */
-async function projectIdsOfRelease(companyId: string, releaseId: string): Promise<string[]> {
-  const rows = await db
-    .select({ id: projects.id })
-    .from(projects)
-    .where(and(eq(projects.companyId, companyId), eq(projects.releaseId, releaseId)));
-  return rows.map((r) => r.id);
 }
 
 /* Validate the scope and expand it to concrete project ids (visibility-filtered).
@@ -81,7 +65,7 @@ export async function listSuite(actor: Actor, scope: SuiteScope, category: TestC
     ),
     with: withLinks,
     orderBy: [asc(testCases.position)],
-    limit: 500,
+    limit: LIST_LIMIT,
   });
   return rows.map(serializeTestCase);
 }
@@ -208,7 +192,7 @@ export async function listTestRuns(
     where: and(...conds),
     with: { items: { with: { testCase: { columns: { key: true } } } } },
     orderBy: [desc(testRuns.createdAt)],
-    limit: LIST_LIMIT,
+    limit: TEST_RUN_LIST_LIMIT,
   });
   return rows.map(serializeTestRun);
 }

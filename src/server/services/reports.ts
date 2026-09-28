@@ -4,6 +4,7 @@ import { dailyReportEntries, dailyReports, members, products, projects, releases
 import { ApiException } from '@/lib/envelope';
 import { requirePerm } from '@/lib/permissions';
 import { formatReportContent } from '@/lib/reportMarkdown';
+import { LIST_LIMIT } from './shared';
 import type { Actor } from './types';
 
 /* Daily report service (日报模块).
@@ -17,7 +18,6 @@ import type { Actor } from './types';
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const MAX_CONTENT_LEN = 4000;
-const LIST_LIMIT = 500;
 
 function assertDay(date: string): void {
   if (!DAY_RE.test(date)) throw new ApiException('VALIDATION_FAILED', '日期格式应为 YYYY-MM-DD');
@@ -174,6 +174,42 @@ export async function getMyReport(actor: Actor, date: string): Promise<ReportVie
 }
 
 /* ---- upsert my report (覆盖提交:同日重复提交 = 全量替换 entries) ---- */
+
+/* 清洗日报条目:trim、按产品去重、条数下限。dropEmpty=true(覆盖提交)时空内容块
+   静默丢弃(空 = 不填该产品的语义),且不查单条长度(由 zod 层 reportUpsertSchema
+   校验);dropEmpty=false(合并提交)时空内容直接报错——合并语义下静默丢弃会让
+   调用方误以为已提交——并兜单条长度上限。 */
+function cleanEntries(raw: ReportEntryInput[], opts: { dropEmpty: boolean }): ReportEntryInput[] {
+  const seen = new Set<string>();
+  const entries: ReportEntryInput[] = [];
+  for (const e of raw) {
+    const content = (e?.content ?? '').trim();
+    if (opts.dropEmpty && !content) continue;
+    if (typeof e?.productId !== 'string' || !e.productId) throw new ApiException('VALIDATION_FAILED', '缺少产品');
+    if (!content) throw new ApiException('VALIDATION_FAILED', '日报内容不能为空');
+    if (!opts.dropEmpty && content.length > MAX_CONTENT_LEN) {
+      throw new ApiException('VALIDATION_FAILED', `单产品内容不能超过 ${MAX_CONTENT_LEN} 字`);
+    }
+    if (seen.has(e.productId)) throw new ApiException('VALIDATION_FAILED', '同一产品只能填写一段内容');
+    seen.add(e.productId);
+    entries.push({ productId: e.productId, content });
+  }
+  if (entries.length === 0) throw new ApiException('VALIDATION_FAILED', '至少填写一个产品的内容');
+  return entries;
+}
+
+/* 产品必须属于本公司且未归档。 */
+async function assertWritableProducts(companyId: string, entries: ReportEntryInput[]): Promise<void> {
+  const prodRows = await db
+    .select({ id: products.id, status: products.status })
+    .from(products)
+    .where(and(eq(products.companyId, companyId), inArray(products.id, entries.map((e) => e.productId))));
+  const writableIds = new Set(prodRows.filter((p) => p.status !== 'archived').map((p) => p.id));
+  for (const e of entries) {
+    if (!writableIds.has(e.productId)) throw new ApiException('PRODUCT_NOT_FOUND');
+  }
+}
+
 export async function upsertMyReport(
   actor: Actor,
   input: { date: string; entries: ReportEntryInput[] },
@@ -182,33 +218,9 @@ export async function upsertMyReport(
   if (!actor.memberId) throw new ApiException('FORBIDDEN', '需要公司席位才能提交日报', 403);
   // 日期格式/entries 形状/单条长度由 zod 层(reportUpsertSchema)校验。
 
-  // 清洗:去掉空内容块、按产品去重。
-  const seen = new Set<string>();
-  const entries: ReportEntryInput[] = [];
-  for (const e of input.entries) {
-    const content = (e?.content ?? '').trim();
-    if (!content) continue;
-    if (typeof e.productId !== 'string' || !e.productId) throw new ApiException('VALIDATION_FAILED', '缺少产品');
-    if (seen.has(e.productId)) throw new ApiException('VALIDATION_FAILED', '同一产品只能填写一段内容');
-    seen.add(e.productId);
-    entries.push({ productId: e.productId, content });
-  }
-  if (entries.length === 0) throw new ApiException('VALIDATION_FAILED', '至少填写一个产品的内容');
-
-  // 产品必须属于本公司且未归档。
-  const prodRows = await db
-    .select({ id: products.id, status: products.status })
-    .from(products)
-    .where(
-      and(
-        eq(products.companyId, actor.companyId),
-        inArray(products.id, entries.map((e) => e.productId)),
-      ),
-    );
-  const writableIds = new Set(prodRows.filter((p) => p.status !== 'archived').map((p) => p.id));
-  for (const e of entries) {
-    if (!writableIds.has(e.productId)) throw new ApiException('PRODUCT_NOT_FOUND');
-  }
+  // 覆盖提交:空内容块静默丢弃(空 = 不填该产品的语义)。
+  const entries = cleanEntries(input.entries, { dropEmpty: true });
+  await assertWritableProducts(actor.companyId, entries);
 
   const reportId = await db.transaction(async (tx) => {
     const [existing] = await tx
@@ -272,37 +284,9 @@ export async function mergeMyReportEntries(
   assertDay(date);
   if (!Array.isArray(input)) throw new ApiException('VALIDATION_FAILED', '缺少日报内容');
 
-  // 清洗:内容非空(合并语义下静默丢弃会让调用方误以为已提交,故直接报错)、
-  // 限长、按产品去重 —— 口径与 upsertMyReport 一致。
-  const seen = new Set<string>();
-  const entries: ReportEntryInput[] = [];
-  for (const e of input) {
-    const content = (e?.content ?? '').trim();
-    if (typeof e?.productId !== 'string' || !e.productId) throw new ApiException('VALIDATION_FAILED', '缺少产品');
-    if (!content) throw new ApiException('VALIDATION_FAILED', '日报内容不能为空');
-    if (content.length > MAX_CONTENT_LEN) {
-      throw new ApiException('VALIDATION_FAILED', `单产品内容不能超过 ${MAX_CONTENT_LEN} 字`);
-    }
-    if (seen.has(e.productId)) throw new ApiException('VALIDATION_FAILED', '同一产品只能填写一段内容');
-    seen.add(e.productId);
-    entries.push({ productId: e.productId, content });
-  }
-  if (entries.length === 0) throw new ApiException('VALIDATION_FAILED', '至少填写一个产品的内容');
-
-  // 产品必须属于本公司且未归档。
-  const prodRows = await db
-    .select({ id: products.id, status: products.status })
-    .from(products)
-    .where(
-      and(
-        eq(products.companyId, actor.companyId),
-        inArray(products.id, entries.map((e) => e.productId)),
-      ),
-    );
-  const writableIds = new Set(prodRows.filter((p) => p.status !== 'archived').map((p) => p.id));
-  for (const e of entries) {
-    if (!writableIds.has(e.productId)) throw new ApiException('PRODUCT_NOT_FOUND');
-  }
+  // 合并提交:空内容报错(静默丢弃会让调用方误以为已提交),并兜单条长度上限。
+  const entries = cleanEntries(input, { dropEmpty: false });
+  await assertWritableProducts(actor.companyId, entries);
 
   const { reportId, created, updated } = await db.transaction(async (tx) => {
     const [existing] = await tx

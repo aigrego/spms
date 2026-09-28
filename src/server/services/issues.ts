@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { issues, issueLabels, subIssues, activities, issueStatusTransitions, members, projects, requirements, sprints, sprintProjects } from '@/db/schema';
+import { issues, issueLabels, subIssues, activities, issueStatusTransitions, members, projects, sprints, sprintProjects } from '@/db/schema';
 import { serializeIssueList, serializeIssueDetail } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
@@ -9,6 +9,7 @@ import { onAgentAssigned } from '@/lib/agents';
 import { systemActivity } from '@/lib/activity';
 import { requirePerm } from '@/lib/permissions';
 import { recordSprintSnapshot } from './sprintSnapshots';
+import { ISSUE_LIST_LIMIT, resolveRequirementId, withRelations } from './shared';
 import type { Actor } from './types';
 
 /* Issue business service. Ported from apps/spms-server/src/routes/issues.ts —
@@ -19,12 +20,6 @@ import type { Actor } from './types';
    inside actor.companyId; keys (BUG-N) are unique per company. Module gate:
    `issues` read/write. */
 
-const withRelations = {
-  issueLabels: { with: { label: true } },
-  subIssues: true,
-  requirement: { columns: { key: true } },
-} as const;
-
 type IssueRow = typeof issues.$inferSelect;
 export type IssueStatus = IssueRow['status'];
 export type IssuePriority = IssueRow['priority'];
@@ -34,23 +29,6 @@ export type IssueType = IssueRow['type'];
 // Issue 类型 → display-key prefix (scoped to type, each with its own sequence).
 // Matches docs/PLAN.md §keys + the blueprint (BLG/TKT/BUG).
 const TYPE_PREFIX: Record<IssueType, string> = { backlog: 'BLG', ticket: 'TKT', bug: 'BUG' };
-
-/* 列表服务端上限(口径同 reports.ts 的 LIST_LIMIT=500,此处放宽到 1000):
-   前端「全部 Issues」视图依赖接近全量的列表,上限只作内存保护;超出按 key
-   倒序截断(最新的优先返回),不加分页参数、不改响应形状。 */
-const LIST_LIMIT = 1000;
-
-/* Resolve a requirement display key ("FR-12") → its internal uuid, within the
-   company. Returns null for an empty key; undefined when provided but not found. */
-async function resolveRequirementId(companyId: string, key: string | null | undefined) {
-  if (!key) return null;
-  const [r] = await db
-    .select({ id: requirements.id })
-    .from(requirements)
-    .where(and(eq(requirements.companyId, companyId), eq(requirements.key, key)))
-    .limit(1);
-  return r?.id ?? undefined;
-}
 
 /* Resolve an issue by its display key → the internal row, within the company. */
 async function findByKey(companyId: string, key: string) {
@@ -170,7 +148,7 @@ export async function listIssues(
       sql`case when ${issues.key} ~ '\\d+$' then cast(substring(${issues.key} from '\\d+$') as integer) else 0 end desc`,
       desc(issues.key),
     ],
-    limit: LIST_LIMIT,
+    limit: ISSUE_LIST_LIMIT,
   });
   return rows.map(serializeIssueList);
 }

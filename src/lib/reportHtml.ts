@@ -2,15 +2,17 @@
    分组的成员/产品层级用嵌套 <ol>(渲染为 1. / a. / i. 富文本序号);
    任务内容里带列表标记的行编成嵌套 <ul>(保留多层级条目,TKT-29),
    无标记的标题/段落行输出 <p>;<b>/<code>/<a> 同步转换。
-   这里只做最小 markdown → HTML 转换,与 components/Markdown.tsx 的行内模式保持一致。 */
+   这里只做最小 markdown → HTML 转换;行内 token 与 components/Markdown.tsx
+   同源(lib/markdownInline),本侧不转图片、链接仅收绝对 http(s) URL。 */
+
+import { inlineMarkdownRe } from './markdownInline';
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-/* 与 Markdown.tsx 的 INLINE_RE 同款行内模式(先整体转义,再在转义后的文本上替换)。 */
-const INLINE_RE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(~~[^~\n]+~~)|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
+/* 先整体转义,再在转义后的文本上替换(行内 token 与 Markdown.tsx 同源)。 */
+const INLINE_RE = inlineMarkdownRe(String.raw`\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)`);
 
 /* src 必须是已转义的文本:递归下钻时片段已随外层转义过,不能再 escape 一遍。 */
 function inlineEscapedToHtml(src: string, depth: number): string {

@@ -1,12 +1,13 @@
 import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
 import { db } from '@/db';
-import { testCases, projects, requirements, issues } from '@/db/schema';
+import { testCases, projects, issues } from '@/db/schema';
 import { serializeTestCase } from '@/lib/serialize';
 import { ApiException } from '@/lib/envelope';
 import { nextKey } from '@/lib/keys';
 import { requirePerm } from '@/lib/permissions';
 import { assertProjectWritable, clampAllowed, issueVisible, visibleSetsFor } from '@/lib/visibility';
 import { archivedProjectIds } from './issues';
+import { LIST_LIMIT, resolveRequirementId, withLinks } from './shared';
 import type { Actor } from './types';
 
 /* Test cases (测试用例) business service — project-scoped, optionally validating
@@ -23,28 +24,6 @@ export type TestCaseStatus = TestCaseRow['status'];
 export type TestResult = TestCaseRow['result'];
 export type TestCasePriority = TestCaseRow['priority'];
 export type TestCaseCategory = TestCaseRow['category'];
-
-const withLinks = {
-  requirement: { columns: { key: true } },
-  issue: { columns: { key: true } },
-} as const;
-
-/* 列表服务端上限(与 reports.ts 的 LIST_LIMIT=500 同口径):内存保护,
-   超出按 position 截断;不加分页参数、不改响应形状。注意 requirement 过滤是
-   展示 key 的 join 后过滤,上限先行截断可能使其少匹配(>500 行时)。 */
-const LIST_LIMIT = 500;
-
-/* Resolve a requirement display key (FR-N / NFR-N) → internal uuid, within the
-   company. undefined = provided but not found; null = unlinked. */
-async function resolveRequirementId(companyId: string, key: string | null | undefined) {
-  if (!key) return null;
-  const [r] = await db
-    .select({ id: requirements.id })
-    .from(requirements)
-    .where(and(eq(requirements.companyId, companyId), eq(requirements.key, key)))
-    .limit(1);
-  return r?.id ?? undefined;
-}
 
 /* Resolve an issue display key (TKT-N / BUG-N / BLG-N) → internal uuid, within
    the company. undefined = provided but not found; null = unlinked. */
@@ -91,7 +70,8 @@ export async function listTestCases(
     orderBy: [asc(testCases.position)],
     limit: LIST_LIMIT,
   });
-  // requirement / issue filters are by display key → filter post-join.
+  // requirement / issue filters are by display key → filter post-join(上限先行截断,
+  // 行数超过 LIST_LIMIT 时 post-join 过滤可能少匹配)。
   let filtered = filter?.requirement ? rows.filter((r) => r.requirement?.key === filter.requirement) : rows;
   if (filter?.issue) filtered = filtered.filter((r) => r.issue?.key === filter.issue);
   return filtered.map(serializeTestCase);

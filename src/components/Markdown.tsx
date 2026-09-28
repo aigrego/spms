@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { inlineMarkdownRe } from '@/lib/markdownInline';
 
 /* Minimal markdown renderer for issue descriptions and comments. Supports:
    fenced code blocks, inline code, bold, italic, strikethrough, links,
@@ -9,8 +10,10 @@ import * as React from 'react';
    Everything is emitted as React nodes (no innerHTML), so raw HTML in the
    source is inert by construction. */
 
-const INLINE_RE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(~~[^~\n]+~~)|!\[([^\]\n]*)\]\(((?:https?:\/\/|\/(?!\/))[^\s)]+)\)|\[([^\]\n]+)\]\(((?:https?:\/\/|\/(?!\/))[^\s)]+)\)/g;
+const INLINE_RE = inlineMarkdownRe(
+  String.raw`!\[([^\]\n]*)\]\(((?:https?:\/\/|\/(?!\/))[^\s)]+)\)`,
+  String.raw`\[([^\]\n]+)\]\(((?:https?:\/\/|\/(?!\/))[^\s)]+)\)`,
+);
 
 function renderInline(text: string, depth = 0): React.ReactNode[] {
   if (depth > 3) return [text];

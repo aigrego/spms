@@ -7,6 +7,7 @@ import { assignMember, clearNodesAssignments, sprintsDyingWithProjects, type Nod
 import { requirePerm } from '@/lib/permissions';
 import { visibleSetsFor } from '@/lib/visibility';
 import { blockingIntegrationForRelease, testsNotPassedError } from './testruns';
+import { parseDate, projectIdsOfRelease, type Tx } from './shared';
 import type { Actor } from './types';
 
 /* Lifecycle catalog business service: 产品线 → 产品 → 版本/Release.
@@ -23,9 +24,6 @@ export type ProductStatus = ProductRow['status'];
 type ReleaseRow = typeof releases.$inferSelect;
 export type ReleaseStatus = ReleaseRow['status'];
 export type LifecyclePhase = ReleaseRow['phase'];
-
-/* drizzle 事务句柄(db.transaction 回调参数),供须入事务的私有 helper 使用。 */
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /* ============================ Product lines ============================ */
 
@@ -237,15 +235,6 @@ async function projectIdsOfProduct(companyId: string, productId: string): Promis
   return rows.map((r) => r.id);
 }
 
-/* Projects directly under a release. */
-async function projectIdsOfRelease(companyId: string, releaseId: string): Promise<string[]> {
-  const rows = await db
-    .select({ id: projects.id })
-    .from(projects)
-    .where(and(eq(projects.companyId, companyId), eq(projects.releaseId, releaseId)));
-  return rows.map((r) => r.id);
-}
-
 /* Shared delete walk for product/release: clear the polymorphic assignment rows
    of the dying nodes, then return the sprints that die with the subtree (all
    their projects inside it) — shared sprints survive minus the links.
@@ -347,14 +336,6 @@ export interface CreateReleaseInput {
   position?: number;
 }
 
-/* targetDate 双层防御:REST 路由层 zod 已拦掉非法日期字符串,服务层(MCP 等
-   直连调用方不过 zod)再兜一次 isNaN。 */
-function parseTargetDate(v: Date | string): Date {
-  const d = v instanceof Date ? v : new Date(v);
-  if (Number.isNaN(+d)) throw new ApiException('VALIDATION_FAILED', 'targetDate 不是合法日期');
-  return d;
-}
-
 export async function createRelease(actor: Actor, input: CreateReleaseInput) {
   await requirePerm(actor, 'products', 'write');
   if (!input.name.trim()) throw new ApiException('VALIDATION_FAILED', '版本名称不能为空');
@@ -375,7 +356,7 @@ export async function createRelease(actor: Actor, input: CreateReleaseInput) {
     description: input.description ?? null,
     status: input.status ?? 'planned',
     phase: input.phase ?? 'concept',
-    targetDate: input.targetDate ? parseTargetDate(input.targetDate) : null,
+    targetDate: input.targetDate ? parseDate(input.targetDate, 'targetDate') : null,
     progress: input.progress ?? 0,
     position: input.position ?? 0,
   });
@@ -414,7 +395,7 @@ export async function updateRelease(actor: Actor, id: string, input: UpdateRelea
   if (input.description !== undefined) patch.description = input.description;
   if (input.status !== undefined) patch.status = input.status;
   if (input.phase !== undefined) patch.phase = input.phase;
-  if (input.targetDate !== undefined) patch.targetDate = input.targetDate ? parseTargetDate(input.targetDate) : null;
+  if (input.targetDate !== undefined) patch.targetDate = input.targetDate ? parseDate(input.targetDate, 'targetDate') : null;
   if (input.progress !== undefined) patch.progress = input.progress;
   if (input.position !== undefined) patch.position = input.position;
   await db.update(releases).set(patch).where(eq(releases.id, id));
