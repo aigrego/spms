@@ -105,7 +105,11 @@ async function delObject(conf: CompanyConf, key: string): Promise<void> {
 }
 
 async function main() {
-  const sql = postgres(process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/spms');
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error('Missing DATABASE_URL — set it in .env.local or .env (see .env.example)');
+  }
+  const sql = postgres(databaseUrl);
   console.log(`mode: ${apply ? 'APPLY (实删)' : 'DRY-RUN (只列出)'}`);
 
   const rows = await sql<AttachmentRow[]>`

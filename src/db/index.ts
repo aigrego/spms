@@ -3,7 +3,7 @@ import postgres from 'postgres';
 import { env } from '@/lib/env';
 import * as schema from './schema';
 
-// DATABASE_URL 的默认值统一收敛在 @/lib/env（env.databaseUrl），此处不再自带 fallback。
+// DATABASE_URL 统一由 @/lib/env 读取（env.databaseUrl）：漏配即抛错，无任何默认值。
 const connectionString = env.databaseUrl;
 
 // postgres-js client. Next.js dev mode hot-reloads modules, so cache the client

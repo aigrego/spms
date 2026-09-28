@@ -8,8 +8,11 @@ function required(name: string): string {
 }
 
 export const env = {
-  databaseUrl:
-    process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/spms',
+  // Postgres connection string. 与其他 secret 一样快速失败:漏配 DATABASE_URL
+  // 直接抛错,不再回退到写死的内网默认值(静默连错库比报错更危险)。
+  get databaseUrl() {
+    return required('DATABASE_URL');
+  },
   // Secret used to sign session tokens (jose). Generate with:
   //   openssl rand -hex 32
   get sessionSecret() {

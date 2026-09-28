@@ -20,9 +20,11 @@ for (const file of ['.env.local', '.env']) {
 }
 
 async function main() {
-  const sql = postgres(
-    process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/spms',
-  );
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error('Missing DATABASE_URL — set it in .env.local or .env (see .env.example)');
+  }
+  const sql = postgres(databaseUrl);
 
   const stale = await sql<{ id: string; name: string; company_id: string }[]>`
     SELECT m.id, m.name, m.company_id

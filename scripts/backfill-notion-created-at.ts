@@ -62,7 +62,11 @@ async function queryAllPages(token: string, databaseId: string): Promise<NotionP
 }
 
 async function main() {
-  const sql = postgres(process.env.DATABASE_URL ?? 'postgres://postgres:postgres@livebook:5433/spms');
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error('Missing DATABASE_URL — set it in .env.local or .env (see .env.example)');
+  }
+  const sql = postgres(databaseUrl);
 
   const conns = await sql<{ id: string; company_id: string; database_id: string | null; access_token: string }[]>`
     SELECT id, company_id, database_id, access_token FROM notion_connections

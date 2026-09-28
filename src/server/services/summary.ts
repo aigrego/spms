@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, lt } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   activities,
@@ -119,7 +119,31 @@ export async function teamSummary(actor: Actor, query: SummaryQuery): Promise<Te
   const prevEnd = shiftDay(end, query.period === 'weekly' ? -7 : -1);
   const prev = boundsOf(prevStart, prevEnd);
 
-  const [issueRows, transRows, createdActs, reqRows, tcRows, sprintRows, memberRows] = await Promise.all([
+  /* 时间过滤下沉 SQL(TKT-254):窗口内事件只拉 [windowStartMs, cur.endMs) —— 下界
+     取「上一周期起点」与「最早分桶起点」(日粒度回看 13 天 / 周趋势回看 11 周)的
+     较小者;窗口过滤语义与原内存 inBounds/分桶 noop 完全一致。周期时长/验收积压
+     需要全历史的首末次流转,用 distinct on 在 SQL 层按 issue 归组;flowSince 用
+     索引(companyId, createdAt)取最早一条。issues 仍全量拉取 —— 流动健康/积压/
+     成员存量都是当前状态指标,与时间窗无关。 */
+  const trendEarliest = query.period === 'weekly' ? shiftDay(start, -77) : shiftDay(end, -13);
+  const windowStartMs = Math.min(prev.startMs, dayStartMs(trendEarliest));
+  const windowGte = new Date(windowStartMs);
+  const windowLt = new Date(cur.endMs);
+
+  const [
+    issueRows,
+    transRows,
+    createdActs,
+    reqWindowRows,
+    reqStatusRows,
+    tcRows,
+    sprintRows,
+    memberRows,
+    firstTestingRows,
+    firstDoneRows,
+    lastTestingRows,
+    firstTransRow,
+  ] = await Promise.all([
     db
       .select({
         id: issues.id,
@@ -145,35 +169,106 @@ export async function teamSummary(actor: Actor, query: SummaryQuery): Promise<Te
         createdAt: issueStatusTransitions.createdAt,
       })
       .from(issueStatusTransitions)
-      .where(eq(issueStatusTransitions.companyId, actor.companyId))
+      .where(
+        and(
+          eq(issueStatusTransitions.companyId, actor.companyId),
+          gte(issueStatusTransitions.createdAt, windowGte),
+          lt(issueStatusTransitions.createdAt, windowLt),
+        ),
+      )
       .orderBy(asc(issueStatusTransitions.createdAt)),
     db
       .select({ issueId: activities.issueId, whoId: activities.whoId, createdAt: activities.createdAt })
       .from(activities)
-      .where(and(eq(activities.companyId, actor.companyId), eq(activities.kind, 'created'))),
+      .where(
+        and(
+          eq(activities.companyId, actor.companyId),
+          eq(activities.kind, 'created'),
+          gte(activities.createdAt, windowGte),
+          lt(activities.createdAt, windowLt),
+        ),
+      ),
+    // 需求的「新建」指标只需窗口内行;存量状态分布走下面的 groupBy。
     db
-      .select({
-        id: requirements.id,
-        projectId: requirements.projectId,
-        status: requirements.status,
-        authorId: requirements.authorId,
-        createdAt: requirements.createdAt,
-      })
+      .select({ projectId: requirements.projectId, authorId: requirements.authorId, createdAt: requirements.createdAt })
       .from(requirements)
-      .where(eq(requirements.companyId, actor.companyId)),
+      .where(
+        and(
+          eq(requirements.companyId, actor.companyId),
+          gte(requirements.createdAt, windowGte),
+          lt(requirements.createdAt, windowLt),
+        ),
+      ),
+    // 需求存量按状态计数(当前状态,与时间窗无关;项目过滤一并下沉)。
     db
-      .select({ id: testCases.id, projectId: testCases.projectId, authorId: testCases.authorId, createdAt: testCases.createdAt })
+      .select({ status: requirements.status, n: count() })
+      .from(requirements)
+      .where(and(eq(requirements.companyId, actor.companyId), projectId ? eq(requirements.projectId, projectId) : undefined))
+      .groupBy(requirements.status),
+    db
+      .select({ projectId: testCases.projectId, authorId: testCases.authorId, createdAt: testCases.createdAt })
       .from(testCases)
-      .where(eq(testCases.companyId, actor.companyId)),
+      .where(
+        and(
+          eq(testCases.companyId, actor.companyId),
+          gte(testCases.createdAt, windowGte),
+          lt(testCases.createdAt, windowLt),
+        ),
+      ),
     db.select({ id: sprints.id, endDate: sprints.endDate, status: sprints.status }).from(sprints).where(eq(sprints.companyId, actor.companyId)),
     db
       .select({ id: members.id })
       .from(members)
       .where(and(eq(members.companyId, actor.companyId), eq(members.status, 'active'))),
+    // 全历史首/末次流转(每 issue 一行):周期时长与验收积压的口径要求不受窗口限制。
+    db
+      .selectDistinctOn([issueStatusTransitions.issueId], {
+        issueId: issueStatusTransitions.issueId,
+        whoId: issueStatusTransitions.whoId,
+        createdAt: issueStatusTransitions.createdAt,
+      })
+      .from(issueStatusTransitions)
+      .where(and(eq(issueStatusTransitions.companyId, actor.companyId), eq(issueStatusTransitions.toStatus, 'testing')))
+      .orderBy(issueStatusTransitions.issueId, asc(issueStatusTransitions.createdAt)),
+    db
+      .selectDistinctOn([issueStatusTransitions.issueId], {
+        issueId: issueStatusTransitions.issueId,
+        whoId: issueStatusTransitions.whoId,
+        createdAt: issueStatusTransitions.createdAt,
+      })
+      .from(issueStatusTransitions)
+      .where(and(eq(issueStatusTransitions.companyId, actor.companyId), eq(issueStatusTransitions.toStatus, 'done')))
+      .orderBy(issueStatusTransitions.issueId, asc(issueStatusTransitions.createdAt)),
+    db
+      .selectDistinctOn([issueStatusTransitions.issueId], {
+        issueId: issueStatusTransitions.issueId,
+        createdAt: issueStatusTransitions.createdAt,
+      })
+      .from(issueStatusTransitions)
+      .where(and(eq(issueStatusTransitions.companyId, actor.companyId), eq(issueStatusTransitions.toStatus, 'testing')))
+      .orderBy(issueStatusTransitions.issueId, desc(issueStatusTransitions.createdAt)),
+    db
+      .select({ createdAt: issueStatusTransitions.createdAt })
+      .from(issueStatusTransitions)
+      .where(eq(issueStatusTransitions.companyId, actor.companyId))
+      .orderBy(asc(issueStatusTransitions.createdAt))
+      .limit(1),
   ]);
 
   const issueById = new Map(issueRows.map((r) => [r.id, r]));
   const sprintById = new Map(sprintRows.map((r) => [r.id, r]));
+  // 创建活动按 issueId 归组一次查好(原 createdActs.find 是 O(issues×activities));
+  // 数组保持查询顺序,组内 find 语义与原先全表 find 一致。
+  const createdActsByIssue = new Map<string, typeof createdActs>();
+  for (const a of createdActs) {
+    const list = createdActsByIssue.get(a.issueId);
+    if (list) list.push(a);
+    else createdActsByIssue.set(a.issueId, [a]);
+  }
+  // 全历史首/末次流转(SQL distinct on 已按 issue 归组)。
+  const firstTesting = new Map(firstTestingRows.map((r) => [r.issueId, r]));
+  const firstDone = new Map(firstDoneRows.map((r) => [r.issueId, r]));
+  const lastTesting = new Map(lastTestingRows.map((r) => [r.issueId, r]));
 
   /* 过滤器:issueOk 用于实体自身指标(新建/存量);transOk 用于流转事件;
      成员过滤对流量按行为人、对存量按当前负责人(见文件头口径说明)。 */
@@ -187,7 +282,7 @@ export async function teamSummary(actor: Actor, query: SummaryQuery): Promise<Te
 
   /* ---- 卡片指标:本期 vs 上一同长周期 ---- */
   const cardsFor = (b: Bounds) => {
-    const reqCreated = reqRows.filter(
+    const reqCreated = reqWindowRows.filter(
       (r) => projectOk(r.projectId) && (!memberId || r.authorId === memberId) && inBounds(r.createdAt, b),
     ).length;
     // 成员过滤时按创建活动的行为人计;否则按 issue.createdAt。
@@ -268,7 +363,7 @@ export async function teamSummary(actor: Actor, query: SummaryQuery): Promise<Te
   const addToWeekly = (ts: Date, fn: (b: { req: number; iss: number; del: number; acc: Set<string> }) => void) =>
     weekly.add(weekMonday(dayKeyOf(ts)), fn);
 
-  for (const r of reqRows) {
+  for (const r of reqWindowRows) {
     if (!projectOk(r.projectId) || (memberId && r.authorId !== memberId)) continue;
     addTo(daily, r.createdAt, (b) => b.req++);
     addToWeekly(r.createdAt, (b) => b.req++);
@@ -277,7 +372,7 @@ export async function teamSummary(actor: Actor, query: SummaryQuery): Promise<Te
     if (!projectOk(iss.projectId)) continue;
     if (memberId) {
       // 成员视角下的"新建"按创建活动行为人归属(与卡片口径一致)。
-      const act = createdActs.find((a) => a.issueId === iss.id && a.whoId === memberId);
+      const act = createdActsByIssue.get(iss.id)?.find((a) => a.whoId === memberId);
       if (!act) continue;
       addTo(daily, act.createdAt, (b) => b.iss++);
       addToWeekly(act.createdAt, (b) => b.iss++);
@@ -303,17 +398,8 @@ export async function teamSummary(actor: Actor, query: SummaryQuery): Promise<Te
     addToWeekly(iss.completedAt, (b) => b.acc.add(iss.id));
   }
 
-  /* ---- 周期时长(首次进入各段的流转落在本期内的 issue) ---- */
-  const firstTesting = new Map<string, TransRow>();
-  const firstDone = new Map<string, TransRow>();
-  const lastTesting = new Map<string, TransRow>();
-  for (const tr of transRows) {
-    if (tr.toStatus === 'testing') {
-      if (!firstTesting.has(tr.issueId)) firstTesting.set(tr.issueId, tr);
-      lastTesting.set(tr.issueId, tr);
-    }
-    if (tr.toStatus === 'done' && !firstDone.has(tr.issueId)) firstDone.set(tr.issueId, tr);
-  }
+  /* ---- 周期时长(首次进入各段的流转落在本期内的 issue;首/末次流转 Map 已在上面
+     由全历史 distinct on 结果构建,窗口内流转不会把"再次进入"误判为"首次") ---- */
 
   const deliveryDurs: { ms: number; key: string }[] = [];
   const acceptanceDurs: { ms: number; key: string }[] = [];
@@ -375,54 +461,73 @@ export async function teamSummary(actor: Actor, query: SummaryQuery): Promise<Te
     shipped: 0,
     rejected: 0,
   } as Record<RequirementStatus, number>;
-  for (const r of reqRows) {
-    if (projectOk(r.projectId)) requirementStatus[r.status] += 1;
-  }
+  // SQL 已按 status 分组计数(项目过滤在 where 中),直接落值。
+  for (const r of reqStatusRows) requirementStatus[r.status] = r.n;
 
-  /* ---- 按成员(当前公司全部 active 成员;流量按行为人,存量按负责人) ---- */
-  const memberStatRows: SummaryMemberRow[] = memberRows.map((m) => {
-    const mid = m.id;
-    const created = createdActs.filter((a) => {
-      if (a.whoId !== mid || !inBounds(a.createdAt, cur)) return false;
-      const iss = issueById.get(a.issueId);
-      return iss != null && projectOk(iss.projectId);
-    }).length;
-    const myTrans = transRows.filter((tr) => tr.whoId === mid && inBounds(tr.createdAt, cur) && projectOk(issueById.get(tr.issueId)?.projectId ?? null));
-    const delivered = myTrans.filter((tr) => tr.toStatus === 'testing').length;
-    const accepted = myTrans.filter((tr) => tr.toStatus === 'done').length;
-    const points = myTrans
-      .filter((tr) => tr.toStatus === 'done')
-      .reduce((s, tr) => s + (issueById.get(tr.issueId)?.storyPoints ?? 0), 0);
-    const durs: number[] = [];
-    for (const tr of myTrans) {
-      if (tr.toStatus !== 'testing') continue;
-      const iss = issueById.get(tr.issueId);
+  /* ---- 按成员(当前公司全部 active 成员;流量按行为人,存量按负责人)。
+     先单次遍历按行为人/负责人归组(原实现是 O(members×rows) 的逐成员全表过滤)。 ---- */
+  const createdByWho = new Map<string, number>();
+  for (const a of createdActs) {
+    if (!a.whoId || !inBounds(a.createdAt, cur)) continue;
+    const iss = issueById.get(a.issueId);
+    if (!iss || !projectOk(iss.projectId)) continue;
+    createdByWho.set(a.whoId, (createdByWho.get(a.whoId) ?? 0) + 1);
+  }
+  interface MemberFlowAgg {
+    delivered: number;
+    accepted: number;
+    points: number;
+    durs: number[];
+  }
+  const flowByWho = new Map<string, MemberFlowAgg>();
+  for (const tr of transRows) {
+    if (!tr.whoId || !inBounds(tr.createdAt, cur)) continue;
+    const iss = issueById.get(tr.issueId);
+    if (!projectOk(iss?.projectId ?? null)) continue;
+    const agg = flowByWho.get(tr.whoId) ?? { delivered: 0, accepted: 0, points: 0, durs: [] };
+    if (tr.toStatus === 'testing') {
+      agg.delivered += 1;
+      // 只把"首次进入 testing"计入交付周期(与全历史 firstTesting 对时)。
       if (iss && firstTesting.get(tr.issueId)?.createdAt.getTime() === tr.createdAt.getTime()) {
-        durs.push(Math.max(0, tr.createdAt.getTime() - iss.createdAt.getTime()));
+        agg.durs.push(Math.max(0, tr.createdAt.getTime() - iss.createdAt.getTime()));
       }
     }
-    let wipCount = 0;
-    let pending = 0;
-    for (const iss of issueRows) {
-      if (iss.assigneeId !== mid || iss.archivedAt || !projectOk(iss.projectId)) continue;
-      if (iss.status === 'todo' || iss.status === 'in_progress') wipCount += 1;
-      if (iss.status === 'testing') pending += 1;
+    if (tr.toStatus === 'done') {
+      agg.accepted += 1;
+      agg.points += iss?.storyPoints ?? 0;
     }
+    flowByWho.set(tr.whoId, agg);
+  }
+  const stockByAssignee = new Map<string, { wip: number; pending: number }>();
+  for (const iss of issueRows) {
+    if (!iss.assigneeId || iss.archivedAt || !projectOk(iss.projectId)) continue;
+    const isWip = iss.status === 'todo' || iss.status === 'in_progress';
+    const isPending = iss.status === 'testing';
+    if (!isWip && !isPending) continue;
+    const stock = stockByAssignee.get(iss.assigneeId) ?? { wip: 0, pending: 0 };
+    if (isWip) stock.wip += 1;
+    if (isPending) stock.pending += 1;
+    stockByAssignee.set(iss.assigneeId, stock);
+  }
+  const memberStatRows: SummaryMemberRow[] = memberRows.map((m) => {
+    const flow = flowByWho.get(m.id);
+    const durs = flow?.durs ?? [];
+    const stock = stockByAssignee.get(m.id);
     return {
-      memberId: mid,
-      created,
-      delivered,
-      accepted,
+      memberId: m.id,
+      created: createdByWho.get(m.id) ?? 0,
+      delivered: flow?.delivered ?? 0,
+      accepted: flow?.accepted ?? 0,
       avgDeliveryMs: durs.length ? Math.round(durs.reduce((s, d) => s + d, 0) / durs.length) : null,
-      points,
-      wip: wipCount,
-      pendingAcceptance: pending,
+      points: flow?.points ?? 0,
+      wip: stock?.wip ?? 0,
+      pendingAcceptance: stock?.pending ?? 0,
     };
   });
 
   return {
     period: { start, end, prevStart, prevEnd },
-    flowSince: transRows[0]?.createdAt.toISOString() ?? null,
+    flowSince: firstTransRow[0]?.createdAt.toISOString() ?? null,
     cards,
     throughput: daily.finish(),
     weeklyTrend: weekly.finish(),

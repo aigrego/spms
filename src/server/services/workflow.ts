@@ -118,10 +118,29 @@ export async function updateIssueWithWorkflow(actor: Actor, key: string, input: 
 
 /* spms_review_issue：功能审查驱动。key 前缀 FR-/NFR- 按需求处理，其余按
    issue（TKT/BUG/BLG 或自定义 key）处理。note 写为 issue 评论（需求无评论
-   能力，note 不落库，在返回 message 中说明）。 */
+   能力，note 不落库，在返回 message 中说明）。
+
+   防 key 冲突（TKT-254）：notionSync 允许外部 unique_id 作 issue 展示 key，
+   可能撞 FR-/NFR- 前缀，纯前缀路由会把这类 issue 误判成需求（甚至审错对象）。
+   因此 FR-/NFR- key 改为按存在性路由：需求命中 → 需求；需求未命中而 issue
+   命中 → issue；两边都命中 → 报 CONFLICT 让调用方改名消歧，不静默挑一边；
+   都未命中 → 维持原 REQUIREMENT_NOT_FOUND 报错。无前缀 key 行为不变。 */
 export async function reviewWithWorkflow(actor: Actor, key: string, verdict: ReviewVerdict, note?: string) {
-  if (/^(FR|NFR)-/.test(key)) return reviewRequirement(actor, key, verdict, note);
-  return reviewIssue(actor, key, verdict, note);
+  if (!/^(FR|NFR)-/.test(key)) return reviewIssue(actor, key, verdict, note);
+  const requirement = await requirementSvc.getRequirement(actor, key);
+  if (requirement) {
+    const clashingIssue = await issueSvc.getIssue(actor, key);
+    if (clashingIssue) {
+      throw new ApiException(
+        'CONFLICT',
+        `key ${key} 同时命中需求与 issue（外部同步 key 与内部前缀冲突），请先修改其中一方的展示 key 再审查`,
+      );
+    }
+    return reviewRequirement(actor, key, verdict, note);
+  }
+  const issue = await issueSvc.getIssue(actor, key);
+  if (issue) return reviewIssue(actor, key, verdict, note);
+  throw new ApiException('REQUIREMENT_NOT_FOUND', `需求 ${key} 不存在`);
 }
 
 async function reviewIssue(actor: Actor, key: string, verdict: ReviewVerdict, note?: string) {
