@@ -1,6 +1,7 @@
 import { ok } from '@/lib/envelope';
 import { archiveProject } from '@/server/services/projects';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { requireActor, route } from '@/server/http';
+import { jsonBodyWith, projectArchiveSchema } from '@/server/validate';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -9,6 +10,6 @@ type Ctx = { params: Promise<{ id: string }> };
    产品待办隐藏(等效批量归档);项目卡片默认隐藏。 */
 export const POST = route(async (req, ctx: Ctx) => {
   const actor = await requireActor();
-  const body = await jsonBody<{ archived?: boolean }>(req);
+  const body = await jsonBodyWith(req, projectArchiveSchema);
   return ok(await archiveProject(actor, (await ctx.params).id, body.archived !== false));
 });

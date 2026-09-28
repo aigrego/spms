@@ -1,6 +1,7 @@
 import { ok } from '@/lib/envelope';
-import { removeMember, updateMemberRole, type CompanyRole } from '@/server/services/platform';
-import { jsonBody, requireActor, requireAdmin, route } from '@/server/http';
+import { removeMember, updateMemberRole } from '@/server/services/platform';
+import { requireActor, requireAdmin, route } from '@/server/http';
+import { jsonBodyWith, roleUpdateSchema } from '@/server/validate';
 
 type Ctx = { params: Promise<{ id: string; membershipId: string }> };
 
@@ -11,7 +12,7 @@ export const PATCH = route(async (req, ctx: Ctx) => {
   const actor = await requireActor();
   requireAdmin(actor);
   const { id, membershipId } = await ctx.params;
-  const body = await jsonBody<{ role: CompanyRole }>(req);
+  const body = await jsonBodyWith(req, roleUpdateSchema);
   return ok(await updateMemberRole(actor, id, membershipId, body.role));
 });
 

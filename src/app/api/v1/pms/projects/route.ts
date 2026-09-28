@@ -1,6 +1,7 @@
 import { ok } from '@/lib/envelope';
-import { createProject, type CreateProjectInput } from '@/server/services/projects';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { createProject } from '@/server/services/projects';
+import { requireActor, route } from '@/server/http';
+import { jsonBodyWith, projectCreateSchema } from '@/server/validate';
 
 /* POST /api/v1/pms/projects — create. No route-level gate: the service's
    requireProjectAdmin allows company_admin OR platform admin (a route-level
@@ -8,5 +9,5 @@ import { jsonBody, requireActor, route } from '@/server/http';
    The project list itself ships in /bootstrap — no GET here. */
 export const POST = route(async (req) => {
   const actor = await requireActor();
-  return ok(await createProject(actor, await jsonBody<CreateProjectInput>(req)));
+  return ok(await createProject(actor, await jsonBodyWith(req, projectCreateSchema)));
 });

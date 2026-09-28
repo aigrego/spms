@@ -1,11 +1,7 @@
 import { ok } from '@/lib/envelope';
-import { jsonBody, requireActor, route } from '@/server/http';
-import {
-  disconnectNotion,
-  getNotionIntegration,
-  updateNotionConnection,
-  type UpdateNotionConnectionInput,
-} from '@/server/services/notionSync';
+import { requireActor, route } from '@/server/http';
+import { disconnectNotion, getNotionIntegration, updateNotionConnection } from '@/server/services/notionSync';
+import { jsonBodyWith, notionConnectionUpdateSchema } from '@/server/validate';
 
 /* /api/v1/pms/integrations/notion — 本公司的 Notion 连接管理（连接状态 /
    保存同步数据库·目标项目·状态映射 / 断开）。薄路由：业务逻辑见
@@ -27,7 +23,7 @@ export const GET = route(async (req) =>
 
 /* PATCH — save the sync database and/or the target project. */
 export const PATCH = route(async (req) =>
-  ok(await updateNotionConnection(await requireActor(), await jsonBody<UpdateNotionConnectionInput>(req))),
+  ok(await updateNotionConnection(await requireActor(), await jsonBodyWith(req, notionConnectionUpdateSchema))),
 );
 
 /* DELETE — 断开连接（notion_issue_links 随 connectionId cascade 一并删除）。 */

@@ -1,6 +1,7 @@
 import { ok } from '@/lib/envelope';
-import { addMember, listMembers, type AddMemberInput } from '@/server/services/platform';
-import { jsonBody, requireActor, requireAdmin, route } from '@/server/http';
+import { addMember, listMembers } from '@/server/services/platform';
+import { requireActor, requireAdmin, route } from '@/server/http';
+import { jsonBodyWith, memberAddSchema } from '@/server/validate';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -16,5 +17,5 @@ export const GET = route(async (_req, ctx: Ctx) => {
 export const POST = route(async (req, ctx: Ctx) => {
   const actor = await requireActor();
   requireAdmin(actor);
-  return ok(await addMember(actor, (await ctx.params).id, await jsonBody<AddMemberInput>(req)));
+  return ok(await addMember(actor, (await ctx.params).id, await jsonBodyWith(req, memberAddSchema)));
 });

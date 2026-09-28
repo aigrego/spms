@@ -37,12 +37,6 @@ function requirePlatformAdmin(actor: Actor): void {
   if (!actor.isPlatformAdmin) throw new ApiException('FORBIDDEN', '需要平台管理员权限', 403);
 }
 
-function assertCompanyRole(role: string): asserts role is CompanyRole {
-  if (!(COMPANY_ROLES as readonly string[]).includes(role)) {
-    throw new ApiException('VALIDATION_FAILED', `role 必须是内置角色之一（${COMPANY_ROLES.join(' / ')}）`);
-  }
-}
-
 async function companyExists(id: string): Promise<boolean> {
   const [c] = await db.select({ id: companies.id }).from(companies).where(eq(companies.id, id)).limit(1);
   return !!c;
@@ -72,9 +66,9 @@ export interface CreateCompanyInput {
 /* ---- create a company; the creator becomes its company_admin ---- */
 export async function createCompany(actor: Actor, input: CreateCompanyInput) {
   requirePlatformAdmin(actor);
-  const key = input.key?.trim();
-  const name = input.name?.trim();
-  if (!key || !name) throw new ApiException('VALIDATION_FAILED', '公司 key 与名称不能为空');
+  // key/name 非空由 zod 层(companyCreateSchema)校验。
+  const key = input.key.trim();
+  const name = input.name.trim();
 
   const [dupe] = await db.select({ id: companies.id }).from(companies).where(eq(companies.key, key)).limit(1);
   if (dupe) throw new ApiException('CONFLICT', `公司 key「${key}」已存在`);
@@ -109,10 +103,8 @@ export async function updateCompany(actor: Actor, id: string, patch: UpdateCompa
   requirePlatformAdmin(actor);
   if (!(await companyExists(id))) throw new ApiException('NOT_FOUND', '公司不存在');
   const set: Partial<typeof companies.$inferInsert> = {};
-  if (patch.name !== undefined) {
-    if (!patch.name.trim()) throw new ApiException('VALIDATION_FAILED', '公司名称不能为空');
-    set.name = patch.name.trim();
-  }
+  // name 非空由 zod 层(companyUpdateSchema)校验。
+  if (patch.name !== undefined) set.name = patch.name.trim();
   if (patch.color !== undefined) set.color = patch.color;
   if (patch.description !== undefined) set.description = patch.description;
   if (Object.keys(set).length) await db.update(companies).set(set).where(eq(companies.id, id));
@@ -197,14 +189,8 @@ export interface CreateUserInput {
 /* ---- create a bare system account (no seat; seats are assigned per company) ---- */
 export async function createUser(actor: Actor, input: CreateUserInput) {
   requirePlatformAdmin(actor);
-  const username = input.username?.trim();
-  if (!username) throw new ApiException('VALIDATION_FAILED', '用户名不能为空');
-  if (!/^[a-zA-Z0-9_.-]+$/.test(username)) {
-    throw new ApiException('VALIDATION_FAILED', '用户名只能包含字母、数字、_ . -');
-  }
-  if (!input.password || input.password.length < 6) {
-    throw new ApiException('VALIDATION_FAILED', '初始密码至少 6 位');
-  }
+  // 用户名格式/初始密码长度由 zod 层(userCreateSchema)校验。
+  const username = input.username.trim();
   const [dupe] = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
   if (dupe) throw new ApiException('INVITE_FAILED', '用户名已存在');
 
@@ -279,9 +265,8 @@ export interface AddMemberInput {
 export async function addMember(actor: Actor, companyId: string, input: AddMemberInput) {
   requirePlatformAdmin(actor);
   if (!(await companyExists(companyId))) throw new ApiException('NOT_FOUND', '公司不存在');
-  const username = input.username?.trim();
-  if (!username) throw new ApiException('VALIDATION_FAILED', '用户名不能为空');
-  assertCompanyRole(input.role);
+  // username 非空与 role 枚举由 zod 层(memberAddSchema)校验。
+  const username = input.username.trim();
 
   let [u] = await db.select().from(users).where(eq(users.username, username)).limit(1);
   const membershipId = crypto.randomUUID();
@@ -351,7 +336,7 @@ export async function assertNotLastCompanyAdmin(
 /* ---- change a membership's company role ---- */
 export async function updateMemberRole(actor: Actor, companyId: string, membershipId: string, role: CompanyRole) {
   requirePlatformAdmin(actor);
-  assertCompanyRole(role);
+  // role 枚举由 zod 层(roleUpdateSchema)校验。
   const [m] = await db
     .select({ id: companyMemberships.id })
     .from(companyMemberships)
@@ -544,8 +529,8 @@ async function validateKeyOwner(companyId: string | null, ownerId: string): Prom
 
 /* ---- mint an MCP key: the plaintext is returned ONCE, only sha256 is stored ---- */
 export async function createMcpKey(actor: Actor, input: CreateMcpKeyInput) {
-  const name = input.name?.trim();
-  if (!name) throw new ApiException('VALIDATION_FAILED', '名称不能为空');
+  // 名称/能力/有效期格式由 zod 层(mcpKeyCreateSchema)校验。
+  const name = input.name.trim();
 
   let companyId: string | null;
   if (actor.isPlatformAdmin) {
@@ -566,16 +551,7 @@ export async function createMcpKey(actor: Actor, input: CreateMcpKeyInput) {
   await validateKeyOwner(companyId, ownerId);
 
   const capabilities = input.capabilities ?? ['read', 'write'];
-  if (
-    capabilities.length === 0 ||
-    capabilities.some((c) => !(MCP_CAPABILITIES as readonly string[]).includes(c))
-  ) {
-    throw new ApiException('VALIDATION_FAILED', '能力只能包含 read/write/delete，且至少一项');
-  }
   const expiresInDays = input.expiresInDays ?? null;
-  if (expiresInDays != null && (!Number.isInteger(expiresInDays) || expiresInDays < 1)) {
-    throw new ApiException('VALIDATION_FAILED', '有效期必须是正整数天数');
-  }
   const expiresAt = expiresInDays != null ? new Date(Date.now() + expiresInDays * 86_400_000) : null;
 
   const projectIds = input.projectIds ?? null;
@@ -623,8 +599,8 @@ export async function updateMcpKey(
   const k = await requireKeyOwner(actor, id);
   const patch: Partial<{ ownerId: string; projectIds: string[] | null }> = {};
   if (input.ownerId !== undefined) {
+    // 非空由 zod 层(mcpKeyUpdateSchema)校验。
     const ownerId = input.ownerId.trim();
-    if (!ownerId) throw new ApiException('VALIDATION_FAILED', '所属人不能为空');
     await validateKeyOwner(k.companyId, ownerId);
     patch.ownerId = ownerId;
   }

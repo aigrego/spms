@@ -1,6 +1,7 @@
 import { ok } from '@/lib/envelope';
-import { deleteProject, updateProject, type UpdateProjectInput } from '@/server/services/projects';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { deleteProject, updateProject } from '@/server/services/projects';
+import { requireActor, route } from '@/server/http';
+import { jsonBodyWith, projectUpdateSchema } from '@/server/validate';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -9,7 +10,7 @@ type Ctx = { params: Promise<{ id: string }> };
    issues detach (set null). */
 export const PATCH = route(async (req, ctx: Ctx) => {
   const actor = await requireActor();
-  return ok(await updateProject(actor, (await ctx.params).id, await jsonBody<UpdateProjectInput>(req)));
+  return ok(await updateProject(actor, (await ctx.params).id, await jsonBodyWith(req, projectUpdateSchema)));
 });
 
 export const DELETE = route(async (_req, ctx: Ctx) => {

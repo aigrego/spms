@@ -180,19 +180,15 @@ export async function upsertMyReport(
 ): Promise<ReportView> {
   await requirePerm(actor, 'reports', 'write');
   if (!actor.memberId) throw new ApiException('FORBIDDEN', '需要公司席位才能提交日报', 403);
-  assertDay(input.date);
-  if (!Array.isArray(input.entries)) throw new ApiException('VALIDATION_FAILED', '缺少日报内容');
+  // 日期格式/entries 形状/单条长度由 zod 层(reportUpsertSchema)校验。
 
-  // 清洗:去掉空内容块、按产品去重、限制长度。
+  // 清洗:去掉空内容块、按产品去重。
   const seen = new Set<string>();
   const entries: ReportEntryInput[] = [];
   for (const e of input.entries) {
     const content = (e?.content ?? '').trim();
     if (!content) continue;
     if (typeof e.productId !== 'string' || !e.productId) throw new ApiException('VALIDATION_FAILED', '缺少产品');
-    if (content.length > MAX_CONTENT_LEN) {
-      throw new ApiException('VALIDATION_FAILED', `单产品内容不能超过 ${MAX_CONTENT_LEN} 字`);
-    }
     if (seen.has(e.productId)) throw new ApiException('VALIDATION_FAILED', '同一产品只能填写一段内容');
     seen.add(e.productId);
     entries.push({ productId: e.productId, content });

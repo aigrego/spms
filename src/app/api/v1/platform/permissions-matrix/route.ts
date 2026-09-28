@@ -1,7 +1,8 @@
 import { ok } from '@/lib/envelope';
 import type { Matrix } from '@/lib/permissions';
 import { getPermissionsMatrix, savePermissionsMatrix } from '@/server/services/platform';
-import { jsonBody, requireActor, requireAdmin, route } from '@/server/http';
+import { requireActor, requireAdmin, route } from '@/server/http';
+import { jsonBodyWith, permissionsMatrixSchema } from '@/server/validate';
 
 /* GET /api/v1/platform/permissions-matrix — the full 4 roles × 11 modules global
    matrix. PUT /api/v1/platform/permissions-matrix { matrix } — replace it (every
@@ -15,6 +16,7 @@ export const GET = route(async () => {
 export const PUT = route(async (req) => {
   const actor = await requireActor();
   requireAdmin(actor);
-  const body = await jsonBody<{ matrix: Matrix }>(req);
-  return ok(await savePermissionsMatrix(actor, body.matrix));
+  const body = await jsonBodyWith(req, permissionsMatrixSchema);
+  // 矩阵完整性(角色 × 模块全覆盖、档位合法)由 service 的 validateMatrix 校验。
+  return ok(await savePermissionsMatrix(actor, body.matrix as Matrix));
 });

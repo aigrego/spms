@@ -1,6 +1,7 @@
 import { ok } from '@/lib/envelope';
-import { createMcpKey, listMcpKeys, type CreateMcpKeyInput } from '@/server/services/platform';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { createMcpKey, listMcpKeys } from '@/server/services/platform';
+import { requireActor, route } from '@/server/http';
+import { jsonBodyWith, mcpKeyCreateSchema } from '@/server/validate';
 
 /* GET  /api/v1/platform/mcp-keys — keys visible to the actor: admins see all,
    members only their own (keyHash never returned).
@@ -15,5 +16,5 @@ export const GET = route(async () => {
 
 export const POST = route(async (req) => {
   const actor = await requireActor();
-  return ok(await createMcpKey(actor, await jsonBody<CreateMcpKeyInput>(req)));
+  return ok(await createMcpKey(actor, await jsonBodyWith(req, mcpKeyCreateSchema)));
 });

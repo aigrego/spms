@@ -123,10 +123,8 @@ function validatedMinio(input: MinioConfigInput, existing: MinioConfig | null): 
 /* ---- 保存配置（新建或整行替换；未传的敏感字段保留旧值），写后 bust 缓存 ---- */
 export async function saveCompanyStorageConfig(actor: Actor, input: SaveStorageConfigInput) {
   requireStorageAdmin(actor);
+  // backend 枚举由 zod 层(storageConfigSaveSchema)校验。
   const backend = input.backend;
-  if (backend !== 'minio' && backend !== 'vercel_blob') {
-    throw new ApiException('VALIDATION_FAILED', 'backend 必须是 minio 或 vercel_blob');
-  }
 
   const existing = await rowFor(actor.companyId);
   const existingMinio = existingMinioOf(existing);
@@ -166,7 +164,7 @@ export async function saveCompanyStorageConfig(actor: Actor, input: SaveStorageC
    ApiException（参数校验）原样抛出。 ---- */
 export async function testCompanyStorageConnection(actor: Actor, input: TestStorageConnectionInput) {
   requireStorageAdmin(actor);
-  if (input.action !== 'test') throw new ApiException('VALIDATION_FAILED', '未知 action');
+  // action 字面值由 zod 层(storageConfigTestSchema)校验。
   const existing = await rowFor(actor.companyId);
 
   try {

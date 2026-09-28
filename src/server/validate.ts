@@ -8,6 +8,7 @@ import {
   lifecyclePhaseEnum,
   planStatusEnum,
   productStatusEnum,
+  projectStatusEnum,
   releaseStatusEnum,
   requirementCategoryEnum,
   requirementStatusEnum,
@@ -206,6 +207,177 @@ export const sprintUpdateSchema = sprintCreateSchema.partial();
 
 export const sprintMoveIssueSchema = z.object({
   storyPoints: z.number().nullable().optional(),
+});
+
+/* ---- projects ---- */
+export const projectCreateSchema = z.object({
+  name: z.string().trim().min(1, '项目名称不能为空').max(200),
+  teamId: idRef,
+  releaseId: idRef,
+  status: z.enum(projectStatusEnum.enumValues).optional(),
+  leadId: idRef,
+  aiLeadId: idRef,
+  icon: z.string().max(64).optional(),
+  color: z.string().max(32).optional(),
+  target: longText,
+  description: longText,
+  summary: longText,
+  goal: longText,
+  nonGoals: longText,
+});
+export const projectUpdateSchema = projectCreateSchema.partial();
+
+export const projectArchiveSchema = z.object({
+  archived: z.boolean().optional(),
+});
+
+/* ---- resources (研发资源池 / 席位) ---- */
+/* 「至少一个认领键(email/phone/userId)」在 service 里按归一化后的值判定
+   (normalizePhone 只留数字);这层先做 trim 后的粗检,消息与 service 一致。 */
+export const resourceInviteSchema = z
+  .object({
+    name: z.string().trim().max(200).optional(),
+    email: z.string().trim().max(320).optional(),
+    phone: z.string().trim().max(64).optional(),
+    userId: z.string().trim().max(100).optional(),
+  })
+  .refine((v) => !!(v.email || v.phone || v.userId), '请提供邮箱、手机号或用户 ID');
+
+/* 公司内置角色(与 services/platform.COMPANY_ROLES 同序;validate 不反向依赖 service 层)。 */
+const companyRoleValues = ['company_admin', 'product_manager', 'developer', 'tester', 'viewer'] as const;
+export const companyRoleSchema = z.enum(companyRoleValues, `role 必须是内置角色之一（${companyRoleValues.join(' / ')}）`);
+/* 席位(pms/seats)与平台成员(platform/companies/:id/members)改角色共用 { role }。 */
+export const roleUpdateSchema = z.object({ role: companyRoleSchema });
+
+/* ---- reports (日报) ---- */
+/* 条目清洗(空内容跳过/按产品去重/产品存在性)是业务规则,留在 service;这里钉住
+   日期格式、数组形状与单条长度上限(trim 后计长,与 service 口径一致;上限同
+   services/reports.MAX_CONTENT_LEN)。 */
+export const reportUpsertSchema = z.object({
+  date: z.string('日期格式应为 YYYY-MM-DD').regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式应为 YYYY-MM-DD'),
+  entries: z.array(
+    z.object({
+      productId: z.string(),
+      content: z.string().trim().max(4000, '单产品内容不能超过 4000 字'),
+    }),
+    '缺少日报内容',
+  ),
+});
+
+/* ---- platform: companies / users / members ---- */
+export const companyCreateSchema = z.object({
+  key: z.string().trim().min(1, '公司 key 与名称不能为空').max(100),
+  name: z.string().trim().min(1, '公司 key 与名称不能为空').max(200),
+  color: z.string().max(32).nullable().optional(),
+  description: longText,
+});
+export const companyUpdateSchema = z.object({
+  name: z.string().trim().min(1, '公司名称不能为空').max(200).optional(),
+  color: z.string().max(32).nullable().optional(),
+  description: longText,
+});
+
+export const userCreateSchema = z.object({
+  username: z
+    .string()
+    .trim()
+    .min(1, '用户名不能为空')
+    .max(100)
+    .regex(/^[a-zA-Z0-9_.-]+$/, '用户名只能包含字母、数字、_ . -'),
+  name: z.string().trim().max(200).optional(),
+  password: z.string().min(6, '初始密码至少 6 位'),
+  email: z.string().trim().max(320).optional(),
+});
+
+/* addMember 的 username 不做字符集校验(要匹配可能含其他字符的老用户名,存在性检查在 service);
+   初始密码只在新用户时必填,也属 service 判定。 */
+export const memberAddSchema = z.object({
+  username: z.string().trim().min(1, '用户名不能为空').max(100),
+  role: companyRoleSchema,
+  name: z.string().trim().max(200).optional(),
+  password: z.string().optional(),
+  email: z.string().trim().max(320).optional(),
+});
+
+/* ---- platform: MCP API keys ---- */
+/* capabilities 枚举值与 services/platform.MCP_CAPABILITIES 一致。 */
+export const mcpKeyCreateSchema = z.object({
+  name: z.string().trim().min(1, '名称不能为空').max(200),
+  companyId: z.string().nullable().optional(),
+  ownerId: z.string().optional(),
+  capabilities: z
+    .array(z.enum(['read', 'write', 'delete'], '能力只能包含 read/write/delete，且至少一项'))
+    .min(1, '能力只能包含 read/write/delete，且至少一项')
+    .optional(),
+  expiresInDays: z.number().int('有效期必须是正整数天数').min(1, '有效期必须是正整数天数').nullable().optional(),
+  projectIds: z.array(z.string()).nullable().optional(),
+});
+export const mcpKeyUpdateSchema = z.object({
+  ownerId: z.string().trim().min(1, '所属人不能为空').optional(),
+  projectIds: z.array(z.string()).nullable().optional(),
+});
+
+/* ---- platform: 权限矩阵(全局默认 / 公司覆盖) ---- */
+/* 矩阵完整性(4 角色 × N 模块、每格档位合法)由 service validateMatrix 复核(消息带
+   role.mod 上下文);这层只钉住「对象套对象、叶子为字符串」的形状。 */
+export const permissionsMatrixSchema = z.object({
+  matrix: z.record(z.string(), z.record(z.string(), z.string())),
+});
+
+/* ---- platform: 公司文件存储配置(TKT-245 薄化路由) ---- */
+const minioConfigSchema = z.object({
+  endpoint: z.string().trim().max(500).optional(),
+  port: z.number().int('端口非法').min(1, '端口非法').max(65535, '端口非法').nullable().optional(),
+  useSsl: z.boolean().optional(),
+  accessKey: z.string().max(200).optional(),
+  secretKey: z.string().max(200).optional(),
+  bucket: z.string().trim().max(200).optional(),
+  publicBaseUrl: z.string().max(1000).nullable().optional(),
+});
+/* 保存:backend 必填。与已存配置的合并、敏感字段保留旧值、合并后端口/必填项的
+   最终判定都依赖 DB 旧行,留在 service。 */
+export const storageConfigSaveSchema = z.object({
+  backend: z.enum(['minio', 'vercel_blob'], 'backend 必须是 minio 或 vercel_blob'),
+  minio: minioConfigSchema.optional(),
+  token: z.string().max(1000).optional(),
+});
+/* 连通性测试:backend 可省(回落已存配置的后端),action 固定 'test'。 */
+export const storageConfigTestSchema = z.object({
+  action: z.literal('test', '未知 action'),
+  backend: z.enum(['minio', 'vercel_blob'], 'backend 必须是 minio 或 vercel_blob').optional(),
+  minio: minioConfigSchema.optional(),
+  token: z.string().max(1000).optional(),
+});
+
+/* ---- platform: 三方登录提供方(TKT-245 薄化路由) ---- */
+export const oauthProviderSaveSchema = z.object({
+  provider: z.enum(['feishu', 'lark', 'github'], '未知的登录提供方'),
+  appId: z.string().trim().min(1, 'App ID 不能为空').max(200),
+  appSecret: z.string().trim().max(500).optional(),
+  redirectUri: z.string().max(2000).nullable().optional(),
+  enabled: z.boolean().optional(),
+});
+
+/* ---- platform: Notion 连接(TKT-245 薄化路由) ---- */
+/* statusMap 条目的归一化(name trim / status ?? null / sync !== false)与 projectId
+   存在性检查留在 service;条目形状与 status 枚举在这里钉住(SPMS_STATUSES 与
+   issueStatusEnum 同值;status 缺省即非法,消息沿用 service 文案)。 */
+export const notionConnectionUpdateSchema = z.object({
+  databaseId: z.string().trim().max(200).nullable().optional(),
+  databaseName: z.string().trim().max(500).nullable().optional(),
+  projectId: idRef,
+  statusMap: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1, 'statusMap 条目缺少 name').max(200),
+        status: z
+          .enum(issueStatusEnum.enumValues, { error: (iss) => `statusMap 状态非法: ${String(iss.input)}` })
+          .nullable(),
+        sync: z.boolean().default(true),
+      }),
+    )
+    .nullable()
+    .optional(),
 });
 
 /* ---- auth: oauth unbind ---- */

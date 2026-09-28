@@ -72,6 +72,8 @@ spms/
 │   │   ├── oauth.ts              # 三方登录提供方配置 + OAuth callback 账号编排（绑定/邮箱匹配/建号/邀请认领）
 │   │   ├── workflow.ts           # 审查/关单工作流自动化（REST 与 MCP 共用）
 │   │   └── meta.ts             # bootstrap 聚合（REST 与 MCP 共用的单一查询实现；MCP 侧只裁剪字段 + 叠加令牌白名单）
+│   ├── server/http.ts            # 路由底座（route 包装 / requireActor / jsonBody / 平台管理员门）
+│   ├── server/validate.ts        # zod 校验层（REST 写端点入口 schema 按域集中；jsonBodyWith → VALIDATION_FAILED）
 │   ├── server/crypto.ts          # AES-256-GCM 配置密钥加解密（CONFIG_CRYPTO_KEY；OAuth secret / 存储凭据密文落库）
 │   ├── server/storage/           # 公司级文件存储抽象（设置→文件存储；无配置=禁止上传，零平台兜底）
 │   │   ├── index.ts              # storageForCompany(companyId)：配置行 60s 缓存 + 解密构造后端
@@ -108,6 +110,12 @@ spms/
 - 真实状态码仅用于 401（未登录）/ 403（权限不足）/ 404（路由不存在）/ 500
 - 详情查询（issue/requirement/testcase/sprint）不存在时返回 `ok(null)`，不是 404
 - 内部 uuid 不出网：issue/requirement/testCase 的 `id` 字段序列化为展示 key（如 `BUG-3`）
+
+## 输入校验约定（zod 层）
+
+- **新写端点一律先进 zod 层**：REST 写路由用 `jsonBodyWith(req, xxxSchema)` 解析请求体（`src/server/validate.ts`，TKT-22 引入），schema 按域集中在该文件；枚举取自 `db/schema.ts` 的 pgEnum（DB 定义是单一来源），未知字段默认剥离（防 mass-assignment），parse 失败统一 `ApiException('VALIDATION_FAILED', 首条错误信息)`。
+- **分层职责**：zod 层管字段形状/必填/枚举/长度/格式；service 只做业务校验——跨表存在性、唯一性、权限门，以及依赖 DB 旧行或归一化结果才能判定的规则（如存储配置「敏感字段不传 = 保留旧值」、邀请认领键 normalizePhone 后判定）。
+- MCP 工具的 inputSchema 由 MCP SDK 校验，与 REST zod 层并列；被 MCP 直接调用的 service 保留必要的字段级兜底校验（MCP 路径不经过 REST zod 层）。
 
 ## 认证设计
 

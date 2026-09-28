@@ -1,6 +1,7 @@
 import { ok } from '@/lib/envelope';
 import { deleteMcpKey, revokeMcpKey, updateMcpKey } from '@/server/services/platform';
-import { jsonBody, requireActor, route } from '@/server/http';
+import { requireActor, route } from '@/server/http';
+import { jsonBodyWith, mcpKeyUpdateSchema } from '@/server/validate';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -10,7 +11,7 @@ type Ctx = { params: Promise<{ id: string }> };
 export const PATCH = route(async (req, ctx: Ctx) => {
   const actor = await requireActor();
   const id = (await ctx.params).id;
-  return ok(await updateMcpKey(actor, id, await jsonBody<{ ownerId?: string; projectIds?: string[] | null }>(req)));
+  return ok(await updateMcpKey(actor, id, await jsonBodyWith(req, mcpKeyUpdateSchema)));
 });
 
 /* DELETE /api/v1/platform/mcp-keys/:id — revoke (revokedAt marks it dead; the

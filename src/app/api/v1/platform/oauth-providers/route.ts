@@ -1,11 +1,7 @@
 import { ok } from '@/lib/envelope';
-import { jsonBody, publicOrigin, requireActor, route } from '@/server/http';
-import {
-  deleteOAuthProvider,
-  listOAuthProviders,
-  saveOAuthProvider,
-  type SaveOAuthProviderInput,
-} from '@/server/services/oauth';
+import { publicOrigin, requireActor, route } from '@/server/http';
+import { deleteOAuthProvider, listOAuthProviders, saveOAuthProvider } from '@/server/services/oauth';
+import { jsonBodyWith, oauthProviderSaveSchema } from '@/server/validate';
 
 /* GET/PUT/DELETE /api/v1/platform/oauth-providers — 平台管理员在 设置→三方登录
    管理飞书/Lark/GitHub 的登录凭据。薄路由：DB/env 来源取舍、secret 加密落库
@@ -14,7 +10,7 @@ import {
 export const GET = route(async (req) => ok(await listOAuthProviders(await requireActor(), publicOrigin(req))));
 
 export const PUT = route(async (req) =>
-  ok(await saveOAuthProvider(await requireActor(), await jsonBody<SaveOAuthProviderInput>(req))),
+  ok(await saveOAuthProvider(await requireActor(), await jsonBodyWith(req, oauthProviderSaveSchema))),
 );
 
 export const DELETE = route(async (req) =>

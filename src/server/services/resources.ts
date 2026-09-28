@@ -6,7 +6,7 @@ import { ApiException } from '@/lib/envelope';
 import { initialsFor, colorFor, normalizePhone, revokeMemberProjection } from '@/lib/identity';
 import { unassignMemberEverywhere } from '@/lib/assignments';
 import { requirePerm } from '@/lib/permissions';
-import { COMPANY_ROLES, assertNotLastCompanyAdmin, type CompanyRole } from './platform';
+import { assertNotLastCompanyAdmin, type CompanyRole } from './platform';
 import type { Actor } from './types';
 
 /* PMS-2 §5.1 — 研发资源池 (resource pool) business service. Ported from
@@ -214,9 +214,7 @@ async function seatInCompany(actor: Actor, membershipId: string) {
 /* ---- change a seat's company role (管理员/产品/开发/测试/访客) ---- */
 export async function updateSeatRole(actor: Actor, membershipId: string, role: CompanyRole) {
   requireSeatAdmin(actor);
-  if (!(COMPANY_ROLES as readonly string[]).includes(role)) {
-    throw new ApiException('VALIDATION_FAILED', `role 必须是内置角色之一（${COMPANY_ROLES.join(' / ')}）`);
-  }
+  // role 枚举由 zod 层(roleUpdateSchema)校验。
   await seatInCompany(actor, membershipId);
   // BUG-11:不能把公司唯一的 company_admin 降为其他角色
   if (role !== 'company_admin') await assertNotLastCompanyAdmin(actor.companyId, membershipId, '降级');
